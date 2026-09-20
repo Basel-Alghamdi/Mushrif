@@ -1,0 +1,10 @@
+{
+  "name": "رَصد الميداني",
+  "short_name": "رَصد",
+  "start_url": "/field",
+  "display": "standalone",
+  "background_color": "#f5f3ed",
+  "theme_color": "#16483f",
+  "lang": "ar",
+  "dir": "rtl"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@rasd/schemas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "build": "tsc --noEmit", "lint": "tsc --noEmit" },
+  "dependencies": { "zod": "^3.25.76" },
+  "devDependencies": { "typescript": "^5.8.3" }
+}
