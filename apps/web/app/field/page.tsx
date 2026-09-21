@@ -1,25 +1,19 @@
 "use client";
 
-import { ArrowRight, Camera, Check, ClipboardCheck, CloudUpload, Home, MapPin, RefreshCw, School, UserRound } from "lucide-react";
-import { useState } from "react";
+import { Check, FileText, Image as ImageIcon, Plus, UploadCloud, WifiOff } from "lucide-react";
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
+import { accounts, schools as seedSchools } from "../../lib/platform-data";
+import { usePersistentState } from "../../lib/use-persistent-state";
 
-const initial = [
-  { id: 1, name: "ابتدائية ابن خلدون", done: true },
-  { id: 2, name: "متوسطة الأندلس", done: true },
-  { id: 3, name: "ثانوية الفاروق", done: false },
-  { id: 4, name: "ابتدائية الإمام الشافعي", done: false },
-];
-
-export default function FieldPage() {
-  const [schools, setSchools] = useState(initial);
-  const [sent, setSent] = useState(false);
-  const toggle = (id: number) => setSchools((items) => items.map((item) => item.id === id ? {...item, done: !item.done} : item));
-  return <main className="field-page">
-    <header className="field-header"><div className="field-header-top"><a href="/cluster"><ArrowRight size={20}/></a><b>رَصد الميداني</b><span className="sync-badge"><RefreshCw size={12}/> متصل ومزامن</span></div><h1>صباح الخير، أحمد</h1><p>الأحد، ٨ ربيع الثاني ١٤٤٨ هـ · لديك زيارتان اليوم</p></header>
-    <section className="field-content">
-      <article className="task-card"><h2>تأكيد متابعة الغياب</h2><p>حدّث حالة المدارس لهذا اليوم. تحفظ التغييرات تلقائياً.</p><div className="absence-list">{schools.map((item) => <div className="absence-item" key={item.id}><span>{item.name}</span><button aria-label={`تحديث ${item.name}`} className={`toggle ${item.done ? "on" : ""}`} onClick={() => toggle(item.id)}/></div>)}</div></article>
-      <article className="task-card"><h2>تقرير زيارة سريع</h2><p><MapPin size={12} style={{verticalAlign:"middle"}}/> اختر المدرسة وأضف ملخص الزيارة.</p><div className="field"><select aria-label="اختر المدرسة"><option>اختر المدرسة</option>{schools.map(s => <option key={s.id}>{s.name}</option>)}</select></div><div className="field"><textarea placeholder="اكتب أبرز الملاحظات والتوصيات..."/></div><label className="upload-zone"><Camera size={23}/>إرفاق صور أو ملفات الزيارة<input type="file" multiple hidden/></label><button className="primary-btn" style={{marginTop:12}} onClick={() => {setSent(true); setTimeout(() => setSent(false), 2200)}}>{sent ? <><Check size={17}/> تم حفظ التقرير</> : <><CloudUpload size={17}/> حفظ تقرير الزيارة</>}</button></article>
-    </section>
-    <nav className="mobile-nav" style={{display:"flex",maxWidth:520,margin:"auto"}}><a className="active" href="/field"><Home size={19}/>اليوم</a><a href="#"><School size={19}/>مدارسي</a><a href="#"><ClipboardCheck size={19}/>زياراتي</a><a href="#"><UserRound size={19}/>حسابي</a></nav>
-  </main>;
+export default function FieldPage(){
+  const [schools,setSchools]=usePersistentState("rasd:schools",seedSchools);
+  const [online,setOnline]=useState(true);
+  const [sent,setSent]=useState(false);
+  const [attachments,setAttachments]=useState<string[]>(["صورة","PDF"]);
+  useEffect(()=>{const sync=async()=>{setOnline(navigator.onLine);if(!navigator.onLine)return;const queue=JSON.parse(localStorage.getItem("rasd-offline-queue")??"[]") as Record<string,unknown>[];for(const item of queue){try{if(item.kind==="absence")await fetch(`http://localhost:4000/api/v1/schools/${item.id}/absence`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(item)});if(item.kind==="visit")await fetch("http://localhost:4000/api/v1/visits",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(item)})}catch{return}}localStorage.removeItem("rasd-offline-queue")};sync();window.addEventListener("online",sync);window.addEventListener("offline",sync);return()=>{window.removeEventListener("online",sync);window.removeEventListener("offline",sync)}},[]);
+  const toggle=async(id:string)=>{const current=schools.find(s=>s.id===id);if(!current)return;setSchools(items=>items.map(s=>s.id===id?{...s,absence:!s.absence}:s));const request={kind:"absence",id,date:new Date().toISOString().slice(0,10),done:!current.absence};if(!online){const queued=JSON.parse(localStorage.getItem("rasd-offline-queue")??"[]");localStorage.setItem("rasd-offline-queue",JSON.stringify([...queued,request]));return}try{await fetch(`http://localhost:4000/api/v1/schools/${id}/absence`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(request)})}catch{setOnline(false)}};
+  const submit=async(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=new FormData(event.currentTarget);const body={schoolId:String(form.get("schoolId")),type:form.get("type"),text:form.get("text"),attachments};const apply=()=>{setSchools(items=>items.map(school=>school.id===body.schoolId?{...school,visits:school.visits+1}:school));setSent(true)};if(!online){const queue=JSON.parse(localStorage.getItem("rasd-offline-queue")??"[]");localStorage.setItem("rasd-offline-queue",JSON.stringify([...queue,{kind:"visit",...body}]));apply();return}try{const response=await fetch("http://localhost:4000/api/v1/visits",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});if(!response.ok)throw new Error();apply()}catch{setOnline(false)}};
+  const done=schools.filter(s=>s.absence).length;
+  return <main className="field-page"><header className="field-top"><div><span>عنقود ٤ · الأربعاء ١٤ شعبان</span><h1>مهام اليوم</h1></div><Link href="/cluster" className="avatar member">{accounts.member.initials}</Link></header>{!online&&<div className="offline-banner"><WifiOff/>أنتِ غير متصلة — ستحفظ التغييرات وتُرسل تلقائياً عند عودة الاتصال.</div>}<div className="field-content"><section className="card"><div className="card-title-row"><div><h2>تثبيت الغياب</h2><p>{done} من ٦ مثبتة</p></div></div><div className="mobile-absence">{schools.map(s=><div key={s.id}><span>{s.name}</span><button className={s.absence?"on":""} onClick={()=>toggle(s.id)}>{s.absence?"تم":"لم يتم"}</button></div>)}</div></section><form className="card quick-visit" onSubmit={submit}><h2>تقرير زيارة سريع</h2><label><span>المدرسة</span><select name="schoolId" required defaultValue=""><option value="" disabled>اختاري المدرسة</option>{schools.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label><div className="activity-chips">{["زيارة صفية","زيارة إشرافية","متابعة خطة","ورشة عمل"].map((type,index)=><label key={type}><input type="radio" name="type" value={type} defaultChecked={index===0}/><span>{type}</span></label>)}</div><textarea name="text" required minLength={10} placeholder="وصف مختصر للزيارة وأبرز الملاحظات…"/><div className="attachment-grid">{attachments.map((item,index)=><div key={`${item}-${index}`}>{item==="صورة"?<ImageIcon/>:<FileText/>}<span>{item}</span></div>)}<label><Plus/><span>إضافة</span><input hidden type="file" multiple onChange={(event)=>setAttachments(items=>[...items,...Array.from(event.target.files??[]).map(file=>file.type.includes("image")?"صورة":"PDF")])}/></label></div><button className="primary-button login-submit">{sent?<><Check/>رُفع التقرير</>:<><UploadCloud/>رفع التقرير</>}</button></form><aside className="field-alert"><span>تنبيه رئيسة النطاق</span><p>يرجى استكمال تثبيت الغياب قبل الساعة ١٢:٠٠ م، ورفع تقارير الزيارات مع المرفقات.</p></aside></div></main>
 }

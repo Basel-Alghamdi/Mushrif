@@ -1,2 +1,2 @@
-import { HeadDashboard } from "../../components/head-dashboard";
-export default function DistrictPage() { return <HeadDashboard/>; }
+import { DistrictWorkspace } from "../../components/district-workspace";
+export default function DistrictPage() { return <DistrictWorkspace/>; }

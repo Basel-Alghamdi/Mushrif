@@ -1,44 +1,17 @@
 "use client";
 
-import { ArrowLeft, Building2, LockKeyhole, Mail, UserRound } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { Brand } from "../../components/brand";
+import { FormEvent, useRef, useState } from "react";
+import { accounts } from "../../lib/platform-data";
 
-export default function LoginPage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setLoading(true);
-    const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "");
-    setTimeout(() => router.push(email.includes("head") ? "/district" : "/cluster"), 450);
-  }
+export default function LoginPage(){
+  const router=useRouter();
+  const input=useRef<HTMLInputElement>(null);
+  const [error,setError]=useState(false);
+  const submit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const email=String(new FormData(event.currentTarget).get("email")??"").trim().toLowerCase();if(email===accounts.member.email)return router.push("/cluster");if(email===accounts.head.email)return router.push("/district");setError(true);requestAnimationFrame(()=>input.current?.focus())};
   return <main className="login-page">
-    <section className="login-art">
-      <div className="art-grid" />
-      <div className="art-copy">
-        <Brand />
-        <h1>كل بيانات الإشراف.<br/>في مكان واحد.</h1>
-        <p>منصة ذكية تساعد فرق الإشراف على متابعة المدارس، رصد المؤشرات، واتخاذ القرار بثقة.</p>
-        <div className="quote">رؤية أوضح، متابعة أسرع، أثر أكبر</div>
-      </div>
-    </section>
-    <section className="login-panel">
-      <form className="login-box" onSubmit={submit}>
-        <div className="eyebrow">تسجيل الدخول إلى المنصة</div>
-        <h2>مرحباً بعودتك</h2>
-        <p className="lede">أدخل بيانات حسابك للوصول إلى مساحة العمل.</p>
-        <div className="field"><label htmlFor="email">البريد الإلكتروني</label><div className="input-wrap"><Mail size={18}/><input id="email" name="email" type="email" defaultValue="member@moe.gov.sa" required /></div></div>
-        <div className="field"><label htmlFor="password">كلمة المرور</label><div className="input-wrap"><LockKeyhole size={18}/><input id="password" name="password" type="password" defaultValue="demo1234" required minLength={6}/></div></div>
-        <div className="form-row"><label className="check"><input type="checkbox"/> تذكرني</label><a className="text-link" href="#">نسيت كلمة المرور؟</a></div>
-        <button className="primary-btn" disabled={loading}>{loading ? "جارٍ الدخول..." : "تسجيل الدخول"}<ArrowLeft size={17}/></button>
-        <div className="demo-label">دخول سريع للعرض التجريبي</div>
-        <div className="demo-grid">
-          <button type="button" className="demo-card" onClick={() => router.push("/cluster")}><span className="demo-icon"><UserRound size={18}/></span><span><b>عضو الإشراف</b><span>مساحة المجموعة</span></span></button>
-          <button type="button" className="demo-card" onClick={() => router.push("/district")}><span className="demo-icon"><Building2 size={18}/></span><span><b>رئيس القسم</b><span>لوحة المنطقة</span></span></button>
-        </div>
-      </form>
-    </section>
-  </main>;
+    <section className="login-form-panel"><div className="login-box"><div className="brand-lockup"><span>ر</span><div><b>رَصد</b><small>منصة متابعة الفريق التنفيذي</small></div></div><div className="login-title"><h1>تسجيل الدخول</h1><p>ادخلي ببريدك الوزاري — يتم توجيهك للوحة المناسبة لدورك تلقائياً.</p></div><form onSubmit={submit}><label><span>البريد الوزاري</span><input ref={input} name="email" type="email" dir="ltr" placeholder="name@moe.gov.sa" onChange={()=>setError(false)} required/></label><label><span>كلمة المرور</span><input name="password" type="password" minLength={6} required/></label><div className="login-options"><label><input type="checkbox"/>تذكّرني على هذا الجهاز</label><a href="#">نسيت كلمة المرور؟</a></div><button className="primary-button login-submit">دخول</button>{error&&<p className="login-error">تأكدي من البريد الوزاري — أو اختاري حساباً من القائمة أدناه.</p>}</form><div className="demo-accounts"><span>حسابات العرض التجريبي</span>{Object.entries(accounts).map(([key,account])=><button key={key} onClick={()=>router.push(key==="head"?"/district":"/cluster")}><i className={`avatar ${key}`}>{account.initials}</i><span><b>{account.name}</b><small>{account.role}</small></span><ChevronLeft/></button>)}</div><p className="legal">الدخول يعني موافقتك على سياسة استخدام بيانات المدارس والالتزام بسريتها.</p></div></section>
+    <aside className="login-aside"><div><span className="login-eyebrow">إدارة التعليم · النطاق الإشرافي</span><h2>ملف واحد لكل عنقود، ولوحة واحدة تجمع النطاق كامل.</h2><div className="login-stats"><div><b>٢٥</b><span>عضوة فريق تنفيذي</span></div><div><b>١٥٠</b><span>مدرسة في النطاق</span></div><div><b>٧</b><span>أقسام في ملف العنقود</span></div><div><b>يومي</b><span>تحديث المؤشرات</span></div></div></div><blockquote>«صار عندي صورة كاملة عن كل عنقود بدون ما أجمع التقارير يدوياً.»<small>سارة القحطاني · رئيسة النطاق</small></blockquote></aside>
+  </main>
 }

@@ -1,2 +1,2 @@
-import { MemberDashboard } from "../../components/member-dashboard";
-export default function ClusterPage() { return <MemberDashboard/>; }
+import { MemberWorkspace } from "../../components/member-workspace";
+export default function ClusterPage() { return <MemberWorkspace/>; }

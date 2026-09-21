@@ -1,0 +1,2162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="_ds/design-system-e6a3f42f-1cbb-4281-b32e-13a821b390c7/_ds_bundle.js"></script>
+<style>
+  html,body{margin:0;padding:0;background:#f2f4f4;font-family:"IBM Plex Sans Arabic",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  *{box-sizing:border-box}
+  a{color:#009688;text-decoration:none}
+  a:hover{color:#007970}
+  input,textarea,select,button{font-family:inherit}
+  ::placeholder{color:#00000047}
+  @keyframes rsFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @keyframes rsDrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  @media (max-width:900px){
+    [data-rs=login]{grid-template-columns:minmax(0,1fr)!important}
+    [data-rs=login-aside]{display:none!important}
+    [data-rs=header]{padding:9px 13px!important;gap:9px!important}
+    [data-rs=search]{display:none!important}
+    [data-rs=username]{display:none!important}
+    [data-rs=burger]{display:flex!important}
+    [data-rs=pop]{position:fixed!important;top:56px!important;left:12px!important;right:12px!important;width:auto!important}
+    [data-rs=shell]{grid-template-columns:minmax(0,1fr)!important}
+    [data-rs=side]{position:fixed!important;top:0!important;right:0!important;bottom:0!important;height:100%!important;width:284px!important;max-width:86vw!important;z-index:60;border-left:none!important;transform:translateX(104%);transition:transform .22s ease;box-shadow:-18px 0 44px rgba(0,0,0,.18)}
+    [data-rs=side][data-open="1"]{transform:none}
+    [data-rs=main]{padding:16px 13px 40px!important}
+    [data-rs=two-col],[data-rs=tl],[data-rs=fields]{grid-template-columns:minmax(0,1fr)!important}
+    [data-rs=fields] > *{grid-column:auto!important}
+    [data-rs=minicols]{grid-template-columns:repeat(auto-fit,minmax(0,1fr))!important}
+    [data-rs=rolepill],[data-rs=fieldbtn-txt]{display:none!important}
+    [data-rs=fieldbtn-icon]{display:inline!important}
+    [data-rs=fieldbtn]{width:36px!important;padding:0!important;justify-content:center!important}
+    [data-rs=sticky-col]{position:static!important}
+  }
+</style>
+</helmet>
+<div dir="rtl" style="min-height:100vh;background:#f2f4f4;color:#000000de">
+
+  <sc-if value="{{ atLogin }}" hint-placeholder-val="{{ true }}">
+    <div data-rs="login" style="min-height:100vh;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+
+      <div style="display:flex;align-items:center;justify-content:center;padding:48px 40px;background:#fff">
+        <div style="width:100%;max-width:380px;display:flex;flex-direction:column;gap:26px">
+          <div style="display:flex;align-items:center;gap:11px">
+            <div style="width:36px;height:36px;border-radius:10px;background:#009688;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:700">ر</div>
+            <div style="display:flex;flex-direction:column">
+              <span style="font-size:16px;font-weight:600;letter-spacing:-.01em">رَصد</span>
+              <span style="font-size:11.5px;color:#00000080">منصة متابعة الفريق التنفيذي</span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <h1 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-.02em">تسجيل الدخول</h1>
+            <p style="margin:0;font-size:13.5px;line-height:23px;color:#00000099">ادخلي ببريدك الوزاري — يتم توجيهك للوحة المناسبة لدورك تلقائياً.</p>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:12px;font-weight:600;color:#00000099">البريد الوزاري</label>
+              <input type="text" value="{{ loginEmail }}" onChange="{{ onEmail }}" dir="ltr" placeholder="name@moe.gov.sa" style="height:44px;padding:0 12px;border-radius:10px;border:1px solid #0000001f;font-size:13.5px;text-align:left;background:#fff">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="font-size:12px;font-weight:600;color:#00000099">كلمة المرور</label>
+              <input type="password" defaultValue="••••••••••" dir="ltr" style="height:44px;padding:0 12px;border-radius:10px;border:1px solid #0000001f;font-size:13.5px;text-align:left;background:#fff">
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#00000099;cursor:pointer">
+                <input type="checkbox" defaultChecked="{{ true }}" style="width:15px;height:15px;accent-color:#009688">
+                <span>تذكّرني على هذا الجهاز</span>
+              </label>
+              <a href="#">نسيت كلمة المرور؟</a>
+            </div>
+            <button onClick="{{ doLogin }}" style="height:46px;border-radius:11px;border:none;background:#009688;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 2px 10px rgba(0,150,136,.24)">دخول</button>
+            <sc-if value="{{ loginError }}" hint-placeholder-val="{{ false }}">
+              <span style="font-size:12px;color:#dc2626;animation:rsFade .2s ease">تأكدي من البريد الوزاري — أو اختاري حساباً من القائمة أدناه.</span>
+            </sc-if>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:9px;padding-top:20px;border-top:1px solid #00000012">
+            <span style="font-size:11.5px;font-weight:600;color:#00000080">حسابات العرض التجريبي</span>
+            <sc-for list="{{ demoAccounts }}" as="a" hint-placeholder-count="2">
+              <button onClick="{{ a.pick }}" style="{{ a.style }}">
+                <div style="{{ a.avatarStyle }}">{{ a.initials }}</div>
+                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;flex:1;text-align:right">
+                  <span style="font-size:13px;font-weight:600">{{ a.name }}</span>
+                  <span style="font-size:11px;color:#00000080">{{ a.role }}</span>
+                </div>
+                <span style="font-size:16px;color:#00000059">‹</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <span style="font-size:11px;color:#00000073;line-height:18px">الدخول يعني موافقتك على سياسة استخدام بيانات المدارس والالتزام بسريتها.</span>
+        </div>
+      </div>
+
+      <div data-rs="login-aside" style="position:relative;background:#001d1a;display:flex;flex-direction:column;justify-content:space-between;padding:52px 46px;overflow:hidden">
+        <div style="position:absolute;inset:0;background:radial-gradient(120% 90% at 100% 0%,#00968833 0%,transparent 60%)"></div>
+        <div style="position:relative;display:flex;flex-direction:column;gap:9px">
+          <span style="font-size:11px;font-weight:600;color:#80d5cb;letter-spacing:.14em">إدارة التعليم · النطاق الإشرافي</span>
+          <h2 style="margin:0;font-size:32px;font-weight:600;line-height:48px;color:#fff;letter-spacing:-.02em;max-width:420px;text-wrap:pretty">ملف واحد لكل عنقود، ولوحة واحدة تجمع النطاق كامل.</h2>
+        </div>
+        <div style="position:relative;display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:460px">
+          <sc-for list="{{ loginStats }}" as="s" hint-placeholder-count="4">
+            <div style="background:#ffffff0f;border:1px solid #ffffff1a;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:5px">
+              <span style="font-size:26px;font-weight:600;color:#fff;line-height:1">{{ s.value }}</span>
+              <span style="font-size:12px;color:#ffffff99">{{ s.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position:relative;display:flex;flex-direction:column;gap:10px;max-width:420px">
+          <span style="font-size:13.5px;line-height:26px;color:#ffffffcc">«صار عندي صورة كاملة عن كل عنقود بدون ما أجمع التقارير يدوياً.»</span>
+          <span style="font-size:11.5px;color:#ffffff80">سارة القحطاني · رئيسة النطاق</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ inApp }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <header data-rs="header" style="position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;padding:11px 24px;background:#ffffffe8;backdrop-filter:blur(14px);border-bottom:1px solid #00000014">
+        <button data-rs="burger" onClick="{{ toggleNav }}" style="display:none;width:36px;height:36px;flex:none;align-items:center;justify-content:center;border-radius:10px;border:1px solid #00000012;background:#fff;font-size:15px;color:#000000b3;cursor:pointer">☰</button>
+        <div style="display:flex;align-items:center;gap:10px;flex:none">
+          <div style="width:29px;height:29px;border-radius:9px;background:#009688;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700">ر</div>
+          <span style="font-size:14.5px;font-weight:600;letter-spacing:-.01em">رَصد</span>
+          <span data-rs="rolepill" style="{{ rolePillStyle }}">{{ roleLabel }}</span>
+        </div>
+
+        <div data-rs="search" style="flex:1;max-width:420px;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:10px;background:#f2f4f4;border:1px solid #00000012">
+          <span style="font-size:13px;color:#00000059">⌕</span>
+          <input type="text" placeholder="ابحثي عن مدرسة، عضوة، أو مؤشر…" style="flex:1;border:none;outline:none;background:none;font-size:12.5px">
+        </div>
+
+        <div style="margin-inline-start:auto;display:flex;align-items:center;gap:8px;flex:none">
+          <sc-if value="{{ isMemberRole }}" hint-placeholder-val="{{ true }}">
+            <button data-rs="fieldbtn" onClick="{{ toggleField }}" style="{{ fieldBtnStyle }}"><span data-rs="fieldbtn-txt">{{ fieldBtnLabel }}</span><span data-rs="fieldbtn-icon" style="display:none">▤</span></button>
+          </sc-if>
+          <div style="position:relative">
+            <button onClick="{{ toggleNotif }}" style="{{ bellStyle }}">
+              <span style="font-size:14px">◔</span>
+              <span style="position:absolute;top:5px;left:6px;min-width:15px;height:15px;padding:0 4px;border-radius:99px;background:#dc2626;color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">{{ notifCount }}</span>
+            </button>
+            <sc-if value="{{ notifOpen }}" hint-placeholder-val="{{ false }}">
+              <div data-rs="pop" style="position:absolute;top:44px;left:0;width:320px;background:#fff;border:1px solid #00000014;border-radius:13px;box-shadow:0 12px 32px rgba(10,13,18,.14);overflow:hidden;animation:rsDrop .16s ease;z-index:50">
+                <div style="padding:12px 15px;border-bottom:1px solid #00000012;font-size:12.5px;font-weight:600">التنبيهات</div>
+                <sc-for list="{{ notifications }}" as="n" hint-placeholder-count="3">
+                  <div style="padding:12px 15px;border-bottom:1px solid #00000010;display:flex;gap:10px">
+                    <span style="{{ n.dotStyle }}"></span>
+                    <div style="display:flex;flex-direction:column;gap:3px">
+                      <span style="font-size:12.5px;line-height:20px">{{ n.text }}</span>
+                      <span style="font-size:10.5px;color:#00000073">{{ n.time }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <div style="position:relative">
+            <button onClick="{{ toggleMenu }}" style="display:flex;align-items:center;gap:9px;height:36px;padding:0 9px 0 12px;border-radius:10px;border:1px solid #00000012;background:#fff;cursor:pointer">
+              <div style="{{ headerAvatarStyle }}">{{ userInitials }}</div>
+              <span data-rs="username" style="font-size:12.5px;font-weight:600">{{ userName }}</span>
+              <span style="font-size:9px;color:#00000073">▾</span>
+            </button>
+            <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+              <div data-rs="pop" style="position:absolute;top:44px;left:0;width:230px;background:#fff;border:1px solid #00000014;border-radius:13px;box-shadow:0 12px 32px rgba(10,13,18,.14);overflow:hidden;animation:rsDrop .16s ease;z-index:50">
+                <div style="padding:13px 15px;border-bottom:1px solid #00000012;display:flex;flex-direction:column;gap:2px">
+                  <span style="font-size:12.5px;font-weight:600">{{ userName }}</span>
+                  <span style="font-size:11px;color:#00000080">{{ userEmail }}</span>
+                </div>
+                <button style="width:100%;height:40px;padding:0 15px;border:none;background:none;text-align:right;font-size:12.5px;color:#00000099;cursor:pointer">الملف الشخصي</button>
+                <button style="width:100%;height:40px;padding:0 15px;border:none;background:none;text-align:right;font-size:12.5px;color:#00000099;cursor:pointer">الإعدادات والصلاحيات</button>
+                <button onClick="{{ logout }}" style="width:100%;height:40px;padding:0 15px;border:none;border-top:1px solid #00000012;background:none;text-align:right;font-size:12.5px;font-weight:600;color:#dc2626;cursor:pointer">تسجيل الخروج</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </header>
+
+      <sc-if value="{{ isMember }}" hint-placeholder-val="{{ true }}">
+        <div data-rs="shell" style="display:grid;grid-template-columns:250px minmax(0,1fr);align-items:start;min-height:calc(100vh - 59px)">
+
+          <sc-if value="{{ navOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closeNav }}" style="position:fixed;inset:0;background:#00000059;z-index:55"></div>
+          </sc-if>
+
+          <aside data-rs="side" data-open="{{ navOpenAttr }}" onClick="{{ closeNav }}" style="position:sticky;top:59px;height:calc(100vh - 59px);overflow-y:auto;border-left:1px solid #00000014;background:#fff;padding:18px 13px;display:flex;flex-direction:column;gap:18px">
+            <div style="background:#f7f8f8;border:1px solid #00000010;border-radius:12px;padding:13px;display:flex;flex-direction:column;gap:9px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between">
+                <span style="font-size:11.5px;color:#00000080">اكتمال ملف العنقود</span>
+                <span style="font-size:15px;font-weight:700;color:#009688">{{ completion }}</span>
+              </div>
+              <div style="height:6px;border-radius:99px;background:#e6e9e9;overflow:hidden"><div style="{{ completionFill }}"></div></div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <button onClick="{{ toggleEditMode }}" style="{{ editModeStyle }}">{{ editModeLabel }}</button>
+              <nav style="display:flex;flex-direction:column;gap:2px">
+                <sc-for list="{{ memberNav }}" as="n" hint-placeholder-count="8">
+                  <div style="display:flex;align-items:center;gap:5px">
+                    <button onClick="{{ n.pick }}" style="{{ n.style }}">
+                      <span style="{{ n.dotStyle }}"></span>
+                      <span style="flex:1;text-align:right">{{ n.label }}</span>
+                      <span style="{{ n.badgeStyle }}">{{ n.badge }}</span>
+                    </button>
+                    <button onClick="{{ n.toggle }}" style="{{ n.toggleStyle }}">{{ n.toggleLabel }}</button>
+                  </div>
+                </sc-for>
+              </nav>
+              <sc-if value="{{ showAddSection }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ addSectionBtn }}" style="height:34px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12px;font-weight:600;cursor:pointer">+ إضافة قسم جديد</button>
+              </sc-if>
+            </div>
+
+            <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+              <div style="background:#fff7ed;border:1px solid #f59e0b2e;border-radius:11px;padding:12px;display:flex;flex-direction:column;gap:5px">
+                <span style="font-size:11.5px;font-weight:600;color:#92400e">ناقص عندك</span>
+                <span style="font-size:11.5px;line-height:19px;color:#92400e">{{ memberGaps }}</span>
+              </div>
+              <button onClick="{{ sendToHead }}" style="height:42px;border-radius:10px;border:none;background:#009688;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)">{{ sendLabel }}</button>
+            </div>
+          </aside>
+
+          <main data-rs="main" style="padding:24px 28px 46px;min-width:0;overflow-x:hidden">
+
+            <sc-if value="{{ secProfile }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:18px;max-width:1080px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الأول</span>
+                    <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">البيانات الأولية</h1>
+                  </div>
+                  <button onClick="{{ saveProfile }}" style="{{ saveBtnStyle }}">{{ saveLabel }}</button>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:16px">
+                  <div data-rs="fields" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
+                    <sc-for list="{{ profileFieldList }}" as="f" hint-placeholder-count="12">
+                      <div style="{{ f.wrapStyle }}">
+                        <div style="display:flex;align-items:center;gap:6px">
+                          <span style="{{ f.labelViewStyle }}">{{ f.label }}</span>
+                          <input type="text" value="{{ f.label }}" onChange="{{ f.onLabel }}" style="{{ f.labelEditStyle }}">
+                          <button onClick="{{ f.remove }}" style="{{ f.removeStyle }}">×</button>
+                        </div>
+                        <sc-if value="{{ f.isSelect }}" hint-placeholder-val="{{ false }}">
+                          <select value="{{ f.value }}" onChange="{{ f.onValue }}" style="{{ f.inputStyle }}">
+                            <sc-for list="{{ f.options }}" as="o" hint-placeholder-count="4">
+                              <option value="{{ o.v }}">{{ o.v }}</option>
+                            </sc-for>
+                          </select>
+                        </sc-if>
+                        <sc-if value="{{ f.isDerived }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:9px;height:40px;padding:0 11px;border-radius:9px;background:#f7f8f8;border:1px solid #00000010">
+                            <span style="font-size:15px;font-weight:600">{{ f.value }}</span>
+                            <span style="font-size:11.5px;color:#00000080">{{ f.hint }}</span>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ f.isText }}" hint-placeholder-val="{{ true }}">
+                          <input type="text" value="{{ f.value }}" onChange="{{ f.onValue }}" dir="{{ f.dir }}" style="{{ f.inputStyle }}">
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ addProfileFieldBtn }}" style="align-self:flex-start;height:36px;padding:0 15px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12.5px;font-weight:600;cursor:pointer">+ إضافة حقل</button>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secSchools }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الثاني · عنقود ٤</span>
+                    <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">بيانات مدارس العنقود</h1>
+                  </div>
+                  <div style="display:flex;gap:8px;font-size:12px;color:#00000080;align-items:center;flex-wrap:wrap">
+                    <span style="padding:6px 11px;border-radius:99px;background:#fff;border:1px solid #00000014">٦ مدارس</span>
+                    <span style="padding:6px 11px;border-radius:99px;background:#fff;border:1px solid #00000014">٣٬٢٤٠ طالبة</span>
+                    <span style="padding:6px 11px;border-radius:99px;background:#fff;border:1px solid #00000014">٢٤٨ معلمة</span>
+                  </div>
+                </div>
+
+                <div data-rs="two-col" style="display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:14px;align-items:start">
+                  <div data-rs="sticky-col" style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden;position:sticky;top:80px">
+                    <sc-for list="{{ schoolList }}" as="s" hint-placeholder-count="6">
+                      <div onClick="{{ s.pick }}" style="{{ s.rowStyle }}">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                          <span style="font-size:13px;font-weight:600">{{ s.name }}</span>
+                          <div style="display:flex;align-items:center;gap:6px">
+                            <span style="{{ s.tierStyle }}">{{ s.tier }}</span>
+                            <button onClick="{{ s.remove }}" style="{{ s.removeStyle }}">×</button>
+                          </div>
+                        </div>
+                        <span style="font-size:11px;color:#00000080">{{ s.meta }}</span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ addSchoolBtn }}" style="width:100%;height:40px;border:none;border-top:1px solid #00000012;background:#f0faf8;color:#007970;font-size:12.5px;font-weight:600;cursor:pointer">+ إضافة مدرسة</button>
+                    </sc-if>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+                    <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                      <div style="background:#fff;border:1.5px dashed #00968866;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px">
+                        <span style="font-size:13px;font-weight:600;color:#007970">تخصيص حقول المدرسة</span>
+                        <span style="font-size:11.5px;line-height:19px;color:#00000080">اضغطي على الحقل لإخفائه من الملف إذا ما كان ينطبق على مدارسك، أو أضيفي حقلاً خاصاً بنطاقك.</span>
+                        <div style="display:flex;flex-wrap:wrap;gap:7px">
+                          <sc-for list="{{ schoolFieldToggles }}" as="t" hint-placeholder-count="10">
+                            <button onClick="{{ t.toggle }}" style="{{ t.style }}">{{ t.label }} · {{ t.mark }}</button>
+                          </sc-for>
+                        </div>
+                        <sc-for list="{{ extraSchoolFieldList }}" as="f" hint-placeholder-count="0">
+                          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <input type="text" value="{{ f.label }}" onChange="{{ f.onLabel }}" style="flex:1;min-width:150px;height:36px;padding:0 10px;border-radius:9px;border:1px dashed #00968866;background:#f0faf8;font-size:12.5px;font-weight:600;color:#007970">
+                            <input type="text" value="{{ f.value }}" onChange="{{ f.onValue }}" placeholder="القيمة" style="flex:1;min-width:150px;height:36px;padding:0 10px;border-radius:9px;border:1px solid #0000001f;font-size:12.5px">
+                            <button onClick="{{ f.remove }}" style="width:30px;height:30px;border-radius:8px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:14px;font-weight:700;cursor:pointer;flex:none">×</button>
+                          </div>
+                        </sc-for>
+                        <button onClick="{{ addSchoolFieldBtn }}" style="align-self:flex-start;height:34px;padding:0 14px;border-radius:9px;border:1px solid #00968833;background:#e1f5f2;color:#007970;font-size:12px;font-weight:600;cursor:pointer">+ إضافة حقل للمدرسة</button>
+                      </div>
+                    </sc-if>
+
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid #00000014">
+                        <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">
+                          <span style="{{ sc.nameViewStyle }}">{{ sc.name }}</span>
+                          <input type="text" value="{{ sc.name }}" onChange="{{ sc.onName }}" style="{{ sc.nameEditStyle }}">
+                          <span style="font-size:12px;color:#00000080">{{ sc.meta }}</span>
+                        </div>
+                        <span style="{{ sc.tierStyle }}">{{ sc.tier }}</span>
+                      </div>
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding-top:16px">
+                        <sc-for list="{{ sc.info }}" as="f" hint-placeholder-count="10">
+                          <div style="display:flex;flex-direction:column;gap:5px">
+                            <span style="font-size:11px;color:#00000080">{{ f.label }}</span>
+                            <input type="text" value="{{ f.value }}" onChange="{{ f.onValue }}" style="{{ f.inputStyle }}">
+                          </div>
+                        </sc-for>
+                      </div>
+                      <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ sc.addInfoField }}" style="margin-top:14px;height:34px;padding:0 14px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12px;font-weight:600;cursor:pointer">+ إضافة حقل لهذه المدرسة</button>
+                      </sc-if>
+                    </div>
+
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px">
+                      <span style="font-size:14.5px;font-weight:600">الهيئة التعليمية والإدارية</span>
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+                        <sc-for list="{{ sc.staff }}" as="t" hint-placeholder-count="6">
+                          <div style="position:relative;background:#f7f8f8;border-radius:11px;padding:13px;display:flex;flex-direction:column;gap:4px">
+                            <button onClick="{{ t.remove }}" style="{{ t.removeStyle }}">×</button>
+                            <input type="text" value="{{ t.value }}" onChange="{{ t.onValue }}" style="{{ t.inputStyle }}">
+                            <span style="{{ t.labelViewStyle }}">{{ t.label }}</span>
+                            <input type="text" value="{{ t.label }}" onChange="{{ t.onLabel }}" style="{{ t.labelEditStyle }}">
+                          </div>
+                        </sc-for>
+                      </div>
+                      <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ sc.addStaff }}" style="align-self:flex-start;height:34px;padding:0 14px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12px;font-weight:600;cursor:pointer">+ إضافة مؤشر</button>
+                      </sc-if>
+                    </div>
+
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px">
+                      <span style="font-size:14.5px;font-weight:600">القيادة المدرسية</span>
+                      <sc-for list="{{ sc.leaders }}" as="p" hint-placeholder-count="6">
+                        <div data-rs="two-col" style="display:grid;grid-template-columns:minmax(130px,190px) minmax(0,1fr);gap:14px;align-items:start;padding:13px;border:1px solid #00000012;border-radius:12px">
+                          <div style="display:flex;flex-direction:column;gap:6px">
+                            <span style="{{ p.roleViewStyle }}">{{ p.role }}</span>
+                            <input type="text" value="{{ p.role }}" onChange="{{ p.onRole }}" style="{{ p.roleEditStyle }}">
+                            <span style="{{ p.stateViewStyle }}">{{ p.state }}</span>
+                            <input type="text" value="{{ p.state }}" onChange="{{ p.onState }}" style="{{ p.stateEditStyle }}">
+                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                              <button onClick="{{ p.addField }}" style="{{ p.addFieldStyle }}">+ حقل</button>
+                              <button onClick="{{ p.remove }}" style="{{ p.removeStyle }}">حذف الدور</button>
+                            </div>
+                          </div>
+                          <div data-rs="minicols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px">
+                            <sc-for list="{{ p.fields }}" as="g" hint-placeholder-count="4">
+                              <div style="display:flex;flex-direction:column;gap:4px">
+                                <div style="display:flex;align-items:center;gap:5px">
+                                  <span style="{{ g.labelViewStyle }}">{{ g.label }}</span>
+                                  <input type="text" value="{{ g.label }}" onChange="{{ g.onLabel }}" style="{{ g.labelEditStyle }}">
+                                  <button onClick="{{ g.remove }}" style="{{ g.removeStyle }}">×</button>
+                                </div>
+                                <input type="text" value="{{ g.value }}" onChange="{{ g.onValue }}" dir="{{ g.dir }}" style="{{ g.inputStyle }}">
+                              </div>
+                            </sc-for>
+                          </div>
+                        </div>
+                      </sc-for>
+                      <sc-if value="{{ editMode }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ sc.addLeader }}" style="align-self:flex-start;height:36px;padding:0 15px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12.5px;font-weight:600;cursor:pointer">+ إضافة دور قيادي</button>
+                      </sc-if>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secEval }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الثالث</span>
+                    <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">مؤشرات التقويم المدرسي</h1>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:9px;padding:8px 13px;border-radius:10px;background:#e1f5f2;border:1px solid #00968826">
+                    <span style="font-size:11.5px;font-weight:600;color:#007970">مستورد من لوحة رئيسة النطاق</span>
+                    <span style="font-size:11px;color:#00797099">آخر تحديث ٠٢/٠٤</span>
+                  </div>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow-x:auto">
+                  <div style="min-width:840px">
+                    <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr .9fr .9fr .9fr;gap:12px;padding:13px 20px;border-bottom:1px solid #00000014;font-size:11.5px;font-weight:600;color:#00000080">
+                      <span>المدرسة</span><span>التصنيف</span><span>نوع الدعم</span><span>نافس</span><span>القدرات</span><span>التحصيلي</span>
+                    </div>
+                    <sc-for list="{{ evalRows }}" as="r" hint-placeholder-count="6">
+                      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr .9fr .9fr .9fr;gap:12px;align-items:center;padding:14px 20px;border-bottom:1px solid #00000010;font-size:13px">
+                        <span style="font-weight:600">{{ r.name }}</span>
+                        <span style="{{ r.tierStyle }}">{{ r.tier }}</span>
+                        <span style="color:#00000099;font-size:12.5px">{{ r.support }}</span>
+                        <span style="{{ r.nafesStyle }}">{{ r.nafes }}</span>
+                        <span style="color:#00000099">{{ r.qudrat }}</span>
+                        <span style="color:#00000099">{{ r.tahsili }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px">
+                    <span style="font-size:14px;font-weight:600">التقرير الخارجي — المجالات والمعايير</span>
+                    <span style="font-size:12.5px;line-height:21px;color:#00000099">أرفقي صورة التقرير الخارجي لكل مدرسة عبر رابط درايف.</span>
+                    <sc-for list="{{ driveExternal }}" as="d" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid #00000012">
+                        <span style="font-size:12.5px">{{ d.name }}</span>
+                        <span style="{{ d.style }}">{{ d.state }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px">
+                    <span style="font-size:14px;font-weight:600">بطاقة نافس</span>
+                    <span style="font-size:12.5px;line-height:21px;color:#00000099">رابط مجلد بطاقات نافس لمدارس العنقود.</span>
+                    <input type="text" defaultValue="drive.google.com/drive/folders/nafes-c4" dir="ltr" style="height:40px;padding:0 11px;border-radius:9px;border:1px solid #0000001f;font-size:12.5px;text-align:left">
+                    <button style="height:38px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:12.5px;font-weight:600;color:#00000099;cursor:pointer">تحديث الرابط</button>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secMadrasati }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الرابع</span>
+                  <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">مؤشرات منصة مدرستي</h1>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
+                  <sc-for list="{{ madrasatiAvg }}" as="m" hint-placeholder-count="6">
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:10px">
+                      <span style="font-size:11.5px;color:#00000080;line-height:17px;min-height:34px">{{ m.label }}</span>
+                      <span style="{{ m.valueStyle }}">{{ m.value }}</span>
+                      <div style="height:6px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ m.fillStyle }}"></div></div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow-x:auto">
+                  <div style="min-width:820px">
+                    <div style="display:grid;grid-template-columns:1.5fr repeat(6,1fr);gap:10px;padding:13px 20px;border-bottom:1px solid #00000014;font-size:11px;font-weight:600;color:#00000080">
+                      <span>المدرسة</span><span>إسناد الجداول</span><span>إسناد المقررات</span><span>إسناد الطلاب</span><span>دخول المعلمات</span><span>دخول الطالبات</span><span>الإنجاز</span>
+                    </div>
+                    <sc-for list="{{ madrasatiRows }}" as="r" hint-placeholder-count="6">
+                      <div style="display:grid;grid-template-columns:1.5fr repeat(6,1fr);gap:10px;align-items:center;padding:13px 20px;border-bottom:1px solid #00000010;font-size:12.5px">
+                        <span style="font-weight:600">{{ r.name }}</span>
+                        <span style="{{ r.s1 }}">{{ r.v1 }}</span>
+                        <span style="{{ r.s2 }}">{{ r.v2 }}</span>
+                        <span style="{{ r.s3 }}">{{ r.v3 }}</span>
+                        <span style="{{ r.s4 }}">{{ r.v4 }}</span>
+                        <span style="{{ r.s5 }}">{{ r.v5 }}</span>
+                        <span style="{{ r.s6 }}">{{ r.v6 }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secDiscipline }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الخامس</span>
+                  <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">مؤشرات الانضباط المدرسي</h1>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow-x:auto">
+                  <div style="min-width:760px">
+                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;gap:12px;padding:13px 20px;border-bottom:1px solid #00000014;font-size:11.5px;font-weight:600;color:#00000080">
+                      <span>المدرسة</span><span>التصنيف</span><span>يومي</span><span>أسبوعي</span><span>شهري</span>
+                    </div>
+                    <sc-for list="{{ disciplineRows }}" as="r" hint-placeholder-count="6">
+                      <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;gap:12px;align-items:center;padding:14px 20px;border-bottom:1px solid #00000010;font-size:13px">
+                        <span style="font-weight:600">{{ r.name }}</span>
+                        <span style="{{ r.tierStyle }}">{{ r.tier }}</span>
+                        <span style="{{ r.dStyle }}">{{ r.daily }}</span>
+                        <span style="color:#00000099">{{ r.weekly }}</span>
+                        <span style="color:#00000099">{{ r.monthly }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:11px">
+                    <span style="font-size:14px;font-weight:600">خطة الانضباط للمدارس</span>
+                    <sc-for list="{{ disciplinePlans }}" as="d" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid #00000012">
+                        <span style="font-size:12.5px">{{ d.name }}</span>
+                        <span style="{{ d.style }}">{{ d.state }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:11px">
+                    <span style="font-size:14px;font-weight:600">خطة دعم الانضباط — عضو الفريق</span>
+                    <textarea rows="4" defaultValue="زيارتان أسبوعياً لمدرستي التصنيف المنخفض، وتفعيل برنامج «حضوري أمانة» مع الموجهات الطلابيات." style="padding:11px;border-radius:10px;border:1px solid #0000001f;font-size:13px;line-height:23px;resize:none"></textarea>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;background:#f7f8f8">
+                      <span style="font-size:12px;color:#00000099">ملف الخطة</span>
+                      <span style="{{ planFileStyle }}">مرفوع</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secTasks }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم السادس</span>
+                    <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">مهام عضو الفريق التنفيذي</h1>
+                  </div>
+                  <span style="font-size:12px;color:#00000080">اليوم · الأربعاء ١٤ شعبان</span>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:16px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                    <span style="font-size:15px;font-weight:600">تثبيت الغياب اليومي</span>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <span style="font-size:12.5px;color:#00000099">{{ absenceSummary }}</span>
+                      <div style="width:110px;height:7px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ absenceFill }}"></div></div>
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">
+                    <sc-for list="{{ absenceRows }}" as="a" hint-placeholder-count="6">
+                      <div style="{{ a.cardStyle }}">
+                        <span style="font-size:13px;font-weight:600">{{ a.name }}</span>
+                        <button onClick="{{ a.toggle }}" style="{{ a.btnStyle }}">{{ a.state }}</button>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                      <span style="font-size:15px;font-weight:600">تقارير الزيارات</span>
+                      <span style="padding:5px 11px;border-radius:99px;background:#e1f5f2;color:#007970;font-size:11.5px;font-weight:600">{{ visitCount }}</span>
+                    </div>
+                    <span style="font-size:12.5px;line-height:21px;color:#00000099">يُحتسب عدد الزيارات آلياً من عدد التقارير المرفوعة في مجلد الدرايف.</span>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <sc-for list="{{ visitsBySchool }}" as="v" hint-placeholder-count="6">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <span style="font-size:12.5px;width:130px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ v.name }}</span>
+                          <div style="flex:1;height:7px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ v.fillStyle }}"></div></div>
+                          <span style="font-size:12px;font-weight:600;width:24px;text-align:left">{{ v.count }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <button onClick="{{ openField }}" style="height:38px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:12.5px;font-weight:600;color:#00000099;cursor:pointer">رفع تقرير زيارة من الجوال</button>
+                  </div>
+
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:13px">
+                    <span style="font-size:15px;font-weight:600">الخطط</span>
+                    <sc-for list="{{ plans }}" as="p" hint-placeholder-count="5">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-radius:11px;border:1px solid #00000012">
+                        <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+                          <span style="font-size:13px;font-weight:500">{{ p.name }}</span>
+                          <span style="font-size:11px;color:#00000073">{{ p.hint }}</span>
+                        </div>
+                        <span style="{{ p.style }}">{{ p.state }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secCustom }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1000px">
+                <div style="display:flex;flex-direction:column;gap:7px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">قسم مخصّص</span>
+                  <input type="text" value="{{ customSec.label }}" onChange="{{ customSec.onLabel }}" style="height:44px;padding:0 12px;border-radius:10px;border:1px dashed #00968866;background:#f0faf8;font-size:22px;font-weight:600;color:#000000de;letter-spacing:-.02em">
+                </div>
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:13px">
+                  <span style="font-size:14px;font-weight:600">حقول القسم</span>
+                  <sc-for list="{{ customSec.fields }}" as="f" hint-placeholder-count="0">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                      <input type="text" value="{{ f.label }}" onChange="{{ f.onLabel }}" style="flex:1;min-width:160px;height:38px;padding:0 11px;border-radius:9px;border:1px dashed #00968866;background:#f0faf8;font-size:12.5px;font-weight:600;color:#007970">
+                      <input type="text" value="{{ f.value }}" onChange="{{ f.onValue }}" placeholder="القيمة" style="flex:1;min-width:160px;height:38px;padding:0 11px;border-radius:9px;border:1px solid #0000001f;font-size:12.5px">
+                      <button onClick="{{ f.remove }}" style="width:32px;height:32px;border-radius:8px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:15px;font-weight:700;cursor:pointer;flex:none">×</button>
+                    </div>
+                  </sc-for>
+                  <button onClick="{{ customSec.add }}" style="align-self:flex-start;height:36px;padding:0 15px;border-radius:9px;border:1.5px dashed #00968866;background:#f0faf8;color:#007970;font-size:12.5px;font-weight:600;cursor:pointer">+ إضافة حقل</button>
+                  <span style="font-size:11.5px;line-height:19px;color:#00000073;padding-top:6px;border-top:1px solid #00000012">الأقسام والحقول المخصّصة تظهر لرئيسة النطاق في ملف عنقودك، ويشملها التقرير المجمّع.</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secIngest }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم الثامن</span>
+                  <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">الاستيراد الذكي للملفات</h1>
+                  <p style="margin:4px 0 0;font-size:13.5px;line-height:24px;color:#00000099;max-width:660px">ارفعي ملفاتك كما هي — إكسل، PDF، وورد، صور، أو تسجيل صوتي — ويقرأها المساعد، يحوّل الصور والمسح الضوئي إلى نص، ويعبّي حقول ملف العنقود بدل الإدخال اليدوي.</p>
+                </div>
+
+                <div style="background:#fff;border:1.5px dashed #00968840;border-radius:14px;padding:30px;display:flex;flex-direction:column;align-items:center;gap:11px;text-align:center">
+                  <div style="width:46px;height:46px;border-radius:14px;background:#e1f5f2;color:#007970;display:flex;align-items:center;justify-content:center;font-size:21px">↑</div>
+                  <span style="font-size:14.5px;font-weight:600">اسحبي الملفات هنا أو اختاري من جهازك</span>
+                  <span style="font-size:12px;color:#00000080">PDF · Word · Excel · صور · تسجيل صوتي — حتى ٢٠ ملفاً دفعة واحدة</span>
+                  <button onClick="{{ addFiles }}" style="margin-top:4px;height:40px;padding:0 20px;border-radius:10px;border:none;background:#009688;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">اختيار الملفات</button>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px">
+                    <span style="font-size:14.5px;font-weight:600">الملفات المرفوعة</span>
+                    <sc-for list="{{ ingestFiles }}" as="f" hint-placeholder-count="4">
+                      <div style="display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid #00000012;border-radius:12px">
+                        <div style="display:flex;align-items:center;gap:11px">
+                          <div style="{{ f.iconStyle }}">{{ f.kind }}</div>
+                          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+                            <span style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.name }}</span>
+                            <span style="font-size:11px;color:#00000080">{{ f.size }} · {{ f.fields }}</span>
+                          </div>
+                          <span style="{{ f.stateStyle }}">{{ f.state }}</span>
+                        </div>
+                        <div style="height:4px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ f.barStyle }}"></div></div>
+                      </div>
+                    </sc-for>
+                  </div>
+
+                  <div style="background:#001d1a;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:13px">
+                    <span style="font-size:10.5px;font-weight:600;color:#80d5cb;letter-spacing:.08em">ما الذي فعله المساعد</span>
+                    <sc-for list="{{ agentSteps }}" as="s" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:flex-start;gap:10px">
+                        <span style="{{ s.dotStyle }}">{{ s.mark }}</span>
+                        <span style="font-size:12.5px;line-height:20px;color:#ffffffcc">{{ s.t }}</span>
+                      </div>
+                    </sc-for>
+                    <span style="font-size:11.5px;line-height:19px;color:#ffffff80;padding-top:4px;border-top:1px solid #ffffff1a">كل قيمة مستخرجة مرتبطة بمصدرها في الملف — تقدرين ترجعين للسطر الأصلي قبل الاعتماد.</span>
+                  </div>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:15px 20px;border-bottom:1px solid #00000014">
+                    <span style="font-size:14.5px;font-weight:600">الحقول المستخرجة — مراجعة قبل الاعتماد</span>
+                    <span style="font-size:11.5px;color:#00000080">٣٧ حقلاً · ٥ تحتاج تأكيدك</span>
+                  </div>
+                  <div style="overflow-x:auto">
+                    <div style="min-width:720px">
+                      <div style="display:grid;grid-template-columns:1.6fr 1fr .8fr 1.2fr;gap:12px;padding:12px 20px;border-bottom:1px solid #00000014;font-size:11.5px;font-weight:600;color:#00000080">
+                        <span>الحقل</span><span>القيمة المستخرجة</span><span>الثقة</span><span>المصدر</span>
+                      </div>
+                      <sc-for list="{{ extracted }}" as="e" hint-placeholder-count="5">
+                        <div style="display:grid;grid-template-columns:1.6fr 1fr .8fr 1.2fr;gap:12px;align-items:center;padding:13px 20px;border-bottom:1px solid #00000010;font-size:12.5px">
+                          <span style="font-weight:600">{{ e.label }}</span>
+                          <span>{{ e.value }}</span>
+                          <span style="{{ e.confStyle }}">{{ e.conf }}</span>
+                          <span style="font-size:11.5px;color:#00000080">{{ e.src }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="padding:15px 20px;display:flex;gap:9px;flex-wrap:wrap">
+                    <button onClick="{{ applyExtraction }}" style="height:42px;padding:0 20px;border-radius:10px;border:none;background:#009688;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">{{ applyLabel }}</button>
+                    <button style="height:42px;padding:0 18px;border-radius:10px;border:1px solid #00000014;background:#fff;font-size:13px;font-weight:600;color:#00000099;cursor:pointer">تعديل يدوي قبل الاعتماد</button>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ secPD }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1000px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">القسم السابع</span>
+                  <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-.02em">التطوير المهني</h1>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px">
+                  <sc-for list="{{ pdPrograms }}" as="p" hint-placeholder-count="4">
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:13px">
+                      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                        <span style="font-size:14px;font-weight:600;line-height:21px">{{ p.name }}</span>
+                        <span style="font-size:26px;font-weight:700;color:#009688;line-height:1">{{ p.count }}</span>
+                      </div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;background:#f7f8f8">
+                        <span style="font-size:11.5px;color:#00000099">تقارير الدرايف</span>
+                        <span style="{{ p.style }}">{{ p.state }}</span>
+                      </div>
+                      <button onClick="{{ p.inc }}" style="height:34px;border-radius:8px;border:1px solid #00000014;background:#fff;font-size:12px;font-weight:600;color:#00000099;cursor:pointer">إضافة برنامج</button>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+          </main>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isField }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;justify-content:center;padding:30px 20px 50px">
+          <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="393px,852px">
+            <div dir="rtl" style="height:100%;display:flex;flex-direction:column;background:#f7f8f8;font-family:'IBM Plex Sans Arabic',system-ui,sans-serif">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px 12px;background:#fff;border-bottom:1px solid #00000014">
+                <div style="display:flex;flex-direction:column">
+                  <span style="font-size:11.5px;color:#00000080">عنقود ٤ · الأربعاء ١٤ شعبان</span>
+                  <span style="font-size:16.5px;font-weight:600">مهام اليوم</span>
+                </div>
+                <div style="width:36px;height:36px;border-radius:12px;background:#e1f5f2;color:#007970;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">هش</div>
+              </div>
+
+              <div style="flex:1;overflow-y:auto;padding:14px 14px 26px;display:flex;flex-direction:column;gap:13px">
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="font-size:13.5px;font-weight:600">تثبيت الغياب</span>
+                    <span style="font-size:11.5px;color:#00000080">{{ absenceSummary }}</span>
+                  </div>
+                  <sc-for list="{{ absenceRows }}" as="a" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:9px">
+                      <span style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</span>
+                      <button onClick="{{ a.toggle }}" style="{{ a.btnStyle }}">{{ a.state }}</button>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:12px">
+                  <span style="font-size:13.5px;font-weight:600">تقرير زيارة سريع</span>
+                  <select style="height:42px;padding:0 10px;border-radius:10px;border:1px solid #0000001f;background:#fff;font-size:13px">
+                    <option>ابتدائية الأندلس</option><option>متوسطة النهضة</option><option>ثانوية الرواد</option><option>ابتدائية الفيصلية</option><option>متوسطة الخنساء</option><option>ابتدائية الروضة</option>
+                  </select>
+                  <div style="display:flex;flex-wrap:wrap;gap:7px">
+                    <sc-for list="{{ visitTypes }}" as="t" hint-placeholder-count="4">
+                      <button onClick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}</button>
+                    </sc-for>
+                  </div>
+                  <textarea rows="3" placeholder="وصف مختصر للزيارة وأبرز الملاحظات…" style="padding:11px;border-radius:10px;border:1px solid #0000001f;font-size:13px;line-height:21px;resize:none"></textarea>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                    <sc-for list="{{ fieldAttachments }}" as="f" hint-placeholder-count="2">
+                      <div style="{{ f.style }}">{{ f.label }}</div>
+                    </sc-for>
+                    <button onClick="{{ addFieldAttach }}" style="aspect-ratio:1;border-radius:10px;border:1.5px dashed #00000026;background:#fafafa;color:#00000073;font-size:21px;cursor:pointer">+</button>
+                  </div>
+                  <button onClick="{{ submitVisit }}" style="height:46px;border-radius:11px;border:none;background:#009688;color:#fff;font-size:14px;font-weight:600;cursor:pointer">{{ visitBtnLabel }}</button>
+                </div>
+
+                <div style="background:#001d1a;border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:7px">
+                  <span style="font-size:11px;font-weight:600;color:#80d5cb;letter-spacing:.07em">تنبيه رئيسة النطاق</span>
+                  <span style="font-size:12.5px;line-height:21px;color:#ffffffcc">باقي رفع استمارة تنفيذ الخطة ٣ قبل نهاية الأسبوع.</span>
+                </div>
+              </div>
+            </div>
+          </x-import>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isHead }}" hint-placeholder-val="{{ false }}">
+        <div data-rs="shell" style="display:grid;grid-template-columns:240px minmax(0,1fr);align-items:start;min-height:calc(100vh - 59px)">
+          <sc-if value="{{ navOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closeNav }}" style="position:fixed;inset:0;background:#00000059;z-index:55"></div>
+          </sc-if>
+          <aside data-rs="side" data-open="{{ navOpenAttr }}" onClick="{{ closeNav }}" style="position:sticky;top:59px;height:calc(100vh - 59px);overflow-y:auto;border-left:1px solid #00000014;background:#fff;padding:18px 13px;display:flex;flex-direction:column;gap:18px">
+            <nav style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ headNav }}" as="n" hint-placeholder-count="5">
+                <button onClick="{{ n.pick }}" style="{{ n.style }}">
+                  <span style="flex:1;text-align:right">{{ n.label }}</span>
+                  <span style="{{ n.badgeStyle }}">{{ n.badge }}</span>
+                </button>
+              </sc-for>
+            </nav>
+            <div style="margin-top:auto;background:#001d1a;border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:10.5px;font-weight:600;color:#80d5cb;letter-spacing:.08em">ملخص الذكاء الاصطناعي</span>
+              <span style="font-size:12px;line-height:20px;color:#ffffffcc">١٨ من ٢٥ عضوة حدّثن اليوم. تثبيت الغياب مكتمل في ١٢٤ من ١٥٠ مدرسة. ٣ عناقيد انضباطها تحت ٩٠٪.</span>
+              <button onClick="{{ goAI }}" style="margin-top:2px;height:33px;border-radius:9px;border:1px solid #ffffff26;background:#ffffff14;color:#fff;font-size:12px;font-weight:600;cursor:pointer">افتحي المحادثة</button>
+            </div>
+          </aside>
+
+          <main data-rs="main" style="padding:24px 28px 46px;min-width:0;overflow-x:hidden">
+
+            <sc-if value="{{ hDash }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:18px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">الأربعاء ١٤ شعبان</span>
+                    <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em">نظرة النطاق</h1>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button onClick="{{ goExport }}" style="height:39px;padding:0 15px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:13px;font-weight:500;color:#00000099;cursor:pointer">التقرير المجمّع</button>
+                    <button onClick="{{ goFollow }}" style="height:39px;padding:0 15px;border-radius:9px;border:none;background:#009688;color:#fff;font-size:13px;font-weight:600;cursor:pointer">متابعة الإرسال</button>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px">
+                  <sc-for list="{{ headKpis }}" as="k" hint-placeholder-count="4">
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:7px">
+                      <span style="font-size:11.5px;color:#00000080">{{ k.label }}</span>
+                      <span style="font-size:28px;font-weight:600;letter-spacing:-.02em;line-height:1">{{ k.value }}</span>
+                      <span style="{{ k.deltaStyle }}">{{ k.delta }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                      <span style="font-size:14.5px;font-weight:600">تثبيت الغياب خلال الأسبوع</span>
+                      <span style="font-size:11.5px;color:#00000073">من ١٥٠ مدرسة</span>
+                    </div>
+                    <div style="display:flex;align-items:flex-end;gap:12px;height:170px">
+                      <sc-for list="{{ weekBars }}" as="b" hint-placeholder-count="5">
+                        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end">
+                          <span style="font-size:11.5px;font-weight:600;color:#00000099">{{ b.value }}</span>
+                          <div style="{{ b.barStyle }}"></div>
+                          <span style="font-size:11px;color:#00000080">{{ b.day }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:13px">
+                    <span style="font-size:14.5px;font-weight:600">تصنيف مدارس النطاق</span>
+                    <sc-for list="{{ tierStats }}" as="t" hint-placeholder-count="4">
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <div style="display:flex;justify-content:space-between;font-size:12.5px"><span>{{ t.label }}</span><span style="color:#00000080">{{ t.value }}</span></div>
+                        <div style="height:7px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ t.fillStyle }}"></div></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid #00000014">
+                    <span style="font-size:14.5px;font-weight:600">أداء العناقيد</span>
+                    <button onClick="{{ goMembers }}" style="border:none;background:none;color:#009688;font-size:12.5px;font-weight:600;cursor:pointer">عرض الكل</button>
+                  </div>
+                  <div style="overflow-x:auto">
+                    <div style="min-width:760px">
+                      <div style="display:grid;grid-template-columns:1.3fr .8fr 1fr 1fr 1fr .9fr;gap:12px;padding:12px 20px;border-bottom:1px solid #00000014;font-size:11px;font-weight:600;color:#00000080">
+                        <span>عضوة الفريق</span><span>العنقود</span><span>تثبيت الغياب</span><span>الانضباط</span><span>الزيارات</span><span>الحالة</span>
+                      </div>
+                      <sc-for list="{{ clusterRows }}" as="c" hint-placeholder-count="6">
+                        <div onClick="{{ c.open }}" style="display:grid;grid-template-columns:1.3fr .8fr 1fr 1fr 1fr .9fr;gap:12px;align-items:center;padding:13px 20px;border-bottom:1px solid #00000010;font-size:12.5px;cursor:pointer">
+                          <div style="display:flex;align-items:center;gap:9px">
+                            <div style="{{ c.avatarStyle }}">{{ c.initials }}</div>
+                            <span style="font-weight:600">{{ c.name }}</span>
+                          </div>
+                          <span style="color:#00000099">{{ c.cluster }}</span>
+                          <span style="color:#00000099">{{ c.absence }}</span>
+                          <span style="{{ c.discStyle }}">{{ c.discipline }}</span>
+                          <span style="color:#00000099">{{ c.visits }}</span>
+                          <span style="{{ c.stateStyle }}">{{ c.state }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hFollow }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+                  <div style="display:flex;flex-direction:column;gap:4px">
+                    <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">متابعة يومية</span>
+                    <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em">من حدّثت ومن باقي</h1>
+                  </div>
+                  <button onClick="{{ remindAll }}" style="height:39px;padding:0 17px;border-radius:9px;border:none;background:#009688;color:#fff;font-size:13px;font-weight:600;cursor:pointer">{{ remindLabel }}</button>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:13px">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:5px"><span style="font-size:11.5px;color:#00000080">حدّثن اليوم</span><span style="font-size:27px;font-weight:600;color:#067647">١٨</span></div>
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:5px"><span style="font-size:11.5px;color:#00000080">متأخرات</span><span style="font-size:27px;font-weight:600;color:#b45309">٤</span></div>
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:5px"><span style="font-size:11.5px;color:#00000080">لم يحدّثن</span><span style="font-size:27px;font-weight:600;color:#dc2626">٣</span></div>
+                </div>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:15px">
+                  <div style="display:flex;align-items:center;gap:15px;flex-wrap:wrap">
+                    <span style="font-size:14.5px;font-weight:600">حالة الـ٢٥ عضوة اليوم</span>
+                    <div style="display:flex;gap:13px;font-size:11.5px;color:#00000080">
+                      <span style="display:flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:99px;background:#067647;display:inline-block"></i>حدّثت</span>
+                      <span style="display:flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:99px;background:#f59e0b;display:inline-block"></i>متأخرة</span>
+                      <span style="display:flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:99px;background:#dc2626;display:inline-block"></i>لم تحدّث</span>
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:9px">
+                    <sc-for list="{{ members }}" as="m" hint-placeholder-count="25">
+                      <div onClick="{{ m.open }}" style="{{ m.cardStyle }}">
+                        <div style="{{ m.avatarStyle }}">{{ m.initials }}</div>
+                        <div style="display:flex;flex-direction:column;min-width:0">
+                          <span style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.name }}</span>
+                          <span style="{{ m.statusStyle }}">{{ m.statusText }}</span>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hMembers }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">٢٥ عضوة · ١٥٠ مدرسة</span>
+                  <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em">ملفات أعضاء الفريق التنفيذي</h1>
+                </div>
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-for list="{{ memberFilters }}" as="f" hint-placeholder-count="4">
+                      <button onClick="{{ f.pick }}" style="{{ f.style }}">{{ f.label }}</button>
+                    </sc-for>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:11px">
+                    <sc-for list="{{ memberCards }}" as="m" hint-placeholder-count="9">
+                      <div onClick="{{ m.open }}" style="border:1px solid #00000014;border-radius:13px;padding:15px;display:flex;flex-direction:column;gap:12px;cursor:pointer">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <div style="{{ m.avatarStyle }}">{{ m.initials }}</div>
+                          <div style="display:flex;flex-direction:column;min-width:0">
+                            <span style="font-size:13px;font-weight:600">{{ m.name }}</span>
+                            <span style="font-size:11px;color:#00000080">{{ m.cluster }} · {{ m.schools }}</span>
+                          </div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:#00000080">اكتمال الملف</span><span style="font-weight:600">{{ m.completion }}</span></div>
+                          <div style="height:6px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ m.fillStyle }}"></div></div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hProfile }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:1100px">
+                <button onClick="{{ closeProfile }}" style="align-self:flex-start;display:flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:12.5px;font-weight:600;color:#00000099;cursor:pointer">رجوع لأعضاء الفريق</button>
+
+                <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:18px">
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                    <div style="display:flex;align-items:center;gap:14px">
+                      <div style="{{ prof.avatarStyle }}">{{ prof.initials }}</div>
+                      <div style="display:flex;flex-direction:column;gap:5px">
+                        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                          <span style="font-size:21px;font-weight:600;letter-spacing:-.02em">{{ prof.name }}</span>
+                          <span style="{{ prof.statusStyle }}">{{ prof.status }}</span>
+                        </div>
+                        <span style="font-size:12.5px;color:#00000080">{{ prof.cluster }} · {{ prof.schools }} · {{ prof.rank }} · {{ prof.major }}</span>
+                        <span style="font-size:11.5px;color:#00000073">آخر تحديث: {{ prof.lastAt }}</span>
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                      <button style="height:36px;padding:0 14px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:12.5px;font-weight:600;color:#00000099;cursor:pointer">طلب توضيح</button>
+                      <button style="height:36px;padding:0 14px;border-radius:9px;border:none;background:#009688;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">إرسال تذكير</button>
+                    </div>
+                  </div>
+
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+                    <sc-for list="{{ profKpis }}" as="k" hint-placeholder-count="4">
+                      <div style="background:#f7f8f8;border-radius:12px;padding:15px;display:flex;flex-direction:column;gap:6px">
+                        <span style="font-size:11.5px;color:#00000080">{{ k.label }}</span>
+                        <span style="{{ k.valueStyle }}">{{ k.value }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#00000080">اكتمال ملف العنقود</span><span style="font-weight:600">{{ prof.completion }}</span></div>
+                    <div style="height:7px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ prof.fillStyle }}"></div></div>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;gap:11px;padding-top:14px;border-top:1px solid #00000012">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                      <span style="font-size:11.5px;font-weight:600;color:#00000099">بيانات التواصل</span>
+                      <button onClick="{{ toggleContactEdit }}" style="{{ contactEditStyle }}">{{ contactEditLabel }}</button>
+                    </div>
+                    <sc-if value="{{ contactEditing }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+                        <div style="display:flex;flex-direction:column;gap:5px">
+                          <label style="font-size:11px;font-weight:600;color:#00000099">البريد الوزاري</label>
+                          <input type="text" value="{{ prof.email }}" onChange="{{ onEmailEdit }}" dir="ltr" style="height:38px;padding:0 11px;border-radius:9px;border:1px solid #0000001f;background:#fff;font-size:12.5px;text-align:left;color:#000000de">
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:5px">
+                          <label style="font-size:11px;font-weight:600;color:#00000099">الجوال</label>
+                          <input type="text" value="{{ prof.phone }}" onChange="{{ onPhoneEdit }}" style="height:38px;padding:0 11px;border-radius:9px;border:1px solid #0000001f;background:#fff;font-size:12.5px;color:#000000de">
+                        </div>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ contactReadonly }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:flex;gap:28px;flex-wrap:wrap">
+                        <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:#00000073">البريد الوزاري</span><span dir="ltr" style="font-size:12.5px;font-weight:500;text-align:left">{{ prof.email }}</span></div>
+                        <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:#00000073">الجوال</span><span style="font-size:12.5px;font-weight:500">{{ prof.phone }}</span></div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <sc-for list="{{ profileTabs }}" as="t" hint-placeholder-count="4">
+                    <button onClick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}</button>
+                  </sc-for>
+                </div>
+
+                <sc-if value="{{ tabTimeline }}" hint-placeholder-val="{{ true }}">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:2px">
+                    <span style="font-size:14.5px;font-weight:600;padding-bottom:14px">وش سلّمت ومتى</span>
+                    <sc-for list="{{ profTimeline }}" as="e" hint-placeholder-count="6">
+                      <div data-rs="tl" style="display:grid;grid-template-columns:150px 1fr;gap:16px;padding:14px 0;border-top:1px solid #00000010">
+                        <div style="display:flex;flex-direction:column;gap:3px">
+                          <span style="font-size:12px;font-weight:600">{{ e.day }}</span>
+                          <span style="font-size:11px;color:#00000080">{{ e.time }}</span>
+                        </div>
+                        <div style="display:flex;gap:11px;min-width:0">
+                          <span style="{{ e.dotStyle }}"></span>
+                          <div style="display:flex;flex-direction:column;gap:5px;min-width:0">
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                              <span style="font-size:13.5px;font-weight:600">{{ e.title }}</span>
+                              <span style="{{ e.kindStyle }}">{{ e.kind }}</span>
+                              <span style="{{ e.filesStyle }}">{{ e.files }}</span>
+                            </div>
+                            <span style="font-size:12.5px;line-height:21px;color:#00000099">{{ e.body }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ tabSections }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px">
+                    <span style="font-size:14.5px;font-weight:600">اكتمال أقسام الملف السبعة</span>
+                    <sc-for list="{{ profSections }}" as="s" hint-placeholder-count="7">
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        <div style="display:flex;justify-content:space-between;font-size:12.5px"><span>{{ s.label }}</span><span style="font-weight:600">{{ s.value }}</span></div>
+                        <div style="height:7px;border-radius:99px;background:#f2f4f4;overflow:hidden"><div style="{{ s.fillStyle }}"></div></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ tabFiles }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:14px">
+                    <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:10px">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                        <span style="font-size:14.5px;font-weight:600">المرفقات والروابط</span>
+                        <button style="height:32px;padding:0 13px;border-radius:8px;border:1px solid #00000014;background:#fff;font-size:11.5px;font-weight:600;color:#00000099;cursor:pointer">تنزيل الكل (ZIP)</button>
+                      </div>
+                      <sc-for list="{{ profDeliverables }}" as="f" hint-placeholder-count="8">
+                        <div style="display:flex;align-items:center;gap:12px;padding:12px 13px;border:1px solid #00000012;border-radius:11px;flex-wrap:wrap">
+                          <div style="{{ f.iconStyle }}">{{ f.kind }}</div>
+                          <div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1">
+                            <span style="font-size:13px;font-weight:500">{{ f.name }}</span>
+                            <span style="font-size:11px;color:#00000080">{{ f.meta }}</span>
+                          </div>
+                          <span style="{{ f.style }}">{{ f.state }}</span>
+                          <div style="{{ f.actionsStyle }}">
+                            <button onClick="{{ f.view }}" style="{{ f.viewStyle }}">عرض</button>
+                            <button onClick="{{ f.download }}" style="{{ f.dlStyle }}">{{ f.dlLabel }}</button>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <sc-if value="{{ hasPreview }}" hint-placeholder-val="{{ false }}">
+                      <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden;animation:rsFade .25s ease">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:15px 20px;border-bottom:1px solid #00000014">
+                          <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                            <span style="font-size:14px;font-weight:600">{{ preview.name }}</span>
+                            <span style="font-size:11.5px;color:#00000080">{{ preview.kind }} · {{ preview.size }} · {{ preview.pages }} · {{ preview.meta }}</span>
+                          </div>
+                          <div style="display:flex;gap:7px">
+                            <button onClick="{{ downloadPreview }}" style="height:34px;padding:0 14px;border-radius:9px;border:none;background:#009688;color:#fff;font-size:12px;font-weight:600;cursor:pointer">{{ previewDlLabel }}</button>
+                            <button onClick="{{ closePreview }}" style="height:34px;padding:0 13px;border-radius:9px;border:1px solid #00000014;background:#fff;font-size:12px;font-weight:600;color:#00000099;cursor:pointer">إغلاق</button>
+                          </div>
+                        </div>
+                        <div style="padding:26px;display:flex;flex-direction:column;align-items:center;gap:11px;background:#f7f8f8">
+                          <div style="width:100%;max-width:520px;aspect-ratio:1/1.3;background:#fff;border:1px solid #00000014;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
+                            <span style="font-size:13px;font-weight:600;color:#00000099">معاينة {{ preview.kind }}</span>
+                            <span style="font-size:11.5px;color:#00000073">{{ preview.pages }}</span>
+                          </div>
+                          <span style="font-size:11px;color:#00000073">المعاينة تُقرأ من مجلد الدرايف مباشرة دون تنزيل.</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ tabSchools }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden">
+                    <div style="padding:15px 20px;border-bottom:1px solid #00000014;font-size:14.5px;font-weight:600">مدارس العنقود</div>
+                    <div style="overflow-x:auto">
+                      <div style="min-width:700px">
+                        <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr .8fr .8fr;gap:12px;padding:12px 20px;border-bottom:1px solid #00000014;font-size:11.5px;font-weight:600;color:#00000080">
+                          <span>المدرسة</span><span>التصنيف</span><span>تثبيت الغياب</span><span>الزيارات</span><span>الانضباط</span>
+                        </div>
+                        <sc-for list="{{ profSchoolRows }}" as="r" hint-placeholder-count="6">
+                          <div style="display:grid;grid-template-columns:1.6fr 1fr 1fr .8fr .8fr;gap:12px;align-items:center;padding:13px 20px;border-bottom:1px solid #00000010;font-size:12.5px">
+                            <span style="font-weight:600">{{ r.name }}</span>
+                            <span style="{{ r.tierStyle }}">{{ r.tier }}</span>
+                            <span style="{{ r.absStyle }}">{{ r.absence }}</span>
+                            <span style="color:#00000099">{{ r.visits }}</span>
+                            <span style="{{ r.discStyle }}">{{ r.disc }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hAI }}" hint-placeholder-val="{{ false }}">
+              <div style="max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:15px;height:calc(100vh - 105px)">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">مساعد رَصد</span>
+                  <h1 style="margin:0;font-size:23px;font-weight:600;letter-spacing:-.02em">اسألي عن أي رقم أو مؤشر في النطاق</h1>
+                </div>
+                <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;border-radius:12px;background:#e1f5f2;border:1px solid #00968826">
+                  <span style="font-size:11.5px;font-weight:600;color:#007970">وضع الوكيل — ينفّذ إجراءات بعد موافقتك:</span>
+                  <sc-for list="{{ agentActions }}" as="a" hint-placeholder-count="3">
+                    <button onClick="{{ a.run }}" style="{{ a.style }}">{{ a.label }}</button>
+                  </sc-for>
+                </div>
+                <div ref="{{ chatRef }}" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:13px;padding:4px">
+                  <sc-for list="{{ chat }}" as="m" hint-placeholder-count="2">
+                    <div style="{{ m.wrapStyle }}">
+                      <div style="{{ m.bubbleStyle }}">{{ m.text }}</div>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ chatTable }}" hint-placeholder-val="{{ true }}">
+                    <div style="align-self:flex-start;max-width:86%;background:#fff;border:1px solid #00000014;border-radius:14px;overflow:hidden;animation:rsFade .3s ease">
+                      <div style="padding:11px 16px;border-bottom:1px solid #00000014;font-size:11.5px;font-weight:600;color:#00000099">العناقيد الأقل في تثبيت الغياب</div>
+                      <sc-for list="{{ chatRows }}" as="r" hint-placeholder-count="3">
+                        <div style="display:grid;grid-template-columns:1.2fr .8fr .8fr;gap:14px;padding:11px 16px;border-bottom:1px solid #00000010;font-size:12.5px">
+                          <span style="font-weight:500">{{ r.name }}</span>
+                          <span style="color:#00000080">{{ r.cluster }}</span>
+                          <span style="{{ r.style }}">{{ r.value }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ agentRun }}" hint-placeholder-val="{{ false }}">
+                    <div style="align-self:flex-start;max-width:86%;background:#001d1a;border-radius:14px;padding:17px;display:flex;flex-direction:column;gap:12px;animation:rsFade .3s ease">
+                      <span style="font-size:10.5px;font-weight:600;color:#80d5cb;letter-spacing:.08em">خطة الوكيل</span>
+                      <sc-for list="{{ agentPlan }}" as="s" hint-placeholder-count="4">
+                        <div style="display:flex;align-items:flex-start;gap:10px">
+                          <span style="{{ s.dotStyle }}">{{ s.mark }}</span>
+                          <span style="font-size:12.5px;line-height:20px;color:#ffffffcc">{{ s.t }}</span>
+                        </div>
+                      </sc-for>
+                      <button onClick="{{ approveAgent }}" style="align-self:flex-start;height:36px;padding:0 16px;border-radius:9px;border:1px solid #ffffff26;background:#ffffff14;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">{{ approveLabel }}</button>
+                    </div>
+                  </sc-if>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:7px">
+                  <sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="4">
+                    <button onClick="{{ s.ask }}" style="padding:8px 12px;border-radius:99px;border:1px solid #00000014;background:#fff;font-size:12px;color:#00000099;cursor:pointer">{{ s.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:9px;background:#fff;border:1px solid #00000014;border-radius:14px;padding:9px 11px">
+                  <input type="text" placeholder="مثال: كم مدرسة تصنيفها تهيئة وما نسبة انضباطها؟" style="flex:1;border:none;outline:none;font-size:13.5px;background:none">
+                  <button onClick="{{ sendChat }}" style="height:37px;padding:0 17px;border-radius:10px;border:none;background:#009688;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">إرسال</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hExport }}" hint-placeholder-val="{{ false }}">
+              <div style="max-width:1000px;display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">التقرير المجمّع</span>
+                  <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-.02em">جاهز للرفع على المنصة</h1>
+                </div>
+                <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,290px);gap:14px;align-items:start">
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:26px;display:flex;flex-direction:column;gap:19px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-bottom:15px;border-bottom:1px solid #00000014">
+                      <span style="font-size:15px;font-weight:600">تقرير النطاق — الأربعاء ١٤ شعبان</span>
+                      <span style="font-size:11.5px;color:#00000080">مجمّع من ١٨ عضوة · ١٥٠ مدرسة</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">الملخص التنفيذي</span>
+                      <p style="margin:0;font-size:14px;line-height:28px;text-wrap:pretty">ثبّتت مدارس النطاق الغياب في ١٢٤ مدرسة من أصل ١٥٠ بنسبة ٨٣٪، ونفّذ الفريق ٤٧ زيارة ميدانية موثّقة. بلغ متوسط الانضباط اليومي ٩٤٪ مع انخفاض في ثلاث مدارس بعنقودي ٢ و٧. رُفعت ١٢ ورشة عمل و٨ مجتمعات تعلم مهنية هذا الأسبوع. أبرز المعوقات: تأخر استيراد بيانات نافس لعنقودين، ونقص الموجهات الطلابيات في أربع مدارس.</p>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">الأرقام المستخرجة</span>
+                      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+                        <sc-for list="{{ exportStats }}" as="s" hint-placeholder-count="6">
+                          <div style="background:#f7f8f8;border-radius:11px;padding:13px"><div style="font-size:21px;font-weight:600">{{ s.value }}</div><div style="font-size:11px;color:#00000080">{{ s.label }}</div></div>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <span style="font-size:11px;font-weight:600;color:#009688;letter-spacing:.1em">المرفقات والروابط</span>
+                      <div style="display:flex;flex-wrap:wrap;gap:7px">
+                        <sc-for list="{{ exportFiles }}" as="f" hint-placeholder-count="5">
+                          <span style="padding:8px 12px;border-radius:9px;background:#f7f8f8;border:1px solid #00000012;font-size:11.5px;color:#00000099">{{ f.name }}</span>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #00000014;border-radius:14px;padding:19px;display:flex;flex-direction:column;gap:13px;position:sticky;top:82px">
+                    <span style="font-size:13.5px;font-weight:600">خيارات التصدير</span>
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <sc-for list="{{ exportOpts }}" as="o" hint-placeholder-count="3">
+                        <button onClick="{{ o.pick }}" style="{{ o.style }}">{{ o.label }}</button>
+                      </sc-for>
+                    </div>
+                    <button onClick="{{ doExport }}" style="height:43px;border-radius:10px;border:none;background:#009688;color:#fff;font-size:13.5px;font-weight:600;cursor:pointer">{{ exportLabel }}</button>
+                    <span style="font-size:11px;line-height:18px;color:#00000073">ينسخ النص جاهزاً للصق في المنصة مع روابط مجلدات الدرايف.</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+          </main>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:960}}">
+const AR = (s) => String(s).replace(/[0-9]/g, d => "٠١٢٣٤٥٦٧٨٩"[d]);
+const PILL = "padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;display:inline-block;";
+const TIER = { "تميز":"#067647", "تقدم":"#009688", "انطلاق":"#b45309", "تهيئة":"#dc2626" };
+const tierPill = (t) => PILL + `background:${TIER[t]}14;color:${TIER[t]}`;
+const pct = (v) => v >= 95 ? "#067647" : v >= 85 ? "#009688" : v >= 75 ? "#b45309" : "#dc2626";
+const fromAR = (s) => parseInt(String(s).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)), 10);
+
+const SCHOOLS = [
+  {name:"ابتدائية الأندلس", stage:"ابتدائية", area:"حي الأندلس", no:"١٢٤٥٦٧", email:"andalus@moe.gov.sa", type:"حضوري",
+   special:"يوجد — صعوبات تعلم", classes:24, students:612, teachers:38, admin:6, deputies:3, expert:4, advanced:9,
+   guard:"يوجد", gifted:"يوجد", gclasses:2, gstudents:44, chinese:"لا",
+   tier:"تقدم", support:"الدعم وفق الاحتياج", nafes:"ارتفاع ٦٪", qudrat:"٧٨٪", tahsili:"٧٤٪",
+   m:[96,92,99,88,81,86], disc:{d:"٩٦٪",w:"٩٤٪",m:"٩٥٪"}, absence:true, visits:9,
+   principal:{name:"منال العنزي", rank:"خبير", nid:"١٠٢٣٤٥٦٧٨٩", phone:"٠٥٥١٢٣٤٥٦٧", email:"m.alanzi@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"سمية الزهراني", rank:"متقدم"},{role:"وكيلة الشؤون الطلابية", name:"دلال المطيري", rank:"ممارس متقدم"},{role:"وكيلة الشؤون المدرسية", name:"نوف السهلي", rank:"ممارس"}],
+   counselor:{state:"مفرغة", name:"رنا الجهني", phone:"٠٥٠٣٣٤٤٥٥٦"},
+   activity:{state:"مكلفة", name:"أروى الثقفي", phone:"٠٥٣٢٢٣٣٤٤٥"}},
+  {name:"متوسطة النهضة", stage:"متوسطة", area:"حي النهضة", no:"١٢٤٥٩٠", email:"nahda@moe.gov.sa", type:"مدمج",
+   special:"لا يوجد", classes:18, students:486, teachers:32, admin:5, deputies:2, expert:2, advanced:7,
+   guard:"يوجد", gifted:"لا يوجد", gclasses:0, gstudents:0, chinese:"نعم",
+   tier:"تميز", support:"الدعم عند الطلب", nafes:"ارتفاع ٩٪", qudrat:"٨٢٪", tahsili:"٧٩٪",
+   m:[100,97,100,93,88,91], disc:{d:"٩٨٪",w:"٩٧٪",m:"٩٧٪"}, absence:true, visits:8,
+   principal:{name:"هيفاء الرشيد", rank:"خبير", nid:"١٠٣٣٤٥٥٦٧٨", phone:"٠٥٥٩٨٧٦٥٤٣", email:"h.alrashid@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"بشرى العنزي", rank:"متقدم"},{role:"وكيلة الشؤون الطلابية", name:"مها الخالدي", rank:"ممارس متقدم"}],
+   counselor:{state:"مفرغة", name:"شهد البقمي", phone:"٠٥٦٧٧٨٨٩٩٠"},
+   activity:{state:"مفرغة", name:"غادة الصاعدي", phone:"٠٥٤٤٥٥٦٦٧٧"}},
+  {name:"ثانوية الرواد", stage:"ثانوية", area:"حي الملز", no:"١٢٤٦٠٣", email:"rowad@moe.gov.sa", type:"حضوري",
+   special:"يوجد — الدمج الكلي", classes:21, students:558, teachers:41, admin:7, deputies:3, expert:5, advanced:11,
+   guard:"لا يوجد", gifted:"يوجد", gclasses:1, gstudents:22, chinese:"لا",
+   tier:"انطلاق", support:"الدعم وفق الاحتياج", nafes:"انخفاض ٣٪", qudrat:"٧١٪", tahsili:"٦٨٪",
+   m:[91,84,96,76,70,74], disc:{d:"٨٨٪",w:"٨٦٪",m:"٨٧٪"}, absence:false, visits:11,
+   principal:{name:"فاطمة الأحمدي", rank:"متقدم", nid:"١٠٤٤٥٥٦٦٧٧", phone:"٠٥٣١١٢٢٣٣٤", email:"f.alahmadi@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"تهاني الحسن", rank:"متقدم"},{role:"وكيلة الشؤون الطلابية", name:"خلود الشهري", rank:"ممارس"},{role:"وكيلة الشؤون المدرسية", name:"وجدان المالكي", rank:"ممارس"}],
+   counselor:{state:"مكلفة", name:"إيمان العمري", phone:"٠٥٠٩٩٨٨٧٧٦"},
+   activity:{state:"لا يوجد", name:"—", phone:"—"}},
+  {name:"ابتدائية الفيصلية", stage:"ابتدائية", area:"حي الفيصلية", no:"١٢٤٦١٩", email:"faisaliah@moe.gov.sa", type:"حضوري",
+   special:"لا يوجد", classes:16, students:402, teachers:27, admin:4, deputies:2, expert:1, advanced:6,
+   guard:"يوجد", gifted:"لا يوجد", gclasses:0, gstudents:0, chinese:"لا",
+   tier:"تقدم", support:"الدعم عند الطلب", nafes:"ارتفاع ٤٪", qudrat:"٧٦٪", tahsili:"٧٢٪",
+   m:[95,90,98,85,79,83], disc:{d:"٩٥٪",w:"٩٣٪",m:"٩٤٪"}, absence:true, visits:7,
+   principal:{name:"رغد النفيعي", rank:"متقدم", nid:"١٠٥٥٦٦٧٧٨٨", phone:"٠٥٥٤٤٣٣٢٢١", email:"r.alnufaie@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"سارة اليامي", rank:"ممارس متقدم"},{role:"وكيلة الشؤون الطلابية", name:"حصة الشمراني", rank:"ممارس"}],
+   counselor:{state:"مكلفة", name:"نجود الحربي", phone:"٠٥٦١٢٣٤٥٦٧"},
+   activity:{state:"مكلفة", name:"أفنان القرني", phone:"٠٥٩٨٧٦٥٤٣٢"}},
+  {name:"متوسطة الخنساء", stage:"متوسطة", area:"حي السلام", no:"١٢٤٦٢٨", email:"khansa@moe.gov.sa", type:"مدمج",
+   special:"يوجد — التوحد", classes:15, students:389, teachers:29, admin:5, deputies:2, expert:2, advanced:5,
+   guard:"يوجد", gifted:"يوجد", gclasses:1, gstudents:18, chinese:"لا",
+   tier:"تقدم", support:"الدعم وفق الاحتياج", nafes:"ارتفاع ٢٪", qudrat:"٧٤٪", tahsili:"٧٠٪",
+   m:[94,89,97,83,77,81], disc:{d:"٩٣٪",w:"٩١٪",m:"٩٢٪"}, absence:false, visits:6,
+   principal:{name:"عبير القرني", rank:"متقدم", nid:"١٠٦٦٧٧٨٨٩٩", phone:"٠٥٠٢٢٣٣٤٤٥", email:"a.alqarni@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"جواهر الرشيد", rank:"متقدم"},{role:"وكيلة الشؤون الطلابية", name:"لمى الدوسري", rank:"ممارس"}],
+   counselor:{state:"مفرغة", name:"ريم الحربي", phone:"٠٥٥٦٦٧٧٨٨٩"},
+   activity:{state:"مكلفة", name:"هيا السبيعي", phone:"٠٥٣٤٤٥٥٦٦٧"}},
+  {name:"ابتدائية الروضة", stage:"ابتدائية", area:"حي الروضة", no:"١٢٤٦٣٧", email:"rawdah@moe.gov.sa", type:"حضوري",
+   special:"لا يوجد", classes:14, students:793, teachers:31, admin:5, deputies:2, expert:1, advanced:4,
+   guard:"لا يوجد", gifted:"لا يوجد", gclasses:0, gstudents:0, chinese:"لا",
+   tier:"تهيئة", support:"الدعم وفق الاحتياج", nafes:"انخفاض ٧٪", qudrat:"٦٥٪", tahsili:"٦١٪",
+   m:[86,78,92,68,62,66], disc:{d:"٨٢٪",w:"٨٠٪",m:"٨١٪"}, absence:false, visits:6,
+   principal:{name:"لطيفة الغامدي", rank:"ممارس متقدم", nid:"١٠٧٧٨٨٩٩٠٠", phone:"٠٥٤٩٩٨٨٧٧٦", email:"l.alghamdi@moe.gov.sa"},
+   dep:[{role:"وكيلة الشؤون التعليمية", name:"أمل السبيعي", rank:"ممارس"},{role:"وكيلة الشؤون المدرسية", name:"نورة العتيبي", rank:"ممارس"}],
+   counselor:{state:"لا يوجد", name:"—", phone:"—"},
+   activity:{state:"لا يوجد", name:"—", phone:"—"}}
+];
+
+const NAMES = ["هند الشمري","منيرة الدوسري","لطيفة الغامدي","ريم الحربي","عبير القرني","أمل السبيعي","نورة العتيبي","سمية الزهراني","دلال المطيري","جواهر الرشيد","بشرى العنزي","مها الخالدي","شهد البقمي","نوف السهلي","رنا الجهني","أروى الثقفي","خلود الشهري","وجدان المالكي","تهاني الحسن","غادة الصاعدي","إيمان العمري","فاطمة الأحمدي","رغد النفيعي","سارة اليامي","حصة الشمراني"];
+
+const EMAILS = ["h.alshammari","m.aldosari","l.alghamdi","r.alharbi","a.alqarni","a.alsubaie","n.alotaibi","s.alzahrani","d.almutairi","j.alrashid","b.alanzi","m.alkhalidi","s.albaqami","n.alsahli","r.aljuhani","a.althaqafi","k.alshehri","w.almalki","t.alhassan","g.alsaedi","e.alamri","f.alahmadi","r.alnufaie","s.alyami","h.alshamrani"];
+const PHONES = ["٠٥٥٤٢٣٨٨١٠","٠٥٠٣٣٤٤٥٥٦","٠٥٤٩٩٨٨٧٧٦","٠٥٥٦٦٧٧٨٨٩","٠٥٠٢٢٣٣٤٤٥","٠٥٣٤٤٥٥٦٦٧","٠٥٦٧٧٨٨٩٩٠","٠٥٥١٢٣٤٥٦٧","٠٥٩٨٧٦٥٤٣٢","٠٥٣٢٢٣٣٤٤٥","٠٥٦١٢٣٤٥٦٧","٠٥٤٤٥٥٦٦٧٧","٠٥٠٩٩٨٨٧٧٦","٠٥٥٩٨٧٦٥٤٣","٠٥٣١١٢٢٣٣٤","٠٥٥٤٤٣٣٢٢١","٠٥٠٧٧٦٦٥٥٤","٠٥٦٣٣٢٢١١٠","٠٥٤٨٨٧٧٦٦٥","٠٥٣٥٥٤٤٣٣٢","٠٥٠١١٢٢٣٣٤","٠٥٦٩٩٨٨٧٧٦","٠٥٥٢٢١١٠٠٩","٠٥٤٦٦٥٥٤٤٣","٠٥٣٧٧٨٨٩٩٠"];
+
+const ACCOUNTS = {
+  member: {name:"هند الشمري", initials:"هش", email:"h.alshammari@moe.gov.sa", role:"عضو الفريق التنفيذي · عنقود ٤"},
+  head: {name:"سارة القحطاني", initials:"سق", email:"s.alqahtani@moe.gov.sa", role:"رئيسة النطاق · ٢٥ عضوة"}
+};
+
+class Component extends DCLogic {
+  state = {
+    screen: "login", role: "member", loginEmail: "", loginError: false,
+    field: false, menuOpen: false, notifOpen: false, saved: false, navOpen: false,
+    sec: "profile", schoolId: 0, head: "dash",
+    absence: SCHOOLS.map(s => s.absence), sent: false, remind: false,
+    visitType: "زيارة صفية", fieldAttach: 2, visitSent: false, memberFilter: "الكل",
+    expOpt: "نص جاهز للنسخ", exported: false, pd: [4, 12, 6, 2],
+    files: [
+      {name:"تقرير نافس — مدارس العنقود.pdf", kind:"PDF", size:"٢٫٤ م.ب", status:"done", fields:14},
+      {name:"الانضباط اليومي.xlsx", kind:"Excel", size:"٨٤٠ ك.ب", status:"done", fields:18},
+      {name:"محضر اجتماع القيادة.docx", kind:"Word", size:"١٢٠ ك.ب", status:"review", fields:5},
+      {name:"صور الزيارة الصفية.jpg", kind:"صورة", size:"٣٫١ م.ب", status:"processing", fields:0}
+    ],
+    applied: false, agentRun: false, agentDone: false, profileId: null, profileTab: "timeline",
+    contactEdits: {}, contactEditing: false, previewFile: null, downloaded: null,
+    editMode: true,
+    hiddenSections: [],
+    customSections: [],
+    profileFields: [
+      {id:"p1", label:"الاسم الرباعي", value:"هند سعد عبدالله الشمري", span:2},
+      {id:"p2", label:"السجل المدني", value:"١٠٤٥٢٢٨٩٣٧", span:1},
+      {id:"p3", label:"الرقم الوظيفي", value:"٤٤٢٧٩٠", span:1},
+      {id:"p4", label:"البريد الوزاري", value:"h.alshammari@moe.gov.sa", span:2, ltr:true},
+      {id:"p5", label:"رقم الجوال", value:"٠٥٥٤٢٣٨٨١٠", span:1},
+      {id:"p6", label:"الرتبة", value:"خبير", span:1, options:["خبير","متقدم","ممارس","ممارس متقدم"]},
+      {id:"p7", label:"المؤهل", value:"ماجستير إدارة تربوية", span:1},
+      {id:"p8", label:"التخصص", value:"رياضيات", span:1},
+      {id:"p9", label:"التخصص الإشرافي", value:"إشراف رياضيات", span:1},
+      {id:"p10", label:"تاريخ التعيين", value:"١٤٣٢/٠٧/١٥", span:1},
+      {id:"p11", label:"تاريخ التكليف بالإشراف", value:"١٤٤١/٠١/٠٣", span:1},
+      {id:"p12", label:"عدد سنوات الخبرة", value:"١٤", span:1, derived:true, hint:"تُحسب تلقائياً"}
+    ],
+    hiddenSchoolFields: [],
+    extraSchoolFields: [],
+    customFields: {},
+    schoolEdits: {},
+    schoolList: SCHOOLS.map((s,i)=>({ id:"sch"+i, src:i, name:s.name })),
+    leaders: SCHOOLS.map(s => [
+      {id:"L0", role:"مديرة المدرسة", state:s.principal.rank, ok:true, fields:[
+        {id:"f0",label:"الاسم",value:s.principal.name},{id:"f1",label:"السجل المدني",value:s.principal.nid},
+        {id:"f2",label:"الجوال",value:s.principal.phone},{id:"f3",label:"البريد الوزاري",value:s.principal.email}]},
+      ...s.dep.map((d,k)=>({id:"L"+(k+1), role:d.role, state:d.rank, ok:true, fields:[
+        {id:"f0",label:"الاسم",value:d.name},{id:"f1",label:"الرتبة",value:d.rank},
+        {id:"f2",label:"السجل المدني",value:"١٠٨٨٩٩٠٠١١"},{id:"f3",label:"الجوال",value:"٠٥٥٠٠١١٢٢٣"}]})),
+      {id:"LC", role:"الموجهة الطلابية", state:s.counselor.state, ok:s.counselor.state!=="لا يوجد", fields:[
+        {id:"f0",label:"الاسم",value:s.counselor.name},{id:"f1",label:"الجوال",value:s.counselor.phone}]},
+      {id:"LA", role:"رائدة النشاط", state:s.activity.state, ok:s.activity.state!=="لا يوجد", fields:[
+        {id:"f0",label:"الاسم",value:s.activity.name},{id:"f1",label:"الجوال",value:s.activity.phone}]}
+    ]),
+    staffTiles: SCHOOLS.map(s => [
+      {id:"t0",label:"الهيئة التعليمية", value:AR(s.teachers)},
+      {id:"t1",label:"الهيئة الإدارية", value:AR(s.admin)},
+      {id:"t2",label:"وكيلات المدرسة", value:AR(s.deputies)},
+      {id:"t3",label:"المعلمات", value:AR(s.teachers-4)},
+      {id:"t4",label:"رتبة خبير", value:AR(s.expert)},
+      {id:"t5",label:"رتبة متقدم", value:AR(s.advanced)}
+    ]),
+    chat: [{role:"user",text:"أي عناقيد متأخرة في تثبيت الغياب اليوم؟"},{role:"ai",text:"ثلاثة عناقيد تحت ٧٠٪: عنقود ٢ (٦٤٪)، عنقود ٧ (٦٨٪)، عنقود ١١ (٦٩٪). الأثر الأكبر من ٦ مدارس لم تُثبّت منذ يومين."}],
+    chatTable: true
+  };
+
+  set = (k, v) => () => this.setState({ [k]: v });
+
+  chatRef = React.createRef();
+
+  scrollChat = () => {
+    const go = () => { const el = this.chatRef.current; if (el) el.scrollTop = el.scrollHeight; };
+    requestAnimationFrame(() => { go(); requestAnimationFrame(go); });
+    setTimeout(go, 120);
+  };
+
+  setAndScroll = (updater) => this.setState(updater, this.scrollChat);
+
+  login = (role) => () => this.setState({
+    screen: "app", role, field: false, menuOpen: false, notifOpen: false,
+    loginError: false, loginEmail: ACCOUNTS[role].email,
+    sec: "profile", head: "dash"
+  });
+
+  submitLogin = () => {
+    const e = (this.state.loginEmail || "").trim().toLowerCase();
+    if (e === ACCOUNTS.head.email) return this.login("head")();
+    if (e === ACCOUNTS.member.email) return this.login("member")();
+    this.setState({ loginError: true });
+  };
+
+  ask = (q) => () => {
+    const A = {
+      "ملخص اليوم": "١٢٤ من ١٥٠ مدرسة ثبّتت الغياب (٨٣٪). ٤٧ زيارة موثقة، متوسط الانضباط اليومي ٩٤٪. ثلاث مدارس تصنيفها «تهيئة» انخفض انضباطها عن ٨٥٪.",
+      "من لم تحدّث بياناتها؟": "لم تحدّث اليوم: إيمان العمري (عنقود ١٩)، رغد النفيعي (عنقود ٢٢)، سارة اليامي (عنقود ٢٤). آخر تحديث لهن كان أمس.",
+      "مدارس تصنيف تهيئة": "٩ مدارس في النطاق تصنيفها «تهيئة»، متوسط نافس فيها انخفاض ٥٪ ومتوسط انضباطها ٨٤٪. ٦ منها ضمن الدعم وفق الاحتياج.",
+      "نواقص التطوير المهني": "٥ عضوات لم يرفعن تقارير مجتمعات التعلم المهنية، و٣ عضوات بدون روابط درايف لورش العمل."
+    };
+    this.setAndScroll(s => ({ chat:[...s.chat,{role:"user",text:q},{role:"ai",text:A[q] || "راجعت ملفات ٢٥ عنقوداً: النشاط الأكثر تكراراً هو الزيارات الصفية بنسبة ٦١٪ من إجمالي الزيارات الموثقة."}], chatTable:false }));
+  };
+
+  openProfile = (i) => () => this.setState({ profileId:i, profileTab:"timeline", contactEditing:false });
+
+  schoolVal = (key, fallback) => {
+    const k = this.state.schoolId + ":" + key;
+    return this.state.schoolEdits[k] !== undefined ? this.state.schoolEdits[k] : fallback;
+  };
+
+  editSchoolVal = (key) => (e) => {
+    const v = e.target.value, k = this.state.schoolId + ":" + key;
+    this.setState(s => ({ schoolEdits: { ...s.schoolEdits, [k]: v } }));
+  };
+
+  uid = () => "x" + Math.random().toString(36).slice(2, 8);
+
+  mapSchoolArr = (key, fn) => this.setState(s => ({
+    [key]: s[key].map((arr, i) => i === s.schoolId ? fn(arr) : arr)
+  }));
+
+  addLeader = () => this.mapSchoolArr("leaders", a => [...a, {
+    id:this.uid(), role:"دور جديد", state:"مكلفة", ok:true,
+    fields:[{id:this.uid(),label:"الاسم",value:""},{id:this.uid(),label:"الجوال",value:""}]
+  }]);
+
+  removeLeader = (id) => () => this.mapSchoolArr("leaders", a => a.filter(l => l.id !== id));
+
+  editLeader = (id, key) => (e) => {
+    const v = e.target.value;
+    this.mapSchoolArr("leaders", a => a.map(l => l.id === id ? { ...l, [key]: v } : l));
+  };
+
+  addLeaderField = (id) => () => this.mapSchoolArr("leaders", a => a.map(l =>
+    l.id === id ? { ...l, fields:[...l.fields, {id:this.uid(),label:"حقل جديد",value:""}] } : l));
+
+  removeLeaderField = (id, fid) => () => this.mapSchoolArr("leaders", a => a.map(l =>
+    l.id === id ? { ...l, fields:l.fields.filter(f => f.id !== fid) } : l));
+
+  editLeaderField = (id, fid, key) => (e) => {
+    const v = e.target.value;
+    this.mapSchoolArr("leaders", a => a.map(l => l.id === id
+      ? { ...l, fields:l.fields.map(f => f.id === fid ? { ...f, [key]: v } : f) } : l));
+  };
+
+  addStaffTile = () => this.mapSchoolArr("staffTiles", a => [...a, {id:this.uid(),label:"مؤشر جديد",value:"٠"}]);
+  removeStaffTile = (id) => () => this.mapSchoolArr("staffTiles", a => a.filter(t => t.id !== id));
+  editStaffTile = (id, key) => (e) => {
+    const v = e.target.value;
+    this.mapSchoolArr("staffTiles", a => a.map(t => t.id === id ? { ...t, [key]: v } : t));
+  };
+
+  addSchool = () => this.setState(s => {
+    const list = [...s.schoolList, { id:this.uid(), src:0, name:"مدرسة جديدة", isNew:true }];
+    return {
+      schoolList: list,
+      leaders: [...s.leaders, [{ id:this.uid(), role:"مديرة المدرسة", state:"خبير", ok:true,
+        fields:[{id:this.uid(),label:"الاسم",value:""},{id:this.uid(),label:"الجوال",value:""}] }]],
+      staffTiles: [...s.staffTiles, [{id:this.uid(),label:"الهيئة التعليمية",value:"٠"},{id:this.uid(),label:"عدد الطالبات",value:"٠"}]],
+      schoolId: list.length - 1
+    };
+  });
+
+  removeSchool = (idx) => (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    this.setState(s => ({
+      schoolList: s.schoolList.filter((_,i) => i !== idx),
+      leaders: s.leaders.filter((_,i) => i !== idx),
+      staffTiles: s.staffTiles.filter((_,i) => i !== idx),
+      schoolId: s.schoolId >= idx && s.schoolId > 0 ? s.schoolId - 1 : 0
+    }));
+  };
+
+  editSchoolName = (idx) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ schoolList: s.schoolList.map((x,i) => i === idx ? { ...x, name:v } : x) }));
+  };
+
+  addProfileField = () => this.setState(s => ({
+    profileFields: [...s.profileFields, { id:"p"+Date.now(), label:"حقل جديد", value:"", span:1, isNew:true }]
+  }));
+
+  removeProfileField = (id) => () => this.setState(s => ({
+    profileFields: s.profileFields.filter(f => f.id !== id)
+  }));
+
+  editProfileField = (id, key) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ profileFields: s.profileFields.map(f => f.id === id ? { ...f, [key]: v } : f) }));
+  };
+
+  toggleSection = (k) => () => this.setState(s => ({
+    hiddenSections: s.hiddenSections.indexOf(k) >= 0 ? s.hiddenSections.filter(x => x !== k) : [...s.hiddenSections, k],
+    sec: s.sec === k ? "profile" : s.sec
+  }));
+
+  addSection = () => {
+    const k = "custom" + Date.now();
+    this.setState(s => ({
+      customSections: [...s.customSections, { k, label:"قسم جديد" }],
+      customFields: { ...s.customFields, [k]: [] },
+      sec: k
+    }));
+  };
+
+  removeSection = (k) => () => this.setState(s => ({
+    customSections: s.customSections.filter(c => c.k !== k),
+    sec: s.sec === k ? "profile" : s.sec
+  }));
+
+  renameSection = (k) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ customSections: s.customSections.map(c => c.k === k ? { ...c, label:v } : c) }));
+  };
+
+  addCustomField = (k) => () => this.setState(s => ({
+    customFields: { ...s.customFields, [k]: [...(s.customFields[k] || []), { id:"c"+Date.now(), label:"حقل جديد", value:"" }] }
+  }));
+
+  removeCustomField = (k, id) => () => this.setState(s => ({
+    customFields: { ...s.customFields, [k]: (s.customFields[k] || []).filter(f => f.id !== id) }
+  }));
+
+  editCustomField = (k, id, key) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ customFields: { ...s.customFields, [k]: (s.customFields[k] || []).map(f => f.id === id ? { ...f, [key]: v } : f) } }));
+  };
+
+  toggleSchoolField = (label) => () => this.setState(s => ({
+    hiddenSchoolFields: s.hiddenSchoolFields.indexOf(label) >= 0 ? s.hiddenSchoolFields.filter(x => x !== label) : [...s.hiddenSchoolFields, label]
+  }));
+
+  addSchoolField = () => this.setState(s => ({
+    extraSchoolFields: [...s.extraSchoolFields, { id:"s"+Date.now(), label:"حقل جديد", value:"" }]
+  }));
+
+  removeSchoolField = (id) => () => this.setState(s => ({
+    extraSchoolFields: s.extraSchoolFields.filter(f => f.id !== id)
+  }));
+
+  editSchoolField = (id, key) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ extraSchoolFields: s.extraSchoolFields.map(f => f.id === id ? { ...f, [key]: v } : f) }));
+  };
+
+  editContact = (field) => (e) => {
+    const i = this.state.profileId, v = e.target.value;
+    this.setState(s => ({ contactEdits: { ...s.contactEdits, [i+":"+field]: v } }));
+  };
+
+  contactVal = (i, field, fallback) => {
+    const k = i + ":" + field;
+    return this.state.contactEdits[k] !== undefined ? this.state.contactEdits[k] : fallback;
+  };
+
+  profileVals() {
+    const S = this.state;
+    const i = S.profileId;
+    if (i === null) return { prof: null, profileTabs: [], profTimeline: [], profSections: [], profDeliverables: [], profSchoolRows: [], profKpis: [] };
+
+    const name = NAMES[i];
+    const comp = [92,78,85,64,96,71,88,59,80,74,90,66,82,95,70,86,61,79,93,68,84,72,89,63,77][i];
+    const disc = [96,88,94,79,92,85,90,73,87,91,95,80,83,97,76,89,68,82,94,75,86,78,92,70,84][i];
+    const status = i < 18 ? "حدّثت" : i < 22 ? "متأخرة" : "لم تحدّث";
+    const sc = status === "حدّثت" ? "#067647" : status === "متأخرة" ? "#b45309" : "#dc2626";
+    const absDone = [6,5,6,3,6,4,6,2,5,6,6,3,4,6,3,5,2,4,6,3,5,4,6,2,4][i];
+    const visits = [9,8,11,6,7,6,10,4,8,9,12,5,7,11,6,8,3,7,10,5,9,6,11,4,7][i];
+    const lastAt = status === "حدّثت" ? "اليوم ١:٤٢ م" : status === "متأخرة" ? "اليوم ٤:٥٠ م (بعد الموعد)" : "أمس ٣:٥٠ م";
+    const tabs = [{k:"timeline",l:"سجل التسليم"},{k:"sections",l:"أقسام الملف"},{k:"files",l:"المرفقات والروابط"},{k:"schools",l:"مدارس العنقود"}];
+
+    const timeline = [
+      {d:"اليوم · الأربعاء ١٤ شعبان", t:lastAt, title:"تثبيت الغياب", body:`ثبّتت الغياب في ${AR(absDone)} من ٦ مدارس`, ok:absDone===6, kind:"غياب"},
+      {d:"اليوم", t:"١٢:٢٠ م", title:"تقرير زيارة صفية", body:"ابتدائية الأندلس · ٣ زيارات صفية لمعلمات الرياضيات مع تغذية راجعة وخطة متابعة أسبوعين", ok:true, kind:"زيارة", files:"٣ مرفقات"},
+      {d:"أمس · الثلاثاء ١٣ شعبان", t:"٢:١٠ م", title:"ورشة عمل", body:"متوسطة النهضة · ورشة التقويم البنائي بحضور ٢٢ معلمة، رضا ٩٢٪", ok:true, kind:"تطوير مهني", files:"٤ مرفقات"},
+      {d:"أمس", t:"١١:٠٥ ص", title:"تحديث مؤشرات مدرستي", body:"حدّثت نسب الإسناد والدخول لـ٦ مدارس", ok:true, kind:"مؤشرات"},
+      {d:"الأحد · ١١ شعبان", t:"٩:٣٠ ص", title:"استمارة تنفيذ الخطة ٢", body:"رفعت الاستمارة على مجلد الدرايف", ok:true, kind:"خطط", files:"مرفق واحد"},
+      {d:"الأحد", t:"٨:٤٠ ص", title:"متابعة خطة تحسين", body:"ثانوية الرواد · مراجعة المؤشرات الثلاثة مع قائدة المدرسة — التقرير مختصر ويحتاج أرقام", ok:false, kind:"زيارة", files:"مرفق واحد"}
+    ];
+
+    const sections = [
+      {l:"البيانات الأولية", p:100},{l:"مدارس العنقود", p:Math.min(100,comp+8)},
+      {l:"التقويم المدرسي", p:100},{l:"منصة مدرستي", p:Math.max(40,comp-6)},
+      {l:"الانضباط المدرسي", p:Math.max(35,comp-12)},{l:"المهام", p:Math.round((absDone/6)*100)},
+      {l:"التطوير المهني", p:Math.max(30,comp-20)}
+    ];
+
+    const files = [
+      {n:"تقارير الزيارات — مجلد درايف", m:`${AR(visits)} تقرير · آخر رفع اليوم`, ok:true, kind:"مجلد", size:"—", pages:AR(visits)+" ملفاً"},
+      {n:"خطة التحسين.pdf", m:"رُفعت ٠٨ شعبان", ok:true, kind:"PDF", size:"١٫٤ م.ب", pages:"١٢ صفحة"},
+      {n:"تقرير تحليل الواقع.pdf", m:"رُفع ٢٨ رجب", ok:true, kind:"PDF", size:"٢٫١ م.ب", pages:"١٨ صفحة"},
+      {n:"استمارة تنفيذ الخطة ١.docx", m:"رُفعت ٠٢ شعبان", ok:true, kind:"Word", size:"٢٤٠ ك.ب", pages:"٤ صفحات"},
+      {n:"استمارة تنفيذ الخطة ٢.docx", m:"رُفعت ١١ شعبان", ok:true, kind:"Word", size:"٢٦٠ ك.ب", pages:"٤ صفحات"},
+      {n:"استمارة تنفيذ الخطة ٣.docx", m:"لم تُرفع — متأخرة ٤ أيام", ok:false, kind:"Word", size:"—", pages:"—"},
+      {n:"بطاقات نافس.xlsx", m:"مستوردة من النطاق", ok:true, kind:"Excel", size:"٦٨٠ ك.ب", pages:"٦ أوراق"},
+      {n:"تقارير مجتمعات التعلم.pdf", m:comp>75?"٤ تقارير":"ناقصة", ok:comp>75, kind:"PDF", size:comp>75?"٣٫٢ م.ب":"—", pages:comp>75?"٢٦ صفحة":"—"}
+    ];
+
+    return {
+      prof: {
+        name, initials: name.split(" ")[0].slice(0,1)+name.split(" ")[1].slice(2,3),
+        cluster: "عنقود "+AR(i+1), schools: AR(6-(i%2))+" مدارس",
+        email: this.contactVal(i, "email", EMAILS[i] + "@moe.gov.sa"),
+        phone: this.contactVal(i, "phone", PHONES[i]),
+        rank: ["خبير","متقدم","ممارس متقدم","ممارس"][i%4],
+        major: ["رياضيات","لغة عربية","علوم","اجتماعيات","لغة إنجليزية"][i%5],
+        status, statusStyle: PILL + `background:${sc}14;color:${sc}`,
+        lastAt, completion: AR(comp)+"٪",
+        fillStyle: `height:100%;width:${comp}%;border-radius:99px;background:${pct(comp)}`,
+        avatarStyle: `width:54px;height:54px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;background:#e1f5f2;color:#007970`
+      },
+      profKpis: [
+        {label:"اكتمال الملف", value:AR(comp)+"٪", good:comp>=80},
+        {label:"تثبيت الغياب اليوم", value:AR(absDone)+" / ٦", good:absDone===6},
+        {label:"الزيارات هذا الأسبوع", value:AR(visits), good:visits>=7},
+        {label:"متوسط الانضباط", value:AR(disc)+"٪", good:disc>=85}
+      ].map(k=>({ label:k.label, value:k.value, valueStyle:`font-size:26px;font-weight:600;line-height:1;letter-spacing:-.02em;color:${k.good?"#000000de":"#b45309"}` })),
+      profileTabs: tabs.map(t=>({
+        label:t.l, pick:this.set("profileTab",t.k),
+        style:`padding:8px 14px;border-radius:99px;cursor:pointer;font-size:12.5px;font-weight:${S.profileTab===t.k?600:500};border:1px solid ${S.profileTab===t.k?"#009688":"#00000014"};background:${S.profileTab===t.k?"#e1f5f2":"#fff"};color:${S.profileTab===t.k?"#007970":"#00000099"}`
+      })),
+      profTab: S.profileTab,
+      tabTimeline: S.profileTab==="timeline", tabSections: S.profileTab==="sections",
+      tabFiles: S.profileTab==="files", tabSchools: S.profileTab==="schools",
+      profTimeline: timeline.map(e=>({
+        day:e.d, time:e.t, title:e.title, body:e.body, kind:e.kind, files:e.files || "",
+        dotStyle:`width:9px;height:9px;border-radius:99px;flex:none;margin-top:6px;background:${e.ok?"#009688":"#f59e0b"}`,
+        kindStyle: PILL + "background:#f2f4f4;color:#00000099",
+        filesStyle: e.files ? "font-size:11px;color:#00000073" : "display:none"
+      })),
+      profSections: sections.map(s=>({
+        label:s.l, value:AR(s.p)+"٪",
+        fillStyle:`height:100%;width:${s.p}%;border-radius:99px;background:${pct(s.p)}`
+      })),
+      profDeliverables: files.map((f,k)=>({
+        name:f.n, meta:f.m, state:f.ok?"مرفوع":"ناقص", kind:f.kind,
+        style: PILL + (f.ok ? "background:#06764714;color:#067647" : "background:#dc262614;color:#dc2626"),
+        iconStyle:`width:36px;height:36px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${f.ok?(f.kind==="Excel"?"#06764714":f.kind==="مجلد"?"#e1f5f2":"#f2f4f4"):"#f2f4f4"};color:${f.ok?(f.kind==="Excel"?"#067647":f.kind==="مجلد"?"#007970":"#00000080"):"#00000059"}`,
+        view: f.ok ? () => this.setState({ previewFile:{...f, index:k} }) : () => {},
+        download: f.ok ? () => this.setState({ downloaded:f.n }) : () => {},
+        viewStyle:`height:32px;padding:0 12px;border-radius:8px;border:1px solid ${f.ok?"#00000014":"#00000010"};background:#fff;font-size:11.5px;font-weight:600;color:${f.ok?"#00000099":"#00000047"};cursor:${f.ok?"pointer":"not-allowed"}`,
+        dlStyle:`height:32px;padding:0 12px;border-radius:8px;border:1px solid ${f.ok?"#00968833":"#00000010"};background:${f.ok?"#e1f5f2":"#fff"};font-size:11.5px;font-weight:600;color:${f.ok?"#007970":"#00000047"};cursor:${f.ok?"pointer":"not-allowed"}`,
+        dlLabel: S.downloaded === f.n ? "✓ نُزّل" : "تنزيل",
+        actionsStyle: "display:flex;gap:7px;flex:none"
+      })),
+      preview: S.previewFile ? {
+        name: S.previewFile.n, kind: S.previewFile.kind, size: S.previewFile.size,
+        pages: S.previewFile.pages, meta: S.previewFile.m
+      } : null,
+      hasPreview: !!S.previewFile,
+      closePreview: () => this.setState({ previewFile:null }),
+      downloadPreview: () => this.setState(s=>({ downloaded: s.previewFile && s.previewFile.n })),
+      previewDlLabel: S.previewFile && S.downloaded === S.previewFile.n ? "✓ نُزّل الملف" : "تنزيل الملف",
+      profSchoolRows: SCHOOLS.map((s,k)=>({
+        name:s.name, tier:s.tier, tierStyle:tierPill(s.tier),
+        absence: k < absDone ? "تم" : "لم يتم",
+        absStyle: PILL + (k < absDone ? "background:#06764714;color:#067647" : "background:#dc262614;color:#dc2626"),
+        visits: AR(s.visits), disc: s.disc.d,
+        discStyle: `font-weight:600;color:${pct(fromAR(s.disc.d))}`
+      }))
+    };
+  }
+
+  renderVals() {
+    const S = this.state;
+    const acct = ACCOUNTS[S.role];
+    const navBtn = (on) => `display:flex;align-items:center;gap:9px;width:100%;min-height:38px;padding:0 11px;border-radius:9px;border:none;cursor:pointer;font-size:13px;font-weight:${on?600:500};background:${on?"#e1f5f2":"transparent"};color:${on?"#007970":"#00000099"}`;
+    const chip = (on) => `padding:7px 12px;border-radius:99px;cursor:pointer;font-size:12px;font-weight:${on?600:500};border:1px solid ${on?"#009688":"#00000014"};background:${on?"#e1f5f2":"#fff"};color:${on?"#007970":"#00000099"}`;
+    const state = (ok) => PILL + (ok ? "background:#06764714;color:#067647" : "background:#dc262614;color:#dc2626");
+
+    const sc = SCHOOLS[(S.schoolList[S.schoolId] || S.schoolList[0]).src];
+    const scName = (S.schoolList[S.schoolId] || S.schoolList[0]).name;
+    const doneCount = S.absence.filter(Boolean).length;
+    const totalVisits = SCHOOLS.reduce((a,s)=>a+s.visits,0);
+    const mLabels = ["نسبة المعلمات المسندات للجداول","نسبة المعلمات المسندات للمقررات","نسبة الطلاب المسندين للفصول","نسبة دخول المعلمات","نسبة دخول الطالبات","نسبة الإنجاز"];
+    const avg = mLabels.map((_,i)=>Math.round(SCHOOLS.reduce((a,s)=>a+s.m[i],0)/SCHOOLS.length));
+    const memberStatus = (i) => i < 18 ? "حدّثت" : i < 22 ? "متأخرة" : "لم تحدّث";
+    const memberColor = (st) => st === "حدّثت" ? "#067647" : st === "متأخرة" ? "#b45309" : "#dc2626";
+    const week = [{day:"الأحد",v:142},{day:"الاثنين",v:148},{day:"الثلاثاء",v:131},{day:"الأربعاء",v:124},{day:"الخميس",v:0}];
+
+    return {
+      atLogin: S.screen === "login", inApp: S.screen === "app",
+      navOpen: S.navOpen, navOpenAttr: S.navOpen ? "1" : "0",
+      toggleNav: () => this.setState(s => ({ navOpen: !s.navOpen })),
+      closeNav: () => { if (this.state.navOpen) this.setState({ navOpen: false }); },
+      loginEmail: S.loginEmail, loginError: S.loginError,
+      onEmail: (e) => this.setState({ loginEmail: e.target.value, loginError: false }),
+      doLogin: this.submitLogin,
+      demoAccounts: [
+        {key:"member", ...ACCOUNTS.member},
+        {key:"head", ...ACCOUNTS.head}
+      ].map(a => ({
+        name:a.name, role:a.role, initials:a.initials, pick:this.login(a.key),
+        style:"display:flex;align-items:center;gap:11px;width:100%;padding:11px 12px;border-radius:11px;border:1px solid #00000014;background:#fff;cursor:pointer",
+        avatarStyle:`width:34px;height:34px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:${a.key==="head"?"#003935":"#e1f5f2"};color:${a.key==="head"?"#fff":"#007970"}`
+      })),
+      loginStats: [
+        {value:"٢٥", label:"عضوة فريق تنفيذي"},
+        {value:"١٥٠", label:"مدرسة في النطاق"},
+        {value:"٧", label:"أقسام في ملف العنقود"},
+        {value:"يومي", label:"تحديث المؤشرات"}
+      ],
+
+      roleLabel: S.role === "head" ? "رئيسة النطاق" : "عضو الفريق التنفيذي",
+      rolePillStyle: PILL + (S.role==="head" ? "background:#0039350f;color:#003935;margin-inline-start:4px" : "background:#00968814;color:#007970;margin-inline-start:4px"),
+      userName: acct.name, userEmail: acct.email, userInitials: acct.initials,
+      headerAvatarStyle: `width:24px;height:24px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;background:${S.role==="head"?"#003935":"#e1f5f2"};color:${S.role==="head"?"#fff":"#007970"}`,
+      menuOpen: S.menuOpen, notifOpen: S.notifOpen,
+      toggleMenu: () => this.setState(s=>({ menuOpen:!s.menuOpen, notifOpen:false })),
+      toggleNotif: () => this.setState(s=>({ notifOpen:!s.notifOpen, menuOpen:false })),
+      bellStyle: `position:relative;width:36px;height:36px;border-radius:10px;border:1px solid #00000012;background:${S.notifOpen?"#f2f4f4":"#fff"};cursor:pointer;display:flex;align-items:center;justify-content:center`,
+      notifCount: S.role === "head" ? "٧" : "٣",
+      notifications: (S.role === "head" ? [
+        {text:"٣ عضوات لم يحدّثن بياناتهن اليوم", time:"قبل ١٢ دقيقة", ok:false},
+        {text:"عنقود ٢ انخفض انضباطه إلى ٦٤٪", time:"قبل ساعة", ok:false},
+        {text:"وصل ملف عنقود ٤ محدّثاً من هند الشمري", time:"قبل ٣ ساعات", ok:true}
+      ] : [
+        {text:"لم تُثبّت الغياب في مدرستين اليوم", time:"قبل ٢٠ دقيقة", ok:false},
+        {text:"باقي رفع استمارة تنفيذ الخطة ٣", time:"أمس", ok:false},
+        {text:"تم استيراد تصنيف نافس لمدارسك", time:"أمس", ok:true}
+      ]).map(n=>({ ...n, dotStyle:`width:7px;height:7px;border-radius:99px;margin-top:6px;flex:none;background:${n.ok?"#067647":"#f59e0b"}` })),
+      logout: () => this.setState({ screen:"login", menuOpen:false, notifOpen:false, loginEmail:"" }),
+
+      isMemberRole: S.role === "member",
+      isMember: S.role === "member" && !S.field,
+      isField: S.role === "member" && S.field,
+      isHead: S.role === "head",
+      toggleField: () => this.setState(s=>({ field:!s.field })),
+      openField: () => this.setState({ field:true }),
+      fieldBtnLabel: S.field ? "العودة للوحة" : "عرض الجوال الميداني",
+      fieldBtnStyle: `height:36px;padding:0 13px;border-radius:10px;border:1px solid ${S.field?"#009688":"#00000012"};background:${S.field?"#e1f5f2":"#fff"};color:${S.field?"#007970":"#00000099"};font-size:12.5px;font-weight:600;cursor:pointer`,
+
+      completion: "٧٨٪",
+      completionFill: "height:100%;width:78%;border-radius:99px;background:#009688",
+      memberGaps: `تثبيت الغياب لـ${AR(6-doneCount)} مدارس · رابط استمارة التنفيذ ٣`,
+      memberNav: [
+        {k:"profile",label:"البيانات الأولية",badge:"مكتمل",ok:true},
+        {k:"schools",label:"مدارس العنقود",badge:"٦",ok:true},
+        {k:"eval",label:"التقويم المدرسي",badge:"",ok:true},
+        {k:"madrasati",label:"منصة مدرستي",badge:"",ok:true},
+        {k:"discipline",label:"الانضباط المدرسي",badge:"",ok:true},
+        {k:"tasks",label:"المهام",badge:AR(6-doneCount),ok:doneCount===6},
+        {k:"pd",label:"التطوير المهني",badge:"",ok:true},
+        {k:"ingest",label:"الاستيراد الذكي",badge:"جديد",ok:true}
+      ].filter(n => S.editMode || S.hiddenSections.indexOf(n.k) < 0)
+       .concat(S.customSections.map(c => ({ k:c.k, label:c.label, badge:"", ok:true, custom:true })))
+       .map(n => {
+        const hidden = S.hiddenSections.indexOf(n.k) >= 0;
+        return {
+          label:n.label, badge:n.badge, pick:this.set("sec",n.k),
+          style:navBtn(S.sec===n.k) + `;opacity:${hidden?.45:1}`,
+          dotStyle:`width:6px;height:6px;border-radius:99px;flex:none;background:${n.ok?"#00968840":"#f59e0b"}`,
+          badgeStyle: n.badge && !S.editMode ? `font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:99px;background:${n.ok?"#00968820":"#f59e0b26"};color:${n.ok?"#007970":"#92400e"}` : "display:none",
+          editing: S.editMode,
+          toggle: n.custom ? this.removeSection(n.k) : () => {},
+          toggleLabel: "×",
+          toggleStyle: n.custom
+            ? "width:22px;height:22px;border-radius:6px;border:1px solid #dc262633;background:#fff;font-size:12px;font-weight:700;color:#dc2626;cursor:pointer;flex:none;line-height:1"
+            : "display:none"
+        };
+       }),
+      editMode: true,
+      labelEdit: S.editMode,
+      toggleEditMode: () => this.setState(s=>({ editMode: !s.editMode })),
+      editModeLabel: S.editMode ? "✓ إنهاء تعديل المسميات" : "تعديل مسميات الحقول",
+      editModeStyle: `height:34px;border-radius:9px;border:1px solid ${S.editMode?"#00968833":"#00000014"};background:${S.editMode?"#e1f5f2":"#fff"};color:${S.editMode?"#007970":"#00000099"};font-size:12px;font-weight:600;cursor:pointer`,
+      addSectionBtn: this.addSection,
+      showAddSection: true,
+
+      profileFieldList: S.profileFields.map(f => ({
+        label:f.label, value:f.value, hint:f.hint || "",
+        isSelect: !!f.options, isDerived: !!f.derived, isText: !f.options && !f.derived,
+        options: (f.options || []).map(v => ({ v })),
+        wrapStyle:`display:flex;flex-direction:column;gap:6px;grid-column:span ${f.span > 1 ? 2 : 1}`,
+        labelStyle:"font-size:11.5px;font-weight:600;color:#00000099",
+        inputStyle:`height:40px;padding:0 11px;border-radius:9px;border:1px solid #0000001f;background:${f.derived?"#f7f8f8":"#fff"};font-size:13.5px;color:#000000de;text-align:${f.ltr?"left":"right"}`,
+        dir: f.ltr ? "ltr" : "rtl",
+        onValue: this.editProfileField(f.id, "value"),
+        onLabel: this.editProfileField(f.id, "label"),
+        remove: this.removeProfileField(f.id),
+        editing: S.editMode,
+        labelEditStyle: S.editMode ? "height:28px;padding:0 9px;border-radius:7px;border:1px dashed #00968866;background:#f0faf8;font-size:11.5px;font-weight:600;color:#007970;width:100%" : "display:none",
+        labelViewStyle: S.editMode ? "display:none" : "font-size:11.5px;font-weight:600;color:#00000099",
+        removeStyle: "width:24px;height:24px;border-radius:7px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer;flex:none;line-height:1",
+        hintStyle: f.hint ? "font-size:11px;color:#00000073" : "display:none"
+      })),
+      addProfileFieldBtn: this.addProfileField,
+
+      schoolFieldToggles: ["البريد الوزاري","نوع التعليم","برامج التربية الخاصة","الحارس","عدد الفصول","عدد الطالبات","فصول موهبة","عدد فصول الموهبة","طالبات الموهبة","تطبيق اللغة الصينية"].map(l => {
+        const hidden = S.hiddenSchoolFields.indexOf(l) >= 0;
+        return { label:l, toggle:this.toggleSchoolField(l),
+          style:`padding:6px 11px;border-radius:99px;cursor:pointer;font-size:11.5px;font-weight:600;border:1px solid ${hidden?"#dc262633":"#00968833"};background:${hidden?"#fff":"#e1f5f2"};color:${hidden?"#dc2626":"#007970"}`,
+          mark: hidden ? "مخفي" : "ظاهر" };
+      }),
+      extraSchoolFieldList: S.extraSchoolFields.map(f => ({
+        label:f.label, value:f.value,
+        onLabel:this.editSchoolField(f.id,"label"), onValue:this.editSchoolField(f.id,"value"),
+        remove:this.removeSchoolField(f.id)
+      })),
+      addSchoolFieldBtn: this.addSchoolField,
+
+      secCustom: S.customSections.some(c => c.k === S.sec),
+      customSec: (() => {
+        const c = S.customSections.find(x => x.k === S.sec);
+        if (!c) return { label:"", fields:[] };
+        return {
+          label: c.label,
+          onLabel: this.renameSection(c.k),
+          add: this.addCustomField(c.k),
+          fields: (S.customFields[c.k] || []).map(f => ({
+            label:f.label, value:f.value,
+            onLabel:this.editCustomField(c.k,f.id,"label"),
+            onValue:this.editCustomField(c.k,f.id,"value"),
+            remove:this.removeCustomField(c.k,f.id)
+          }))
+        };
+      })(),
+      sendToHead: () => this.setState({ sent:true }),
+      sendLabel: S.sent ? "✓ أُرسل لرئيسة النطاق" : "إرسال التحديث لرئيسة النطاق",
+      saveProfile: () => this.setState({ saved:true }),
+      saveLabel: S.saved ? "✓ حُفظت التعديلات" : "حفظ التعديلات",
+      saveBtnStyle: `height:38px;padding:0 16px;border-radius:9px;border:1px solid ${S.saved?"#00968833":"#00000014"};background:${S.saved?"#e1f5f2":"#fff"};color:${S.saved?"#007970":"#00000099"};font-size:12.5px;font-weight:600;cursor:pointer`,
+
+      secProfile:S.sec==="profile", secSchools:S.sec==="schools", secEval:S.sec==="eval",
+      secMadrasati:S.sec==="madrasati", secDiscipline:S.sec==="discipline", secTasks:S.sec==="tasks", secPD:S.sec==="pd",
+      secIngest:S.sec==="ingest",
+
+      ingestFiles: S.files.map(f=>{
+        const map = {done:{t:"تم الاستخراج",c:"#067647"}, review:{t:"يحتاج مراجعة",c:"#b45309"}, processing:{t:"جاري التحليل…",c:"#009688"}};
+        const st = map[f.status];
+        return {
+          name:f.name, size:f.size, kind:f.kind, state:st.t,
+          fields: f.fields ? AR(f.fields)+" حقل مستخرج" : "—",
+          iconStyle:`width:38px;height:38px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;background:${f.kind==="صورة"?"#e1f5f2":"#f2f4f4"};color:${f.kind==="صورة"?"#007970":"#00000080"}`,
+          stateStyle: PILL + `background:${st.c}14;color:${st.c}`,
+          barStyle:`height:4px;border-radius:99px;background:${st.c};width:${f.status==="processing"?"46%":"100%"};opacity:${f.status==="processing"?1:.25}`
+        };
+      }),
+      addFiles: () => this.setState(s=>({ files:[...s.files, {name:"خطة التحسين ١٤٤٧.pdf", kind:"PDF", size:"١٫١ م.ب", status:"processing", fields:0}] })),
+      agentSteps: [
+        {t:"قرأ ٤ ملفات وحوّل الصور والمسح الضوئي إلى نص", ok:true},
+        {t:"استخرج ٣ جداول وطابق أسماء المدارس مع سجل العنقود", ok:true},
+        {t:"حوّل النسب والأرقام إلى حقول المؤشرات", ok:true},
+        {t:"رصد تعارضين بين ملف الانضباط ومحضر الاجتماع", ok:false}
+      ].map(s=>({ t:s.t, dotStyle:`width:18px;height:18px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${s.ok?"#06764714":"#f59e0b26"};color:${s.ok?"#067647":"#92400e"}`, mark:s.ok?"✓":"!" })),
+      extracted: [
+        {label:"نتيجة نافس — ابتدائية الأندلس", value:"ارتفاع ٦٪", conf:"عالية", src:"تقرير نافس.pdf · ص ٢"},
+        {label:"تصنيف المدرسة — ثانوية الرواد", value:"انطلاق", conf:"عالية", src:"تقرير نافس.pdf · ص ٥"},
+        {label:"الانضباط اليومي — متوسطة الخنساء", value:"٩٣٪", conf:"عالية", src:"الانضباط اليومي.xlsx · صف ١٢"},
+        {label:"عدد المعلمات — ابتدائية الروضة", value:"٣١", conf:"متوسطة", src:"محضر الاجتماع.docx · فقرة ٣"},
+        {label:"وكيلة الشؤون الطلابية — الفيصلية", value:"حصة الشمراني", conf:"متوسطة", src:"محضر الاجتماع.docx · فقرة ٦"}
+      ].map(e=>({
+        label:e.label, value:e.value, conf:e.conf, src:e.src,
+        confStyle: PILL + (e.conf==="عالية" ? "background:#06764714;color:#067647" : "background:#f59e0b26;color:#92400e")
+      })),
+      applyExtraction: () => this.setState({ applied:true }),
+      applyLabel: S.applied ? "✓ طُبّق ٣٧ حقلاً على ملف العنقود" : "تطبيق ٣٧ حقلاً على ملف العنقود",
+
+      schoolList: S.schoolList.map((item,i)=>{
+        const base = SCHOOLS[item.src];
+        return {
+          name:item.name, tier:base.tier, tierStyle:tierPill(base.tier), pick:this.set("schoolId",i),
+          meta:`${base.stage} · ${AR(base.students)} طالبة`,
+          rowStyle:`padding:13px 14px;display:flex;flex-direction:column;gap:5px;cursor:pointer;border-bottom:1px solid #00000010;border-inline-end:3px solid ${i===S.schoolId?"#009688":"transparent"};background:${i===S.schoolId?"#f0faf8":"#fff"}`,
+          remove:this.removeSchool(i),
+          removeStyle: "width:24px;height:24px;border-radius:7px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer;flex:none;line-height:1"
+        };
+      }),
+      addSchoolBtn: this.addSchool,
+
+      sc: {
+        name: scName, tier: sc.tier, tierStyle: tierPill(sc.tier),
+        onName: this.editSchoolName(S.schoolId),
+        nameViewStyle: S.editMode ? "display:none" : "font-size:18px;font-weight:600",
+        nameEditStyle: S.editMode ? "height:40px;padding:0 11px;border-radius:9px;border:1px dashed #00968866;background:#f0faf8;font-size:18px;font-weight:600;color:#000000de" : "display:none",
+        editing: S.editMode,
+        addInfoField: this.addSchoolField,
+        meta: `رقم العنقود ٤ · ${sc.stage} · ${sc.area} · الرقم الوزاري ${sc.no}`,
+        info: [
+          {label:"البريد الوزاري", value:sc.email},
+          {label:"نوع التعليم", value:sc.type},
+          {label:"برامج التربية الخاصة", value:sc.special},
+          {label:"الحارس", value:sc.guard},
+          {label:"عدد الفصول", value:AR(sc.classes)},
+          {label:"عدد الطالبات", value:AR(sc.students)},
+          {label:"فصول موهبة", value:sc.gifted},
+          {label:"عدد فصول الموهبة", value:sc.gclasses? AR(sc.gclasses):"—"},
+          {label:"طالبات الموهبة", value:sc.gstudents? AR(sc.gstudents):"—"},
+          {label:"تطبيق اللغة الصينية", value:sc.chinese}
+        ].filter(f => S.hiddenSchoolFields.indexOf(f.label) < 0)
+         .concat(S.extraSchoolFields.map(f => ({ label:f.label, value:f.value || "", extraId:f.id })))
+         .map(f=>({
+           label:f.label,
+           value: f.extraId ? f.value : this.schoolVal(f.label, f.value),
+           onValue: f.extraId ? this.editSchoolField(f.extraId, "value") : this.editSchoolVal(f.label),
+           inputStyle:"height:36px;padding:0 10px;border-radius:9px;border:1px solid #0000001f;background:#fff;font-size:13px;font-weight:500;color:#000000de;width:100%"
+         })),
+        staff: (S.staffTiles[S.schoolId] || []).map(t=>({
+          label:t.label, value:t.value,
+          onValue: this.editStaffTile(t.id, "value"),
+          onLabel: this.editStaffTile(t.id, "label"),
+          remove: this.removeStaffTile(t.id),
+          inputStyle:"width:100%;height:32px;padding:0;border:none;background:none;font-size:20px;font-weight:600;line-height:1.1;color:#000000de;outline:none",
+          labelViewStyle: S.editMode ? "display:none" : "font-size:11px;color:#00000080",
+          labelEditStyle: S.editMode ? "width:100%;height:26px;padding:0 7px;border-radius:6px;border:1px dashed #00968866;background:#f0faf8;font-size:11px;font-weight:600;color:#007970" : "display:none",
+          removeStyle: "position:absolute;top:6px;inset-inline-start:6px;width:20px;height:20px;border-radius:6px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer;line-height:1"
+        })),
+        addStaff: this.addStaffTile,
+        leaders: (S.leaders[S.schoolId] || []).map(p=>{
+          const ok = p.state !== "لا يوجد";
+          return {
+            role:p.role, state:p.state,
+            stateStyle: PILL + (ok?"background:#00968814;color:#007970":"background:#dc262614;color:#dc2626"),
+            onRole: this.editLeader(p.id, "role"),
+            onState: this.editLeader(p.id, "state"),
+            remove: this.removeLeader(p.id),
+            addField: this.addLeaderField(p.id),
+            roleViewStyle: S.editMode ? "display:none" : "font-size:11px;color:#00000080",
+            roleEditStyle: S.editMode ? "width:100%;height:30px;padding:0 8px;border-radius:7px;border:1px dashed #00968866;background:#f0faf8;font-size:11.5px;font-weight:600;color:#007970" : "display:none",
+            stateViewStyle: S.editMode ? "display:none" : PILL + (ok?"background:#00968814;color:#007970":"background:#dc262614;color:#dc2626"),
+            stateEditStyle: S.editMode ? "width:100%;height:30px;padding:0 8px;border-radius:7px;border:1px solid #0000001f;background:#fff;font-size:11.5px;font-weight:600;color:#000000de" : "display:none",
+            removeStyle: "height:28px;padding:0 10px;border-radius:7px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:11px;font-weight:600;cursor:pointer",
+            addFieldStyle: "height:28px;padding:0 10px;border-radius:7px;border:1px solid #00968833;background:#e1f5f2;color:#007970;font-size:11px;font-weight:600;cursor:pointer",
+            editing: S.editMode,
+            fields: p.fields.map(g=>({
+              label:g.label, value:g.value,
+              onValue: this.editLeaderField(p.id, g.id, "value"),
+              onLabel: this.editLeaderField(p.id, g.id, "label"),
+              remove: this.removeLeaderField(p.id, g.id),
+              inputStyle:`height:34px;padding:0 9px;border-radius:8px;border:1px solid #0000001f;background:#fff;font-size:12.5px;font-weight:500;color:#000000de;width:100%;text-align:${g.label==="البريد الوزاري"?"left":"right"}`,
+              dir: g.label==="البريد الوزاري" ? "ltr" : "rtl",
+              labelViewStyle: S.editMode ? "display:none" : "font-size:10.5px;color:#00000073",
+              labelEditStyle: S.editMode ? "width:100%;height:24px;padding:0 6px;border-radius:6px;border:1px dashed #00968866;background:#f0faf8;font-size:10.5px;font-weight:600;color:#007970" : "display:none",
+              removeStyle: "width:20px;height:20px;border-radius:5px;border:1px solid #dc262633;background:#fff;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer;flex:none;line-height:1"
+            }))
+          };
+        }),
+        addLeader: this.addLeader
+      },
+
+      evalRows: SCHOOLS.map(s=>({
+        name:s.name, tier:s.tier, tierStyle:tierPill(s.tier), support:s.support,
+        nafes:s.nafes, qudrat:s.qudrat, tahsili:s.tahsili,
+        nafesStyle:`font-size:12.5px;font-weight:600;color:${s.nafes.indexOf("ارتفاع")===0?"#067647":"#dc2626"}`
+      })),
+      driveExternal: SCHOOLS.slice(0,3).map((s,i)=>({name:s.name, state:i<2?"مرفوع":"ناقص", style:state(i<2)})),
+
+      madrasatiAvg: mLabels.map((l,i)=>({
+        label:l, value:AR(avg[i])+"٪",
+        valueStyle:`font-size:24px;font-weight:600;line-height:1;color:${pct(avg[i])}`,
+        fillStyle:`height:100%;width:${avg[i]}%;border-radius:99px;background:${pct(avg[i])}`
+      })),
+      madrasatiRows: SCHOOLS.map(s=>{
+        const o = {name:s.name};
+        s.m.forEach((v,i)=>{ o["v"+(i+1)] = AR(v)+"٪"; o["s"+(i+1)] = `font-weight:600;color:${pct(v)}`; });
+        return o;
+      }),
+
+      disciplineRows: SCHOOLS.map(s=>({
+        name:s.name, tier:s.tier, tierStyle:tierPill(s.tier),
+        daily:s.disc.d, weekly:s.disc.w, monthly:s.disc.m,
+        dStyle:`font-weight:600;color:${pct(fromAR(s.disc.d))}`
+      })),
+      disciplinePlans: SCHOOLS.slice(0,3).map((s,i)=>({name:s.name, state:i<2?"معتمدة":"لم تُرفع", style:state(i<2)})),
+      planFileStyle: state(true),
+
+      absenceSummary: AR(doneCount) + " من ٦ مثبتة",
+      absenceFill: `height:100%;width:${(doneCount/6)*100}%;border-radius:99px;background:${doneCount===6?"#067647":"#009688"}`,
+      absenceRows: SCHOOLS.map((s,i)=>({
+        name:s.name, state:S.absence[i]?"تم":"لم يتم",
+        toggle: () => this.setState(st=>{ const a=[...st.absence]; a[i]=!a[i]; return {absence:a}; }),
+        cardStyle:`display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:11px;border:1px solid ${S.absence[i]?"#00000012":"#dc262626"};background:${S.absence[i]?"#fff":"#fef2f2"}`,
+        btnStyle:`padding:6px 13px;border-radius:99px;border:none;cursor:pointer;font-size:11.5px;font-weight:600;background:${S.absence[i]?"#06764714":"#dc262614"};color:${S.absence[i]?"#067647":"#dc2626"}`
+      })),
+      visitCount: AR(totalVisits) + " زيارة",
+      visitsBySchool: SCHOOLS.map(s=>({
+        name:s.name, count:AR(s.visits),
+        fillStyle:`height:100%;width:${(s.visits/12)*100}%;border-radius:99px;background:#009688`
+      })),
+      plans: [
+        {name:"تقرير تحليل الواقع", hint:"رابط درايف", ok:true},
+        {name:"خطة التحسين", hint:"رابط درايف", ok:true},
+        {name:"استمارة تنفيذ الخطة ١", hint:"رابط درايف", ok:true},
+        {name:"استمارة تنفيذ الخطة ٢", hint:"رابط درايف", ok:true},
+        {name:"استمارة تنفيذ الخطة ٣", hint:"لم تُرفع بعد", ok:false}
+      ].map(p=>({...p, state:p.ok?"مرفوع":"ناقص", style:state(p.ok)})),
+
+      pdPrograms: [
+        {name:"مجتمعات التعلم المهنية", ok:true},
+        {name:"ورش العمل", ok:true},
+        {name:"دروس تطبيقية", ok:true},
+        {name:"برامج أخرى", ok:false}
+      ].map((p,i)=>({
+        name:p.name, count:AR(S.pd[i]), state:p.ok?"مرفوعة":"ناقصة", style:state(p.ok),
+        inc: () => this.setState(st=>{ const a=[...st.pd]; a[i]++; return {pd:a}; })
+      })),
+
+      visitTypes: ["زيارة صفية","زيارة إشرافية","متابعة خطة","ورشة عمل"].map(l=>({
+        label:l, pick:this.set("visitType",l), style:chip(S.visitType===l)
+      })),
+      fieldAttachments: Array.from({length:S.fieldAttach}).map((_,i)=>({
+        label: i===2 ? "PDF" : "صورة",
+        style:"aspect-ratio:1;border-radius:10px;background:#e1f5f2;color:#007970;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:600;border:1px solid #00968826"
+      })),
+      addFieldAttach: () => this.setState(s=>({ fieldAttach: Math.min(5, s.fieldAttach+1) })),
+      submitVisit: () => this.setState({ visitSent:true }),
+      visitBtnLabel: S.visitSent ? "✓ رُفع التقرير" : "رفع التقرير",
+
+      headNav: [
+        {k:"dash",label:"نظرة النطاق",badge:""},
+        {k:"members",label:"أعضاء الفريق",badge:"٢٥"},
+        {k:"follow",label:"متابعة الإرسال",badge:"٧"},
+        {k:"ai",label:"مساعد الذكاء الاصطناعي",badge:""},
+        {k:"export",label:"التقرير المجمّع",badge:""}
+      ].map(n=>({
+        label:n.label, badge:n.badge,
+        pick: n.k === "ai" ? () => this.setAndScroll({ head:"ai", profileId:null }) : () => this.setState({ head:n.k, profileId:null }),
+        style:navBtn(S.head===n.k),
+        badgeStyle: n.badge ? "font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:99px;background:#00968820;color:#007970" : "display:none"
+      })),
+      hDash:S.head==="dash" && S.profileId===null, hMembers:S.head==="members" && S.profileId===null,
+      hFollow:S.head==="follow" && S.profileId===null, hAI:S.head==="ai", hExport:S.head==="export",
+      hProfile: S.profileId !== null,
+      goAI:() => this.setAndScroll({ head:"ai", profileId:null }),
+      goExport:() => this.setState({ head:"export", profileId:null }),
+      goFollow:() => this.setState({ head:"follow", profileId:null }),
+      goMembers:() => this.setState({ head:"members", profileId:null }),
+
+      headKpis: [
+        {label:"عضوات حدّثن اليوم",value:"١٨ / ٢٥",delta:"+٣ عن أمس",good:true},
+        {label:"تثبيت الغياب",value:"١٢٤ / ١٥٠",delta:"٨٣٪ من مدارس النطاق",good:true},
+        {label:"متوسط الانضباط اليومي",value:"٩٤٪",delta:"−٢٪ عن الأسبوع",good:false},
+        {label:"زيارات موثقة هذا الأسبوع",value:"٤٧",delta:"من ٢٥ عنقوداً",good:true}
+      ].map(k=>({...k, deltaStyle:`font-size:11.5px;color:${k.good?"#067647":"#b45309"}`})),
+
+      weekBars: week.map(w=>({
+        day:w.day, value: w.v===0?"—":AR(w.v),
+        barStyle:`width:100%;max-width:54px;border-radius:8px 8px 3px 3px;height:${Math.max(4,(w.v/150)*128)}px;background:${w.v===0?"#e6e9e9":w.day==="الأربعاء"?"#009688":"#a2e0d8"}`
+      })),
+      tierStats: [
+        {label:"تميز",value:"٢١ مدرسة",p:14},{label:"تقدم",value:"٦٨ مدرسة",p:45},
+        {label:"انطلاق",value:"٥٢ مدرسة",p:35},{label:"تهيئة",value:"٩ مدارس",p:6}
+      ].map(t=>({...t, fillStyle:`height:100%;width:${t.p}%;border-radius:99px;background:${TIER[t.label]}`})),
+
+      clusterRows: NAMES.slice(0,6).map((n,i)=>{
+        const d = [96,88,94,79,92,85][i];
+        return {
+          name:n, initials:n.split(" ")[0].slice(0,1)+n.split(" ")[1].slice(2,3),
+          cluster:"عنقود "+AR(i+1), absence:AR([6,5,6,3,6,4][i])+" / ٦",
+          discipline:AR(d)+"٪", discStyle:`font-weight:600;color:${pct(d)}`,
+          visits:AR([9,8,11,6,7,6][i]),
+          state: i===3 ? "متأخرة" : "محدّثة",
+          open: this.openProfile(i),
+          stateStyle: PILL + (i===3 ? "background:#f59e0b1f;color:#92400e" : "background:#06764714;color:#067647"),
+          avatarStyle:"width:30px;height:30px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:#e1f5f2;color:#007970"
+        };
+      }),
+
+      members: NAMES.map((n,i)=>{
+        const st = memberStatus(i), c = memberColor(st);
+        return {
+          name:n, statusText:st+" · عنقود "+AR(i+1), open:this.openProfile(i),
+          initials:n.split(" ")[0].slice(0,1)+n.split(" ")[1].slice(2,3),
+          cardStyle:`display:flex;align-items:center;gap:9px;border:1px solid #00000014;border-radius:11px;padding:10px;cursor:pointer;background:${st==="لم تحدّث"?"#fef2f2":"#fff"}`,
+          avatarStyle:`width:30px;height:30px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:${c}1a;color:${c}`,
+          statusStyle:`font-size:10.5px;color:${c}`
+        };
+      }),
+      remindAll: () => this.setState({ remind:true }),
+      remindLabel: S.remind ? "✓ أُرسل التذكير لـ٧ عضوات" : "إرسال تذكير للباقيات",
+
+      memberFilters: ["الكل","ملف مكتمل","ملف ناقص","انضباط منخفض"].map(l=>({
+        label:l, pick:this.set("memberFilter",l), style:chip(S.memberFilter===l)
+      })),
+      memberCards: NAMES.slice(0,9).map((n,i)=>{
+        const c = [92,78,85,64,96,71,88,59,80][i];
+        return {
+          name:n, cluster:"عنقود "+AR(i+1), schools:AR(6-(i%2))+" مدارس",
+          initials:n.split(" ")[0].slice(0,1)+n.split(" ")[1].slice(2,3),
+          completion:AR(c)+"٪", open:this.openProfile(i),
+          avatarStyle:"width:34px;height:34px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:#e1f5f2;color:#007970",
+          fillStyle:`height:100%;width:${c}%;border-radius:99px;background:${pct(c)}`
+        };
+      }),
+
+      openProfile: this.openProfile,
+      closeProfile: () => this.setState({ profileId:null }),
+      onEmailEdit: this.editContact("email"),
+      onPhoneEdit: this.editContact("phone"),
+      contactEditing: S.contactEditing,
+      contactReadonly: !S.contactEditing,
+      toggleContactEdit: () => this.setState(s=>({ contactEditing: !s.contactEditing })),
+      contactEditLabel: S.contactEditing ? "حفظ بيانات التواصل" : "تعديل بيانات التواصل",
+      contactEditStyle: `height:30px;padding:0 12px;border-radius:8px;border:1px solid ${S.contactEditing?"#00968833":"#00000014"};background:${S.contactEditing?"#e1f5f2":"#fff"};color:${S.contactEditing?"#007970":"#00000099"};font-size:11.5px;font-weight:600;cursor:pointer`,
+      ...this.profileVals(),
+
+      chat: S.chat.map(m=>({
+        text:m.text,
+        wrapStyle:`display:flex;justify-content:${m.role==="user"?"flex-end":"flex-start"}`,
+        bubbleStyle: m.role==="user"
+          ? "max-width:78%;padding:11px 15px;border-radius:16px 16px 4px 16px;background:#009688;color:#fff;font-size:13.5px;line-height:24px"
+          : "max-width:86%;padding:13px 17px;border-radius:16px 16px 16px 4px;background:#fff;border:1px solid #00000014;font-size:13.5px;line-height:26px;color:#000000de"
+      })),
+      chatTable: S.chatTable,
+      chatRef: this.chatRef,
+      chatRows: [
+        {name:"منيرة الدوسري",cluster:"عنقود ٢",v:64},
+        {name:"خلود الشهري",cluster:"عنقود ٧",v:68},
+        {name:"بشرى العنزي",cluster:"عنقود ١١",v:69}
+      ].map(r=>({name:r.name, cluster:r.cluster, value:AR(r.v)+"٪", style:`font-weight:600;color:${pct(r.v)}`})),
+      suggestions: ["ملخص اليوم","من لم تحدّث بياناتها؟","مدارس تصنيف تهيئة","نواقص التطوير المهني"].map(l=>({label:l, ask:this.ask(l)})),
+      agentActions: [
+        {l:"ذكّري المتأخرات", k:"remind"},
+        {l:"جهّزي التقرير المجمّع", k:"report"},
+        {l:"راجعي الملفات الناقصة", k:"gaps"}
+      ].map(a=>({
+        label:a.l, run: () => this.setAndScroll({ agentRun:true, agentDone:false }),
+        style:"padding:8px 12px;border-radius:99px;border:1px solid #00968833;background:#e1f5f2;font-size:12px;font-weight:600;color:#007970;cursor:pointer"
+      })),
+      agentRun: S.agentRun,
+      agentPlan: [
+        {t:"حدّد ٧ عضوات لم يرسلن حتى ٢:١٠ م", ok:true},
+        {t:"جمع نواقص كل عضوة من ملف عنقودها", ok:true},
+        {t:"صاغ رسالة تذكير مخصصة لكل واحدة", ok:true},
+        {t:"بانتظار موافقتك قبل الإرسال", ok:false}
+      ].map(s=>({ t:s.t, dotStyle:`width:18px;height:18px;border-radius:99px;flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:${s.ok?"#06764714":"#f59e0b26"};color:${s.ok?"#067647":"#92400e"}`, mark:s.ok?"✓":"…" })),
+      approveAgent: () => this.setAndScroll({ agentDone:true }),
+      approveLabel: S.agentDone ? "✓ أُرسلت ٧ رسائل تذكير" : "موافقة وإرسال",
+      sendChat: this.ask("ملخص اليوم"),
+
+      exportStats: [
+        {value:"١٥٠",label:"مدرسة"},{value:"١٢٤",label:"غياب مثبت"},{value:"٤٧",label:"زيارة"},
+        {value:"٩٤٪",label:"الانضباط"},{value:"١٢",label:"ورشة عمل"},{value:"٨",label:"مجتمع تعلم"}
+      ],
+      exportFiles: [{name:"تقارير الزيارات — درايف"},{name:"خطط التحسين — درايف"},{name:"بطاقات نافس — درايف"},{name:"إكسل الانضباط اليومي"},{name:"التقرير الخارجي للمدارس"}],
+      exportOpts: ["نص جاهز للنسخ","ملف PDF مجمّع","جدول Excel بالمؤشرات"].map(l=>({
+        label:l, pick:this.set("expOpt",l),
+        style:`height:39px;border-radius:9px;cursor:pointer;font-size:12.5px;text-align:right;padding:0 12px;font-weight:${S.expOpt===l?600:500};border:1px solid ${S.expOpt===l?"#009688":"#00000014"};background:${S.expOpt===l?"#e1f5f2":"#fff"};color:${S.expOpt===l?"#007970":"#00000099"}`
+      })),
+      doExport: () => this.setState({ exported:true }),
+      exportLabel: S.exported ? "✓ تم النسخ" : "تجهيز ونسخ"
+    };
+  }
+}
+</script>
+</body>
+</html>
