@@ -1,3 +1,5 @@
+import { api, ApiError } from "./api";
+
 export type OfflineMutation = {
   id: string;
   path: string;
@@ -22,51 +24,53 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function enqueueMutation(input: Omit<OfflineMutation, "id" | "createdAt" | "attempts">) {
+async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>) {
   const database = await openDatabase();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const request = run(database.transaction(storeName, mode).objectStore(storeName));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function enqueueMutation(input: Pick<OfflineMutation, "path" | "method" | "body">) {
   const item: OfflineMutation = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString(), attempts: 0 };
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction(storeName, "readwrite").objectStore(storeName).put(item);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  database.close();
+  await withStore("readwrite", store => store.put(item));
   window.dispatchEvent(new Event("rasd:queue"));
   return item;
 }
 
-export async function listMutations(): Promise<OfflineMutation[]> {
-  const database = await openDatabase();
-  const rows = await new Promise<OfflineMutation[]>((resolve, reject) => {
-    const request = database.transaction(storeName).objectStore(storeName).getAll();
-    request.onsuccess = () => resolve((request.result as OfflineMutation[]).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)));
-    request.onerror = () => reject(request.error);
-  });
-  database.close();
-  return rows;
+export async function listMutations() {
+  const rows = await withStore<OfflineMutation[]>("readonly", store => store.getAll());
+  return rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function removeMutation(id: string) {
-  const database = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction(storeName, "readwrite").objectStore(storeName).delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  database.close();
-}
+const removeMutation = (id: string) => withStore("readwrite", store => store.delete(id));
 
+/**
+ * Replays queued mutations in order. Network/server failures stop the replay (retried later);
+ * a request the server rejects as invalid is dropped so it cannot block everything queued behind it.
+ * Returns the number of dropped mutations.
+ */
 export async function replayMutations() {
-  const rows = await listMutations();
-  const token=localStorage.getItem("rasd:token");
-  for (const row of rows) {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL??"http://localhost:4000"}/api/v1${row.path}`, {
-      method: row.method,
-      headers: { "content-type": "application/json", ...(token?{authorization:`Bearer ${token}`}:{}) },
-      body: JSON.stringify(row.body),
-    });
-    if (!response.ok) throw new Error("تعذّرت مزامنة التغييرات");
+  let dropped = 0;
+  for (const row of await listMutations()) {
+    try {
+      await api(row.path, { method: row.method, body: row.body, source: "mobile" });
+    } catch (error) {
+      const permanent = error instanceof ApiError && error.status >= 400 && error.status < 500 && ![401, 408, 429].includes(error.status);
+      if (!permanent) {
+        await withStore("readwrite", store => store.put({ ...row, attempts: row.attempts + 1 }));
+        throw error;
+      }
+      dropped += 1;
+    }
     await removeMutation(row.id);
   }
   window.dispatchEvent(new Event("rasd:queue"));
+  return dropped;
 }

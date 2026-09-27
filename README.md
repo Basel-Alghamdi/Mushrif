@@ -1,22 +1,25 @@
 # رَصد — منصة الإشراف المدرسي
 
-منصة عربية RTL لإدارة أعمال الإشراف، متابعة المدارس، الزيارات الميدانية، والمؤشرات على مستوى المجموعة والمنطقة.
+منصة عربية RTL لإدارة أعمال الإشراف: ملف العنقود لكل عضوة، المهام اليومية والزيارات الميدانية، والمؤشرات ولوحة رئيسة النطاق.
 
 ## التشغيل المحلي
 
 ```bash
 pnpm install
+cp .env.example .env              # ثم أضف مفاتيح Supabase (انظر docs/INTEGRATIONS.md)
+pnpm --filter @rasd/api db:migrate
+pnpm --filter @rasd/api bootstrap:head
 pnpm dev
 ```
 
 - الواجهة: `http://localhost:3000`
 - الـ API: `http://localhost:4000`
-- وضع العرض يعمل دون حسابات سحابية. انسخ `.env.example` إلى `.env.local` عند ربط الخدمات.
 
-## التطبيقات
+## البنية
 
-- `apps/web`: Next.js، مساحات العضو ورئيس القسم وواجهة الميدان.
-- `apps/api`: Hono REST/SSE scaffold.
-- `apps/worker`: طابور مهام قابل للربط بـ pg-boss.
-- `packages/i18n`: التنسيق العربي والتواريخ الهجرية.
-- `packages/schemas`: نماذج التحقق المشتركة.
+- `apps/web`: Next.js — مساحة العضوة (`/cluster/*`)، لوحة رئيسة النطاق (`/district`)، الجوال الميداني (`/field`).
+- `apps/api`: Hono على Postgres (Supabase) — المصدر الوحيد للكتابة، مع التحقق والصلاحيات وسجل التدقيق.
+- `apps/worker`: مهام الخلفية (قيد الإعداد).
+- `packages/schemas`: قواعد التحقق وبنية الملف ونسبة الاكتمال، مشتركة بين الواجهة والـ API.
+- `packages/i18n`: الأرقام العربية والتاريخ الهجري.
+- `supabase/migrations`: مخطط قاعدة البيانات وسياسات RLS.

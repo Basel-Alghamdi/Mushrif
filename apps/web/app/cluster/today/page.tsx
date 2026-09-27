@@ -1,2 +1,3 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function TodayPage(){return <MemberWorkspace initialPage="today"/>}
+"use client";
+import { TodayPage } from "../../../components/member/today-page";
+export default function Page() { return <TodayPage/>; }

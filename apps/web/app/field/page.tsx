@@ -1,24 +1,87 @@
 "use client";
 
-import { Check, FileText, Image as ImageIcon, Mic, Plus, UploadCloud, WifiOff } from "lucide-react";
+import { Check, UploadCloud, WifiOff } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
-import { School } from "../../lib/platform-data";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ar, hijri } from "@rasd/i18n";
+import { VISIT_TYPES } from "@rasd/schemas";
+import { api, ApiError, errorText, redirectIfSignedOut } from "../../lib/api";
 import { enqueueMutation, listMutations, replayMutations } from "../../lib/offline-queue";
-import { apiRead } from "../../lib/use-persistent-state";
+import { enforceSessionOnly } from "../../lib/supabase";
+import type { Workspace } from "../../lib/types";
 
-type Workspace={profile:unknown[];schools:School[];programs:unknown[];sections:unknown[]};
+type Outcome = "sent" | "queued" | "rejected";
+const CACHE = "rasd:field-workspace";
 
 export default function FieldPage(){
-  const [workspace,setWorkspace]=useState<Workspace>({profile:[],schools:[],programs:[],sections:[]});const [member,setMember]=useState({name:"عضوة الفريق",clusterLabel:""});const [ready,setReady]=useState(false);const [online,setOnline]=useState(true);const [sent,setSent]=useState(false);const [queueCount,setQueueCount]=useState(0);const [attachments,setAttachments]=useState<{name:string;kind:"image"|"file"|"audio"}[]>([]);const schools=workspace.schools;
-  useEffect(()=>{Promise.all([apiRead("/member/workspace"),apiRead("/auth/me")]).then(([space,account])=>{setWorkspace(space as Workspace);setMember((account as {user:{name:string;clusterLabel:string}}).user);setReady(true)}).catch(()=>{localStorage.removeItem("rasd:token");window.location.replace("/login")})},[]);
-  useEffect(()=>{const refresh=async()=>setQueueCount((await listMutations()).length);const sync=async()=>{setOnline(navigator.onLine);await refresh();if(!navigator.onLine)return;try{await replayMutations();const latest=await apiRead("/member/workspace") as Workspace;setWorkspace(latest);await refresh()}catch{setOnline(false)}};sync();window.addEventListener("online",sync);window.addEventListener("offline",sync);window.addEventListener("rasd:queue",refresh);return()=>{window.removeEventListener("online",sync);window.removeEventListener("offline",sync);window.removeEventListener("rasd:queue",refresh)}},[]);
-  const sendOrQueue=async(path:string,method:"POST"|"PUT",body:Record<string,unknown>)=>{if(!navigator.onLine){await enqueueMutation({path,method,body});setQueueCount((await listMutations()).length);return false}try{const token=localStorage.getItem("rasd:token");const response=await fetch(`${process.env.NEXT_PUBLIC_API_URL??"http://localhost:4000"}/api/v1${path}`,{method,headers:{"content-type":"application/json",...(token?{authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});if(!response.ok)throw new Error();return true}catch{setOnline(false);await enqueueMutation({path,method,body});setQueueCount((await listMutations()).length);return false}};
-  const saveSchools=async(next:School[])=>{const nextWorkspace={...workspace,schools:next};setWorkspace(nextWorkspace);return sendOrQueue("/member/workspace","PUT",nextWorkspace as unknown as Record<string,unknown>)};
-  const toggle=async(id:string)=>{const next=schools.map(school=>school.id===id?{...school,absence:!school.absence}:school);await saveSchools(next)};
-  const submit=async(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=new FormData(event.currentTarget);const schoolId=String(form.get("schoolId")??"");const body={schoolId,type:String(form.get("type")??""),text:String(form.get("text")??""),beneficiaries:Number(form.get("beneficiaries")??0),sessions:Number(form.get("sessions")??0),blockers:String(form.get("blockers")??""),attachments:attachments.map(item=>item.name),source:"mobile"};const visitSaved=await sendOrQueue("/visits","POST",body);const next=schools.map(school=>school.id===schoolId?{...school,visits:school.visits+1}:school);await saveSchools(next);setSent(true);window.setTimeout(()=>setSent(false),3000);if(visitSaved)(event.currentTarget as HTMLFormElement).reset()};
-  const addAttachments=(files:FileList|null)=>setAttachments(items=>[...items,...Array.from(files??[]).map(file=>({name:file.name,kind:file.type.startsWith("image/")?"image" as const:file.type.startsWith("audio/")?"audio" as const:"file" as const}))]);
-  const done=schools.filter(school=>school.absence).length;const initials=member.name.split(/\s+/).map(part=>part[0]).join("").slice(0,2);
-  if(!ready)return <main className="field-page"><div className="workspace-loading">جاري تحميل مهامك…</div></main>;
-  return <main className="field-page"><header className="field-top"><div><span>{member.clusterLabel||"ملف العنقود"} · اليوم</span><h1>مهام اليوم</h1></div><Link href="/cluster/today" className="avatar member" aria-label="العودة إلى ملف العنقود">{initials}</Link></header>{(!online||queueCount>0)&&<div className="offline-banner"><WifiOff/><span>{online?`جاري إرسال ${queueCount} تغييرات محفوظة`:`في انتظار الاتصال — ${queueCount} تغييرات`}<small>ستُرسل تلقائياً عند عودة الاتصال.</small></span></div>}<div className="field-content"><section className="card"><div className="card-title-row"><div><h2>تثبيت الغياب</h2><p>{done} من {schools.length} مثبتة</p></div></div>{schools.length?<div className="mobile-absence">{schools.map(school=><div key={school.id}><span>{school.name}</span><button className={school.absence?"on":""} onClick={()=>toggle(school.id)}>{school.absence?"تم":"لم يتم"}</button></div>)}</div>:<div className="empty-state"><b>أضيفي مدارس العنقود من ملفك أولاً</b><Link className="secondary-button" href="/cluster/file">فتح ملف العنقود</Link></div>}</section><form className="card quick-visit" onSubmit={submit}><div><h2>تقرير زيارة سريع</h2><p>تُحفظ الزيارة والمرفقات حتى بدون اتصال.</p></div><label><span>المدرسة</span><select name="schoolId" required defaultValue=""><option value="" disabled>اختاري المدرسة</option>{schools.map(school=><option value={school.id} key={school.id}>{school.name}</option>)}</select></label><div className="activity-chips">{["زيارة صفية","زيارة إشرافية","متابعة خطة","ورشة عمل"].map((type,index)=><label key={type}><input type="radio" name="type" value={type} defaultChecked={index===0}/><span>{type}</span></label>)}</div><textarea name="text" required minLength={10} placeholder="وصف مختصر للزيارة وأبرز الملاحظات…"/><div className="field-numbers"><label><span>عدد المستفيدات</span><input name="beneficiaries" type="number" min="0" defaultValue="0"/></label><label><span>عدد الجلسات</span><input name="sessions" type="number" min="0" defaultValue="1"/></label></div><label><span>المعوقات أو الاحتياج</span><textarea name="blockers" placeholder="اختياري"/></label><div className="attachment-grid">{attachments.map((item,index)=><div key={`${item.name}-${index}`}>{item.kind==="image"?<ImageIcon/>:item.kind==="audio"?<Mic/>:<FileText/>}<span>{item.name}</span></div>)}<label><Plus/><span>إضافة مرفق</span><input hidden type="file" multiple accept="image/*,.pdf,.docx,audio/*" onChange={event=>addAttachments(event.target.files)}/></label></div><button className="primary-button login-submit" disabled={!schools.length}>{sent?<><Check/>رُفع التقرير</>:<><UploadCloud/>رفع التقرير</>}</button></form></div></main>;
+  const [ws,setWs]=useState<Workspace|null>(null);const [online,setOnline]=useState(true);const [queueCount,setQueueCount]=useState(0);
+  const [status,setStatus]=useState<{tone:"ok"|"error";text:string}|null>(null);const [errors,setErrors]=useState<Record<string,string>>({});
+  const flash=(tone:"ok"|"error",text:string)=>{setStatus({tone,text});window.setTimeout(()=>setStatus(null),4000)};
+  const refreshQueue=useCallback(async()=>setQueueCount((await listMutations()).length),[]);
+  // The last loaded file is cached so the page still opens with no signal inside a school.
+  const load=useCallback(async()=>{
+    try{const fresh=await api<Workspace>("/member/workspace",{source:"mobile"});setWs(fresh);try{localStorage.setItem(CACHE,JSON.stringify(fresh))}catch{/* storage full or blocked */}}
+    catch(error){if(!redirectIfSignedOut(error))setWs(current=>{if(!current)flash("error",errorText(error));return current})}
+  },[]);
+
+  useEffect(()=>{
+    try{const cached=localStorage.getItem(CACHE);if(cached)setWs(JSON.parse(cached) as Workspace)}catch{/* ignore unreadable cache */}
+    const sync=async()=>{
+      setOnline(navigator.onLine);await refreshQueue();
+      if(navigator.onLine){try{const dropped=await replayMutations();if(dropped)flash("error",`رُفض ${ar(dropped)} من التغييرات المحفوظة لعدم صحتها`);await refreshQueue()}catch{setOnline(false);return}}
+      await load();
+    };
+    enforceSessionOnly().then(sync);const retry=window.setInterval(()=>{if(navigator.onLine)sync()},30000);
+    window.addEventListener("online",sync);window.addEventListener("offline",sync);window.addEventListener("rasd:queue",refreshQueue);
+    return()=>{window.clearInterval(retry);window.removeEventListener("online",sync);window.removeEventListener("offline",sync);window.removeEventListener("rasd:queue",refreshQueue)};
+  },[load,refreshQueue]);
+
+  // Offline or server unreachable → queue for replay; a validation error is shown instead of queued.
+  const sendOrQueue=async(path:string,method:"POST"|"PUT",body:Record<string,unknown>):Promise<Outcome>=>{
+    if(!navigator.onLine){await enqueueMutation({path,method,body});await refreshQueue();return "queued"}
+    try{await api(path,{method,body,source:"mobile"});return "sent"}
+    catch(error){
+      if(redirectIfSignedOut(error))return "rejected";
+      if(error instanceof ApiError&&error.status>=400&&error.status<500){if(error.fields)setErrors(error.fields);flash("error",error.message);return "rejected"}
+      setOnline(false);await enqueueMutation({path,method,body});await refreshQueue();return "queued";
+    }
+  };
+
+  const toggle=async(id:string,done:boolean)=>{
+    if(!ws)return;const set=(value:boolean)=>setWs(current=>current&&{...current,schools:current.schools.map(school=>school.id===id?{...school,absenceToday:value}:school)});
+    set(done);const outcome=await sendOrQueue(`/schools/${id}/absence`,"PUT",{date:ws.cluster.today,done});if(outcome==="rejected")set(!done);
+  };
+  const submit=async(event:FormEvent<HTMLFormElement>)=>{
+    event.preventDefault();setErrors({});const formElement=event.currentTarget;const form=new FormData(formElement);const schoolId=String(form.get("schoolId")??"");
+    const body={id:crypto.randomUUID(),schoolId,type:String(form.get("type")??""),text:String(form.get("text")??"").trim(),beneficiaries:Number(form.get("beneficiaries")||0),sessions:Number(form.get("sessions")||0),blockers:String(form.get("blockers")??"")};
+    if(body.text.length<10){setErrors({text:"أضيفي وصفاً لا يقل عن ١٠ أحرف"});return}
+    const outcome=await sendOrQueue("/visits","POST",body);
+    if(outcome==="rejected")return;
+    setWs(current=>current&&{...current,schools:current.schools.map(school=>school.id===schoolId?{...school,visitCount:school.visitCount+1}:school)});
+    formElement.reset();flash("ok",outcome==="sent"?"رُفع التقرير":"حُفظ التقرير وسيُرسل عند عودة الاتصال");
+  };
+
+  if(!ws)return <main className="field-page"><div className="workspace-loading">{status?.text??"جاري تحميل مهامك…"}</div></main>;
+  const schools=ws.schools;const done=schools.filter(school=>school.absenceToday).length;const initials=ws.cluster.memberName.split(/\s+/).map(part=>part[0]).join("").slice(0,2);
+  return <main className="field-page">
+    <header className="field-top"><div><span>{ws.cluster.label||"ملف العنقود"} · {hijri()}</span><h1>مهام اليوم</h1></div><Link href="/cluster/today" className="avatar member" aria-label="العودة إلى ملف العنقود">{initials}</Link></header>
+    {(!online||queueCount>0)&&<div className="offline-banner" role="status"><WifiOff/><span>{online?`جاري إرسال ${ar(queueCount)} تغييرات محفوظة`:`في انتظار الاتصال — ${ar(queueCount)} تغييرات`}<small>ستُرسل تلقائياً عند عودة الاتصال.</small></span></div>}
+    <div className="field-content">
+      {status&&<p className={status.tone==="ok"?"login-success":"login-error"} role="status">{status.text}</p>}
+      <section className="card"><div className="card-title-row"><div><h2>تثبيت الغياب</h2><p>{ar(done)} من {ar(schools.length)} مثبتة</p></div></div>
+        {schools.length?<div className="mobile-absence">{schools.map(school=><div key={school.id}><span>{school.name}</span><button className={school.absenceToday?"on":""} aria-pressed={school.absenceToday} onClick={()=>toggle(school.id,!school.absenceToday)}>{school.absenceToday?"تم":"لم يتم"}</button></div>)}</div>
+        :<div className="empty-state"><b>أضيفي مدارس العنقود من ملفك أولاً</b><Link className="secondary-button" href="/cluster/file">فتح ملف العنقود</Link></div>}
+      </section>
+      <form className="card quick-visit" onSubmit={submit}>
+        <div><h2>تقرير زيارة سريع</h2><p>يُحفظ التقرير حتى بدون اتصال ويُرسل تلقائياً.</p></div>
+        <label><span>المدرسة</span><select name="schoolId" required defaultValue=""><option value="" disabled>اختاري المدرسة</option>{schools.map(school=><option value={school.id} key={school.id}>{school.name}</option>)}</select>{errors.schoolId&&<small className="field-error">{errors.schoolId}</small>}</label>
+        <div className="activity-chips">{VISIT_TYPES.map((type,index)=><label key={type}><input type="radio" name="type" value={type} defaultChecked={index===0}/><span>{type}</span></label>)}</div>
+        <label><span>وصف الزيارة</span><textarea name="text" required minLength={10} placeholder="وصف مختصر للزيارة وأبرز الملاحظات…"/>{errors.text&&<small className="field-error">{errors.text}</small>}</label>
+        <div className="field-numbers"><label><span>عدد المستفيدات</span><input name="beneficiaries" type="number" min="0" inputMode="numeric" defaultValue="0"/></label><label><span>عدد الجلسات</span><input name="sessions" type="number" min="0" inputMode="numeric" defaultValue="1"/></label></div>
+        <label><span>المعوقات أو الاحتياج</span><textarea name="blockers" placeholder="اختياري"/></label>
+        <div className="field-alert"><span>المرفقات والملاحظات الصوتية</span><p>إرفاق الصور والملفات والتسجيلات يُفعّل مع خدمة التخزين قريباً.</p></div>
+        <button className="primary-button login-submit" disabled={!schools.length}>{status?.tone==="ok"?<><Check/>{status.text}</>:<><UploadCloud/>رفع التقرير</>}</button>
+      </form>
+    </div>
+  </main>;
 }

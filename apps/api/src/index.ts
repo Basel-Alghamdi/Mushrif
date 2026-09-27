@@ -1,5 +1,6 @@
+import "./env.js";
 import { serve } from "@hono/node-server";
 import { app } from "./app.js";
+import { env } from "./env.js";
 
-const port = Number(process.env.PORT ?? 4000);
-serve({ fetch: app.fetch, port }, ({ port }) => console.log(`Rasd API: http://localhost:${port}`));
+serve({ fetch: app.fetch, port: env.port }, ({ port }) => console.log(`Rasd API: http://localhost:${port}`));

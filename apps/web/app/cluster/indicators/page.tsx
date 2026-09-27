@@ -1,2 +1,3 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function IndicatorsPage(){return <MemberWorkspace initialPage="indicators"/>}
+"use client";
+import { IndicatorsPage } from "../../../components/member/indicators-page";
+export default function Page() { return <IndicatorsPage/>; }

@@ -1,2 +1,3 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function ClusterFilePage(){return <MemberWorkspace initialPage="file"/>}
+"use client";
+import { FilePage } from "../../../components/member/file-page";
+export default function Page() { return <FilePage/>; }
