@@ -13,9 +13,9 @@ export const hijri = (date: Date | string = new Date()) =>
 
 export const copy = {
   brand: "رَصد",
-  tagline: "منصة الإشراف المدرسي الذكية",
-  district: "إدارة تعليم الرياض",
-  cluster: "مجموعة الإشراف الرابعة",
+  tagline: "منصة متابعة الفريق التنفيذي",
+  district: "إدارة التعليم · النطاق الإشرافي",
+  cluster: "عنقود ٤",
   welcome: "مرحباً بعودتك",
-  overview: "نظرة عامة على أداء مدارس المجموعة اليوم",
+  overview: "صورة مباشرة لأداء مدارس العنقود اليوم",
 } as const;

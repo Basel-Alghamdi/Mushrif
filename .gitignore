@@ -1,9 +1,11 @@
 node_modules
 .next
+.next-dev
 dist
 .turbo
 .env
 .env.local
 *.log
 *.tsbuildinfo
+apps/api/data/
 .DS_Store
