@@ -1,9 +1,4 @@
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-// Local development reads the repo-root .env; on Railway the variables come from the service settings.
-const rootEnv = fileURLToPath(new URL("../../../.env", import.meta.url));
-if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+import "./load-env.js";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -19,7 +14,8 @@ export const env = {
   corsOrigins: (process.env.CORS_ORIGINS?.trim() || appUrl).split(",").map(origin => origin.trim()).filter(Boolean),
   databaseUrl: required("DATABASE_URL"),
   supabaseUrl: required("SUPABASE_URL").replace(/\/$/, ""),
-  supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
+  // Supabase secret key (sb_secret_…): server-only, used for Auth admin calls.
+  supabaseSecretKey: required("SUPABASE_SECRET_KEY"),
   // Only for projects still on the legacy shared JWT secret; otherwise tokens are verified against the project's JWKS.
   supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET?.trim() || null,
   resendApiKey: process.env.RESEND_API_KEY?.trim() || null,

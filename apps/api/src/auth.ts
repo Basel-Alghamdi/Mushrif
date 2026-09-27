@@ -20,7 +20,7 @@ export type Actor = {
 };
 export type AppEnv = { Variables: { actor: Actor; source: ChangeSource; ip: string | null } };
 
-export const supabaseAdmin = createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
+export const supabaseAdmin = createClient(env.supabaseUrl, env.supabaseSecretKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 

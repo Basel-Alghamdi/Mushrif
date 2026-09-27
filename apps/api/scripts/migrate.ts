@@ -1,13 +1,19 @@
 // Applies supabase/migrations/*.sql in order, each in its own transaction.
 // Applied versions are recorded in supabase_migrations.schema_migrations — the same table the Supabase CLI uses,
 // so `supabase db push` / `supabase migration list` agree with this runner later.
+// Needs only a database URL: DIRECT_DATABASE_URL (direct connection, port 5432) or, failing that, DATABASE_URL.
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-import "../src/env.js";
+import "../src/load-env.js";
 
+const databaseUrl = process.env.DIRECT_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
+if (!databaseUrl) {
+  console.error("Set DIRECT_DATABASE_URL (preferred) or DATABASE_URL to run migrations (see .env.example)");
+  process.exit(1);
+}
 const directory = fileURLToPath(new URL("../../../supabase/migrations/", import.meta.url));
-const sql = postgres(process.env.DATABASE_URL!, { prepare: false, onnotice: () => {} });
+const sql = postgres(databaseUrl, { prepare: false, onnotice: () => {} });
 
 try {
   await sql`create schema if not exists supabase_migrations`;

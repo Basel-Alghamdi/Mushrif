@@ -3,12 +3,13 @@
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+// Supabase publishable key (sb_publishable_…): safe to ship to the browser.
+const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
 
-export const supabaseConfigured = Boolean(url && key);
+export const supabaseConfigured = Boolean(url && publishableKey);
 
 // The browser only uses Supabase for sign-in and session refresh; all data goes through the Rasd API.
-export const supabase = createClient(url || "http://localhost:54321", key || "missing-key", {
+export const supabase = createClient(url || "http://localhost:54321", publishableKey || "missing-key", {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 });
 

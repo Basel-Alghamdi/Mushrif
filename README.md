@@ -7,7 +7,7 @@
 ```bash
 pnpm install
 cp .env.example .env              # ثم أضف مفاتيح Supabase (انظر docs/INTEGRATIONS.md)
-pnpm --filter @rasd/api db:migrate
+pnpm --filter @rasd/api db:migrate   # يستخدم DIRECT_DATABASE_URL، أو DATABASE_URL إن لم يُضبط
 pnpm --filter @rasd/api bootstrap:head
 pnpm dev
 ```
