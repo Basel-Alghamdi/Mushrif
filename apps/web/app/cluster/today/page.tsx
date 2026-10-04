@@ -1,2 +1,5 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function TodayPage(){return <MemberWorkspace initialPage="today"/>}
+import { redirect } from "next/navigation";
+
+export default function TodayRedirect() {
+  redirect("/cluster");
+}

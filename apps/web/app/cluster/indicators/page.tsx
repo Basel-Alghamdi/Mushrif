@@ -1,2 +1,5 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function IndicatorsPage(){return <MemberWorkspace initialPage="indicators"/>}
+import { redirect } from "next/navigation";
+
+export default function IndicatorsRedirect() {
+  redirect("/cluster/schools");
+}

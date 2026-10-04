@@ -1,164 +1,313 @@
-import { Hono } from "hono";
+import type { ChatAttachment, ChatBlock, ChatSendInput, MemberCreateInput, MemberUpdateInput, VisitInput, WorkspaceSaveInput } from "@rasd/schemas";
+import { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
 import {
-  Account, acceptInvitation, accountForToken, createInvitation, createSession, createVisit, findAccountByEmail,
-  getInvitationById, getWorkspace, invitationForToken, passwordMatches, refreshInvitation,
-  revokeInvitation, revokeSession, saveWorkspace, submitWorkspace, teamForHead, updateInvitationDelivery, visitsForUser,
-} from "./persistence.js";
+  Account, accountForToken, activateAccount, createMember, createSession, deleteMember, findAccountByEmail, findAccountById,
+  passwordMatches, publicUser, resetPassword, revokeSession, setPassword, touchActivity, updateMember, updateOwnAccount,
+} from "./accounts.js";
+import { agentStatus, applyProposal, respond } from "./agent/index.js";
+import {
+  addMessage, createConversation, deleteConversation, findMessageWithProposal, getConversation, getProposal, listConversations,
+  listMessages, renameConversation, resolveProposal, titleFrom, updateMessageBlocks,
+} from "./chat-store.js";
+import { cleanText } from "./db.js";
+import {
+  MAX_UPLOAD_BYTES, StoredDocument, deleteDocument, documentsForHead, documentsForOwner, getDocument, linkDocumentsToConversation,
+  readDocumentFile, safeContentType, saveDocument, toDocumentInfo,
+} from "./documents.js";
+import { memberDetail, summarize, teamForHead } from "./team.js";
+import { StaleWorkspaceError, createVisit, deleteVisit, getWorkspace, saveWorkspace, submitWorkspace, visitsForUser } from "./workspaces.js";
 
-type Audit = { id:string; actorId:string; action:string; entity:string; entityId:string; before:unknown; after:unknown; at:string };
+type AppEnv = { Variables: { authUser: Account; authToken: string } };
+export const app = new Hono<AppEnv>();
 
-const audit:Audit[]=[];
-const reminders:{id:string;memberIds:string[];body:string;sentAt:string}[]=[];
-const records=new Map<string,Record<string,unknown>[]>();
-const bucket=(name:string)=>{if(!records.has(name))records.set(name,[]);return records.get(name)!};
+const ok = (data: unknown, meta?: unknown) => ({ data, ...(meta ? { meta } : {}) });
+const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => ({ error: { code, message, ...extra } });
+const deny = (status: 400 | 401 | 403 | 404 | 409 | 410 | 413 | 422, code: string, message: string): never => {
+  throw new HTTPException(status, { res: new Response(JSON.stringify(fail(code, message)), { status, headers: { "content-type": "application/json; charset=utf-8" } }) });
+};
 
-const ok=(data:unknown,meta?:unknown)=>({data,...(meta?{meta}: {})});
-const fail=(code:string,message:string,fields?:Record<string,string>)=>({error:{code,message,...(fields?{fields}: {})}});
-const log=(action:string,entity:string,entityId:string,before:unknown,after:unknown)=>audit.unshift({id:crypto.randomUUID(),actorId:"authenticated-user",action,entity,entityId,before,after,at:new Date().toISOString()});
+app.use("*", cors({ origin: origin => origin || "http://localhost:3000", allowHeaders: ["Content-Type", "Authorization"], allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], exposeHeaders: ["Content-Disposition"] }));
+app.onError((error, c) => {
+  if (error instanceof HTTPException) return error.getResponse();
+  console.error(error);
+  return c.json(fail("SERVER_ERROR", "حدث خطأ غير متوقع — أعيدي المحاولة"), 500);
+});
+app.get("/health", c => c.json({ status: "ok", service: "rasd-api", version: "v2" }));
 
-type AppEnv={Variables:{authUser:Account;authToken:string}};
-export const app=new Hono<AppEnv>();
-app.use("*",cors({origin:(origin)=>origin||"http://localhost:3000",allowHeaders:["Content-Type","Authorization"],allowMethods:["GET","POST","PUT","PATCH","DELETE","OPTIONS"]}));
-app.get("/health",c=>c.json({status:"ok",service:"rasd-api",version:"v1"}));
-
-const publicApiPaths=new Set(["/api/v1/auth/login","/api/v1/auth/forgot-password"]);
-app.use("/api/v1/*",async(c,next)=>{
-  if(c.req.method==="OPTIONS"||publicApiPaths.has(c.req.path)||c.req.path.startsWith("/api/v1/public/invitations/"))return next();
-  const header=c.req.header("authorization")??"";
-  const token=header.startsWith("Bearer ")?header.slice(7):"";
-  const user=token?accountForToken(token):null;
-  if(!user)return c.json(fail("UNAUTHENTICATED","انتهت الجلسة أو لم يتم تسجيل الدخول"),401);
-  c.set("authUser",user);c.set("authToken",token);return next();
+const publicPaths = new Set(["/api/v1/auth/check", "/api/v1/auth/login", "/api/v1/auth/activate"]);
+app.use("/api/v1/*", async (c, next) => {
+  if (c.req.method === "OPTIONS" || publicPaths.has(c.req.path)) return next();
+  const header = c.req.header("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const user = token ? accountForToken(token) : null;
+  if (!user) return c.json(fail("UNAUTHENTICATED", "انتهت الجلسة — سجّلي الدخول مرة أخرى"), 401);
+  c.set("authUser", user);
+  c.set("authToken", token);
+  return next();
 });
 
-const publicUser=(user:Account)=>({id:user.id,name:user.name,email:user.email,phone:user.phone,role:user.role,clusterLabel:user.clusterLabel});
-const invitationUrl=(token:string)=>`${process.env.APP_URL??"http://localhost:3000"}/invite/${token}`;
-const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,character=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[character]!));
-async function deliverInvitation(email:string,name:string,link:string){
-  const key=process.env.RESEND_API_KEY;const from=process.env.RESEND_FROM;
-  if(!key||!from)return "link_ready" as const;
-  const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify({from,to:[email],subject:"دعوة للانضمام إلى منصة رَصد",html:`<div dir="rtl" style="font-family:Arial,sans-serif"><h2>مرحباً ${escapeHtml(name)}</h2><p>دعتك رئيسة النطاق للانضمام إلى منصة رَصد وتعبئة ملف عنقودك.</p><p><a href="${escapeHtml(link)}">قبول الدعوة وإنشاء الحساب</a></p><p>تنتهي صلاحية الرابط خلال ٧ أيام.</p></div>`})});
-  if(!response.ok)throw new Error(`EMAIL_${response.status}`);return "sent" as const;
+const requireHead = (c: Context<AppEnv>) => { const user = c.get("authUser"); if (user.role !== "head") deny(403, "FORBIDDEN", "هذه الصفحة لرئيسة النطاق فقط"); return user; };
+const requireMember = (c: Context<AppEnv>) => { const user = c.get("authUser"); if (user.role !== "member") deny(403, "FORBIDDEN", "هذه الصفحة لعضوات الفريق"); return user; };
+const body = async <T>(c: Context<AppEnv>) => (await c.req.json().catch(() => ({}))) as T;
+
+function memberOfHead(head: Account, id: string) {
+  const account = findAccountById(id);
+  if (!account || account.role !== "member" || account.headId !== head.id) deny(404, "NOT_FOUND", "العضوة غير موجودة");
+  return account!;
 }
 
-app.post("/api/v1/auth/login",async c=>{
-  const body=await c.req.json<{email?:string;password?:string;remember?:boolean}>();const email=body.email?.trim().toLowerCase()??"";
-  const found=findAccountByEmail(email);if(!found||!body.password||!passwordMatches(body.password,found.passwordHash))return c.json(fail("INVALID_CREDENTIALS","البريد أو كلمة المرور غير صحيحة"),401);
-  const session=createSession(found.account.id,Boolean(body.remember));return c.json(ok({...session,user:publicUser(found.account)}));
-});
-app.get("/api/v1/auth/me",c=>c.json(ok({user:publicUser(c.get("authUser"))})));
-app.post("/api/v1/auth/logout",c=>{revokeSession(c.get("authToken"));return c.json(ok({loggedOut:true}))});
-
-app.get("/api/v1/public/invitations/:token",c=>{
-  const invitation=invitationForToken(c.req.param("token"));if(!invitation)return c.json(fail("NOT_FOUND","رابط الدعوة غير صحيح"),404);
-  return c.json(ok({name:invitation.name,email:invitation.email,clusterLabel:invitation.clusterLabel,status:invitation.status,expiresAt:invitation.expiresAt}));
-});
-app.post("/api/v1/public/invitations/:token/accept",async c=>{
-  const body=await c.req.json<{password?:string;phone?:string}>();if(!body.password||body.password.length<8)return c.json(fail("VALIDATION_ERROR","كلمة المرور يجب ألا تقل عن ٨ أحرف"),422);
-  try{const user=acceptInvitation(c.req.param("token"),{password:body.password,phone:body.phone});const session=createSession(user.id,true);return c.json(ok({...session,user:publicUser(user)}),201)}
-  catch(error){if((error as Error).message==="INVITATION_INVALID")return c.json(fail("INVITATION_INVALID","الدعوة منتهية أو سبق استخدامها"),410);throw error}
-});
-
-app.get("/api/v1/district/team",c=>{const user=c.get("authUser");if(user.role!=="head")return c.json(fail("FORBIDDEN","هذه الصفحة لرئيسة النطاق"),403);return c.json(ok(teamForHead(user.id)))});
-app.post("/api/v1/district/invitations",async c=>{
-  const user=c.get("authUser");if(user.role!=="head")return c.json(fail("FORBIDDEN","لا تملكين صلاحية إرسال الدعوات"),403);
-  const body=await c.req.json<{name?:string;email?:string;clusterLabel?:string}>();const fields:Record<string,string>={};
-  if(!body.name?.trim())fields.name="اسم العضوة مطلوب";if(!body.email?.trim().toLowerCase().endsWith("@moe.gov.sa"))fields.email="استخدمي البريد الوزاري المنتهي بـ moe.gov.sa";
-  if(Object.keys(fields).length)return c.json(fail("VALIDATION_ERROR","أكملي بيانات الدعوة",fields),422);
-  try{const created=createInvitation(user.id,{name:body.name!,email:body.email!,clusterLabel:body.clusterLabel});const link=invitationUrl(created.token);let deliveryStatus:"sent"|"link_ready"|"failed"="link_ready";
-    try{deliveryStatus=await deliverInvitation(created.invitation.email,created.invitation.name,link)}catch{deliveryStatus="failed"}updateInvitationDelivery(created.invitation.id,deliveryStatus);
-    return c.json(ok({invitation:getInvitationById(created.invitation.id),inviteUrl:link}),201)}
-  catch(error){const code=(error as Error).message;if(code==="ACCOUNT_EXISTS")return c.json(fail(code,"يوجد حساب بهذا البريد بالفعل"),409);if(code==="INVITATION_EXISTS")return c.json(fail(code,"هناك دعوة معلقة لهذا البريد"),409);throw error}
-});
-app.post("/api/v1/district/invitations/:id/resend",async c=>{
-  const user=c.get("authUser");if(user.role!=="head")return c.json(fail("FORBIDDEN","غير مصرح"),403);const refreshed=refreshInvitation(c.req.param("id"),user.id);if(!refreshed)return c.json(fail("NOT_FOUND","الدعوة غير موجودة"),404);
-  const link=invitationUrl(refreshed.token);let deliveryStatus:"sent"|"link_ready"|"failed"="link_ready";try{deliveryStatus=await deliverInvitation(refreshed.invitation.email,refreshed.invitation.name,link)}catch{deliveryStatus="failed"}updateInvitationDelivery(refreshed.invitation.id,deliveryStatus);
-  return c.json(ok({invitation:getInvitationById(refreshed.invitation.id),inviteUrl:link}));
-});
-app.delete("/api/v1/district/invitations/:id",c=>{const user=c.get("authUser");if(user.role!=="head")return c.json(fail("FORBIDDEN","غير مصرح"),403);return revokeInvitation(c.req.param("id"),user.id)?c.json(ok({revoked:true})):c.json(fail("NOT_FOUND","الدعوة غير موجودة"),404)});
-
-app.get("/api/v1/member/workspace",c=>{const user=c.get("authUser");if(user.role!=="member")return c.json(fail("FORBIDDEN","هذه الصفحة لعضوة الفريق"),403);return c.json(ok(getWorkspace(user.id)))});
-app.put("/api/v1/member/workspace",async c=>{const user=c.get("authUser");if(user.role!=="member")return c.json(fail("FORBIDDEN","غير مصرح"),403);const body=await c.req.json();return c.json(ok(saveWorkspace(user.id,body)))});
-app.post("/api/v1/cluster/me/submit",c=>{const user=c.get("authUser");if(user.role!=="member")return c.json(fail("FORBIDDEN","غير مصرح"),403);return c.json(ok(submitWorkspace(user.id)),201)});
-
-app.post("/api/v1/auth/forgot-password",c=>c.json(fail("NOT_IMPLEMENTED","استعادة كلمة المرور غير مفعّلة بعد؛ تواصلي مع مسؤولة النظام"),501));
-
-app.get("/api/v1/cluster/me",c=>{const user=c.get("authUser");const workspace=getWorkspace(user.id);return c.json(ok({id:user.id,label:user.clusterLabel,schoolCount:workspace.schools.length,submittedAt:workspace.submittedAt,updatedAt:workspace.updatedAt}))});
-app.get("/api/v1/cluster/me/schools",c=>c.json(ok(getWorkspace(c.get("authUser").id).schools)));
-app.post("/api/v1/cluster/me/schools",async c=>{const body=await c.req.json<Record<string,unknown>>();if(!String(body.name??"").trim())return c.json(fail("VALIDATION_ERROR","اسم المدرسة مطلوب",{name:"اسم المدرسة مطلوب"}),422);const user=c.get("authUser");const workspace=getWorkspace(user.id);const item={id:body.id??crypto.randomUUID(),...body};saveWorkspace(user.id,{schools:[...workspace.schools,item]});log("create","school",String(item.id),null,item);return c.json(ok(item),201)});
-app.patch("/api/v1/cluster/me/schools/:id",async c=>{const body=await c.req.json<Record<string,unknown>>();const user=c.get("authUser");const workspace=getWorkspace(user.id);let found=false;const schools=workspace.schools.map(school=>{if(String(school.id)!==c.req.param("id"))return school;found=true;return{...school,...body}});if(!found)return c.json(fail("NOT_FOUND","المدرسة غير موجودة"),404);saveWorkspace(user.id,{schools});log("update","school",c.req.param("id"),null,body);return c.json(ok({id:c.req.param("id"),...body}))});
-app.delete("/api/v1/cluster/me/schools/:id",c=>{const user=c.get("authUser");const workspace=getWorkspace(user.id);const schools=workspace.schools.filter(school=>String(school.id)!==c.req.param("id"));if(schools.length===workspace.schools.length)return c.json(fail("NOT_FOUND","المدرسة غير موجودة"),404);saveWorkspace(user.id,{schools});log("delete","school",c.req.param("id"),null,null);return c.json(ok({deleted:true}))});
-
-app.get("/api/v1/cluster/me/profile-fields",c=>c.json(ok(getWorkspace(c.get("authUser").id).profile)));
-app.post("/api/v1/cluster/me/profile-fields",async c=>{const body=await c.req.json<{id?:string;label?:string;value?:string}>();if(!body.label?.trim())return c.json(fail("VALIDATION_ERROR","اسم الحقل مطلوب",{label:"اسم الحقل مطلوب"}),422);const user=c.get("authUser");const workspace=getWorkspace(user.id);const item={id:body.id??crypto.randomUUID(),label:body.label,value:body.value??""};saveWorkspace(user.id,{profile:[...workspace.profile,item]});log("create","profile_field",item.id,null,item);return c.json(ok(item),201)});
-app.patch("/api/v1/cluster/me/profile-fields/:id",async c=>{const body=await c.req.json<{label?:string;value?:string;updatedAt?:string}>();const user=c.get("authUser");const workspace=getWorkspace(user.id);let found=false;const profile=workspace.profile.map(field=>{if(field.id!==c.req.param("id"))return field;found=true;return{...field,...body,updatedAt:new Date().toISOString()}});if(!found)return c.json(fail("NOT_FOUND","الحقل غير موجود"),404);saveWorkspace(user.id,{profile});return c.json(ok(profile.find(field=>field.id===c.req.param("id"))))});
-app.delete("/api/v1/cluster/me/profile-fields/:id",c=>{const user=c.get("authUser");const workspace=getWorkspace(user.id);const profile=workspace.profile.filter(field=>field.id!==c.req.param("id"));if(profile.length===workspace.profile.length)return c.json(fail("NOT_FOUND","الحقل غير موجود"),404);saveWorkspace(user.id,{profile});return c.json(ok({deleted:true,undoUntil:new Date(Date.now()+8000).toISOString()}))});
-app.put("/api/v1/cluster/me/profile-fields/order",async c=>{const body=await c.req.json<{ids?:string[]}>();if(!Array.isArray(body.ids))return c.json(fail("VALIDATION_ERROR","ترتيب الحقول غير صحيح"),422);const user=c.get("authUser");const workspace=getWorkspace(user.id);const byId=new Map(workspace.profile.map(field=>[field.id,field]));const profile=body.ids.map(id=>byId.get(id)).filter((field):field is NonNullable<typeof field>=>Boolean(field));saveWorkspace(user.id,{profile});return c.json(ok({ids:profile.map(field=>field.id)}))});
-
-registerCrud("/api/v1/cluster/me/sections","section","اسم القسم مطلوب");
-registerCrud("/api/v1/sections/:parent/fields","section_field","اسم الحقل مطلوب");
-registerCrud("/api/v1/schools/:parent/custom-fields","school_field","اسم الحقل مطلوب");
-registerCrud("/api/v1/schools/:parent/staff-tiles","staff_tile","اسم المؤشر مطلوب");
-registerCrud("/api/v1/schools/:parent/leadership","leadership","اسم الدور مطلوب");
-registerCrud("/api/v1/leadership/:parent/fields","leadership_field","اسم الحقل مطلوب");
-app.get("/api/v1/schools/:id/field-overrides",c=>c.json(ok({schoolId:c.req.param("id"),hidden:[]})));
-app.put("/api/v1/schools/:id/field-overrides",async c=>{const body=await c.req.json<{hidden?:string[]}>();const item={schoolId:c.req.param("id"),hidden:body.hidden??[]};log("update","field_overrides",c.req.param("id"),null,item);return c.json(ok(item))});
-
-app.get("/api/v1/cluster/me/absence",c=>{const date=c.req.query("date")??new Date().toISOString().slice(0,10);return c.json(ok(getWorkspace(c.get("authUser").id).schools.map(school=>({schoolId:String(school.id),date,done:Boolean(school.absence)}))))});
-app.put("/api/v1/schools/:id/absence",async c=>{const body=await c.req.json<{date?:string;done?:boolean}>();if(!/^\d{4}-\d{2}-\d{2}$/.test(body.date??"")||typeof body.done!=="boolean")return c.json(fail("VALIDATION_ERROR","بيانات التحديث غير مكتملة",{date:"التاريخ غير صحيح",done:"الحالة مطلوبة"}),422);const user=c.get("authUser");const workspace=getWorkspace(user.id);let found=false;const schools=workspace.schools.map(school=>{if(String(school.id)!==c.req.param("id"))return school;found=true;return{...school,absence:body.done,updatedAt:new Date().toISOString()}});if(!found)return c.json(fail("NOT_FOUND","المدرسة غير موجودة"),404);saveWorkspace(user.id,{schools});const item={schoolId:c.req.param("id"),date:body.date!,done:body.done,confirmedAt:new Date().toISOString(),confirmedBy:user.id};log("absence_toggle","absence_confirmation",`${c.req.param("id")}:${body.date}`,null,item);return c.json(ok(item))});
-
-app.get("/api/v1/cluster/me/visits",c=>c.json(ok(visitsForUser(c.get("authUser").id))));
-app.post("/api/v1/visits",async c=>{const body=await c.req.json<{schoolId?:string;type?:string;text?:string;attachments?:string[]}>();const fields:Record<string,string>={};if(!body.schoolId)fields.schoolId="اختاري المدرسة";if(!body.type)fields.type="نوع الزيارة مطلوب";if((body.text?.trim().length??0)<10)fields.text="أضيفي وصفاً لا يقل عن ١٠ أحرف";if(Object.keys(fields).length)return c.json(fail("VALIDATION_ERROR","أكملي بيانات تقرير الزيارة",fields),422);const user=c.get("authUser");const item=createVisit(user.id,{schoolId:body.schoolId!,type:body.type!,text:body.text!,attachments:body.attachments});log("create","visit_report",item.id,null,item);return c.json(ok(item),201)});
-
-app.get("/api/v1/cluster/me/indicators/evaluation",c=>c.json(ok({source:"نافِس",readOnly:true,importedAt:"2026-09-20T09:00:00Z"})));
-app.put("/api/v1/cluster/me/indicators/evaluation",async c=>{const body=await c.req.json<{folder?:string;reports?:unknown}>();if(body.folder){try{new URL(body.folder)}catch{return c.json(fail("VALIDATION_ERROR","الرابط غير صحيح",{folder:"الرابط غير صحيح"}),422)}}log("update","evaluation_links","cluster-4",null,body);return c.json(ok(body))});
-app.get("/api/v1/cluster/me/indicators/madrasati",c=>c.json(ok(getWorkspace(c.get("authUser").id).schools.map(school=>({schoolId:school.id,metrics:school.madrasati??[]})))));
-app.get("/api/v1/cluster/me/indicators/discipline",c=>c.json(ok(getWorkspace(c.get("authUser").id).schools.map(school=>({schoolId:school.id,values:school.discipline??[]})))));
-app.get("/api/v1/cluster/me/plans",c=>c.json(ok([])));
-app.get("/api/v1/cluster/me/pd",c=>c.json(ok(getWorkspace(c.get("authUser").id).programs)));
-app.put("/api/v1/cluster/me/indicators/madrasati",async c=>{const body=await c.req.json();log("update","madrasati","cluster-4",null,body);return c.json(ok({...body,syncedAt:new Date().toISOString()}))});
-app.put("/api/v1/cluster/me/indicators/discipline",async c=>{const body=await c.req.json();log("update","discipline","cluster-4",null,body);return c.json(ok({...body,importedAt:new Date().toISOString()}))});
-app.get("/api/v1/cluster/me/discipline-support-plan",c=>c.json(ok({text:"",fileUrl:null})));
-app.put("/api/v1/cluster/me/discipline-support-plan",async c=>{const body=await c.req.json();log("update","discipline_support_plan","cluster-4",null,body);return c.json(ok(body))});
-app.patch("/api/v1/plans/:id",async c=>{const body=await c.req.json();log("update","plan",c.req.param("id"),null,body);return c.json(ok({id:c.req.param("id"),...body}))});
-registerCrud("/api/v1/pd","pd_program","اسم البرنامج مطلوب");
-
-app.post("/api/v1/ingest/upload",async c=>{const job={id:crypto.randomUUID(),clusterId:"cluster-4",status:"processing",progressPct:15,createdAt:new Date().toISOString()};bucket("ingest_job").push(job);log("upload","ingest_job",String(job.id),null,job);return c.json(ok([job]),202)});
-app.get("/api/v1/ingest/jobs",c=>c.json(ok(bucket("ingest_job"))));
-app.delete("/api/v1/ingest/jobs/:id",c=>{const items=bucket("ingest_job");const index=items.findIndex(item=>item.id===c.req.param("id"));if(index>=0)items.splice(index,1);log("delete","ingest_job",c.req.param("id"),null,{deleted:true});return c.json(ok({deleted:true}))});
-app.get("/api/v1/ingest/jobs/:id/fields",c=>c.json(ok([{id:"extracted-1",ingestJobId:c.req.param("id"),label:"نتيجة نافس — ابتدائية الأندلس",value:"٨٤٪",confidence:"high",sourceRef:"تقرير نافس.pdf · ص ٢",status:"pending"},{id:"extracted-2",ingestJobId:c.req.param("id"),label:"الانضباط اليومي",value:"٩٦٪",confidence:"medium",sourceRef:"الانضباط اليومي.xlsx · الصف ٧",status:"pending"}])));
-app.patch("/api/v1/ingest/fields/:id",async c=>{const body=await c.req.json();log("review","extracted_field",c.req.param("id"),null,body);return c.json(ok({id:c.req.param("id"),...body}))});
-app.post("/api/v1/ingest/apply",async c=>{const body=await c.req.json<{fieldIds?:string[]}>();const count=body.fieldIds?.length??0;log("apply","extracted_fields","cluster-4",null,body);return c.json(ok({appliedCount:count}))});
-
-app.get("/api/v1/district/overview",c=>{const team=teamForHead(c.get("authUser").id);const submitted=team.members.filter(member=>member.status==="submitted").length;const schools=team.members.reduce((sum,member)=>sum+member.schoolCount,0);return c.json(ok({kpis:{updated:submitted,members:team.members.length,pendingInvitations:team.invitations.length,schools},source:"persisted_team"}))});
-app.get("/api/v1/district/members",c=>{const team=teamForHead(c.get("authUser").id);return c.json(ok(team.members,{total:team.members.length}))});
-app.get("/api/v1/district/submissions",c=>{const team=teamForHead(c.get("authUser").id);const submitted=team.members.filter(member=>member.status==="submitted").length;return c.json(ok({submitted,missing:team.members.length-submitted,date:c.req.query("date")??new Date().toISOString().slice(0,10)}))});
-app.get("/api/v1/district/members/:id",c=>{const member=teamForHead(c.get("authUser").id).members.find(item=>item.id===c.req.param("id"));return member?c.json(ok(member)):c.json(fail("NOT_FOUND","العضوة غير موجودة"),404)});
-app.get("/api/v1/district/members/:id/timeline",c=>{const member=teamForHead(c.get("authUser").id).members.find(item=>item.id===c.req.param("id"));if(!member)return c.json(fail("NOT_FOUND","العضوة غير موجودة"),404);const events=[{id:`workspace-${member.id}`,kind:"workspace",title:"تحديث الملف",body:`${member.schoolCount} مدارس مسجلة · اكتمال ${member.completion}%`,at:member.workspaceUpdatedAt,flagged:false},...(member.submittedAt?[{id:`submission-${member.id}`,kind:"submission",title:"إرسال تحديث اليوم",body:"أرسلت العضوة تحديث ملفها إلى رئيسة النطاق",at:member.submittedAt,flagged:false}]:[])];return c.json(ok(events))});
-app.get("/api/v1/district/members/:id/attachments",c=>{const member=teamForHead(c.get("authUser").id).members.find(item=>item.id===c.req.param("id"));return member?c.json(ok([])):c.json(fail("NOT_FOUND","العضوة غير موجودة"),404)});
-app.patch("/api/v1/district/members/:id/contact",async c=>{const body=await c.req.json<{email?:string;phone?:string}>();if(body.email&&!body.email.endsWith("@moe.gov.sa"))return c.json(fail("VALIDATION_ERROR","البريد يجب أن ينتهي بـ moe.gov.sa"),422);if(body.phone&&!/^05\d{8}$/.test(body.phone))return c.json(fail("VALIDATION_ERROR","رقم الجوال يبدأ بـ ٠٥ ويكون ١٠ أرقام"),422);log("update","member_contact",c.req.param("id"),null,body);return c.json(ok({id:c.req.param("id"),...body}))});
-app.post("/api/v1/district/reminders",async c=>{const body=await c.req.json<{memberIds?:string[];body?:string}>();if(!body.memberIds?.length)return c.json(fail("VALIDATION_ERROR","اختاري عضوة واحدة على الأقل"),422);const item={id:crypto.randomUUID(),memberIds:body.memberIds,body:body.body??"يرجى استكمال تحديث اليوم.",sentAt:new Date().toISOString()};reminders.unshift(item);log("send","reminder",item.id,null,item);return c.json(ok({sent:item.memberIds.length,reminder:item}),201)});
-for(const kind of ["nafes","discipline","madrasati"])app.post(`/api/v1/district/imports/${kind}`,c=>{const item={id:crypto.randomUUID(),kind,status:"queued",createdAt:new Date().toISOString()};log("import","district_indicator",String(item.id),null,item);return c.json(ok(item),202)});
-
-app.post("/api/v1/ai/chat",async c=>{const body=await c.req.json<{message?:string}>();if(!body.message?.trim())return c.json(fail("VALIDATION_ERROR","اكتبي سؤالك"),422);const team=teamForHead(c.get("authUser").id);const submitted=team.members.filter(member=>member.status==="submitted").length;return c.json(ok({text:`لديك ${team.members.length} حسابات مفعلة و${team.invitations.length} دعوات معلقة. أرسلت ${submitted} عضوات تحديث اليوم.`,citations:[{entity:"persisted_team",date:new Date().toISOString().slice(0,10)}],grounded:true}))});
-app.get("/api/v1/ai/summary",c=>{const team=teamForHead(c.get("authUser").id);return c.json(ok({text:`${team.members.length} حسابات مفعلة، و${team.invitations.length} دعوات معلقة.`,generatedAt:new Date().toISOString(),grounded:true}))});
-app.post("/api/v1/ai/agent/propose",async c=>{const body=await c.req.json<{action?:string}>();return c.json(ok({id:crypto.randomUUID(),action:body.action,status:"proposed",plan:["تحديد المتأخرات","جمع النواقص","صياغة الرسائل","بانتظار الموافقة"]}),201)});
-app.post("/api/v1/ai/agent/:id/approve",c=>{log("approve","agent_run",c.req.param("id"),"proposed","executed");return c.json(ok({id:c.req.param("id"),status:"executed",resultSummary:"تم اعتماد الإجراء دون إنشاء بيانات افتراضية"}))});
-app.post("/api/v1/ai/agent/:id/reject",c=>{log("reject","agent_run",c.req.param("id"),"proposed","rejected");return c.json(ok({id:c.req.param("id"),status:"rejected"}))});
-
-app.get("/api/v1/district/report",c=>c.json(ok(report(c.get("authUser").id,c.req.query("date")))));
-app.post("/api/v1/district/report/generate",async c=>{const body=await c.req.json<{date?:string;format?:string}>();const item={...report(c.get("authUser").id,body.date),format:body.format??"text",generatedAt:new Date().toISOString()};log("export","consolidated_report",item.id,null,item);return c.json(ok(item),201)});
-app.get("/api/v1/attachments/:id/preview",c=>c.json(fail("NOT_FOUND","لا يوجد مرفق بهذا المعرّف"),404));
-app.get("/api/v1/attachments/:id/download",c=>c.json(fail("NOT_FOUND","لا يوجد مرفق بهذا المعرّف"),404));
-app.get("/api/v1/clusters/:id/attachments.zip",c=>c.json(fail("NOT_FOUND","لا توجد مرفقات للتنزيل"),404));
-app.get("/api/v1/audit",c=>c.json(ok(audit,{total:audit.length})));
-
-function report(headId:string,date?:string){const team=teamForHead(headId);const schools=team.members.reduce((sum,member)=>sum+member.schoolCount,0);const submitted=team.members.filter(member=>member.status==="submitted").length;const average=team.members.length?Math.round(team.members.reduce((sum,member)=>sum+member.completion,0)/team.members.length):0;return{id:"report-today",date:date??new Date().toISOString().slice(0,10),memberCount:team.members.length,schoolCount:schools,summaryText:`يضم النطاق ${team.members.length} عضوات مفعلات و${schools} مدارس مسجلة. أرسلت ${submitted} عضوات تحديث اليوم، ومتوسط اكتمال الملفات ${average}%.`,stats:[{label:"عضوة مفعلة",value:team.members.length},{label:"دعوة معلقة",value:team.invitations.length},{label:"مدرسة",value:schools},{label:"أرسلت اليوم",value:submitted},{label:"متوسط الاكتمال",value:`${average}%`}],citations:["persisted-team","member-workspaces"]}}
-
-function registerCrud(base:string,entity:string,requiredMessage:string){
-  app.get(base,c=>c.json(ok(bucket(entity).filter(item=>!c.req.param("parent")||item.parentId===c.req.param("parent")))));
-  app.post(base,async c=>{const body=await c.req.json<Record<string,unknown>>();const label=String(body.label??body.name??"");if(!label.trim())return c.json(fail("VALIDATION_ERROR",requiredMessage,{label:requiredMessage}),422);const item={id:body.id??crypto.randomUUID(),parentId:c.req.param("parent"),...body};bucket(entity).push(item);log("create",entity,String(item.id),null,item);return c.json(ok(item),201)});
-  app.patch(`${base}/:id`,async c=>{const body=await c.req.json<Record<string,unknown>>();const item=bucket(entity).find(row=>row.id===c.req.param("id"));if(!item)return c.json(fail("NOT_FOUND","العنصر غير موجود"),404);const before={...item};Object.assign(item,body);log("update",entity,String(item.id),before,item);return c.json(ok(item))});
-  app.delete(`${base}/:id`,c=>{const items=bucket(entity);const index=items.findIndex(row=>row.id===c.req.param("id"));if(index<0)return c.json(fail("NOT_FOUND","العنصر غير موجود"),404);const [item]=items.splice(index,1);log("delete",entity,String(item.id),item,null);return c.json(ok({deleted:true}))});
+async function uploadedFiles(c: Context<AppEnv>) {
+  const form = await c.req.parseBody({ all: true }).catch(() => ({} as Record<string, unknown>));
+  const raw = [form.files, form["files[]"], form.file].flat().filter((item): item is File => item instanceof File);
+  if (!raw.length) deny(422, "NO_FILES", "اختاري ملفاً واحداً على الأقل");
+  if (raw.length > 20) deny(413, "TOO_MANY_FILES", "يمكن رفع ٢٠ ملفاً كحد أقصى في المرة الواحدة");
+  const tooBig = raw.find(file => file.size > MAX_UPLOAD_BYTES);
+  if (tooBig) deny(413, "FILE_TOO_LARGE", `الملف «${tooBig.name}» أكبر من ٢٥ م.ب`);
+  return Promise.all(raw.map(async file => ({ name: file.name, mime: file.type, buffer: Buffer.from(await file.arrayBuffer()) })));
 }
+
+function saveWorkspaceOr409(c: Context<AppEnv>, account: Account, input: WorkspaceSaveInput) {
+  try { return c.json(ok(saveWorkspace(account, input))); }
+  catch (error) {
+    if (error instanceof StaleWorkspaceError) return c.json(fail("STALE_WORKSPACE", "تم تحديث الملف من جهاز أو شخص آخر — حمّلنا أحدث نسخة", { current: error.current }), 409);
+    throw error;
+  }
+}
+
+// ---------- Auth ----------
+app.post("/api/v1/auth/check", async c => {
+  const { email } = await body<{ email?: string }>(c);
+  const found = email ? findAccountByEmail(email) : null;
+  return c.json(ok({ exists: Boolean(found), activated: Boolean(found?.passwordHash), name: found?.account.name ?? null }));
+});
+
+app.post("/api/v1/auth/login", async c => {
+  const input = await body<{ email?: string; password?: string; remember?: boolean }>(c);
+  const found = input.email ? findAccountByEmail(input.email) : null;
+  if (!found) return c.json(fail("ACCOUNT_NOT_FOUND", "هذا البريد غير مسجّل في المنصة — تأكدي منه أو تواصلي مع رئيسة النطاق"), 404);
+  if (!found.passwordHash) return c.json(fail("NOT_ACTIVATED", "هذه أول مرة تدخلين — اختاري كلمة مرور لحسابك"), 409);
+  if (!input.password || !passwordMatches(input.password, found.passwordHash)) return c.json(fail("INVALID_CREDENTIALS", "كلمة المرور غير صحيحة"), 401);
+  const session = createSession(found.account.id, input.remember !== false);
+  return c.json(ok({ ...session, user: publicUser(found.account) }));
+});
+
+app.post("/api/v1/auth/activate", async c => {
+  const input = await body<{ email?: string; password?: string }>(c);
+  if (!input.password || input.password.length < 4) return c.json(fail("VALIDATION_ERROR", "اختاري كلمة مرور من ٤ أحرف أو أرقام على الأقل"), 422);
+  try {
+    const account = activateAccount(input.email ?? "", input.password);
+    return c.json(ok({ ...createSession(account.id, true), user: publicUser(account) }), 201);
+  } catch (error) {
+    const code = (error as Error).message;
+    if (code === "ACCOUNT_NOT_FOUND") return c.json(fail(code, "هذا البريد غير مسجّل في المنصة"), 404);
+    if (code === "ALREADY_ACTIVATED") return c.json(fail(code, "الحساب مفعّل مسبقاً — ادخلي بكلمة المرور"), 409);
+    throw error;
+  }
+});
+
+app.get("/api/v1/auth/me", c => c.json(ok({ user: publicUser(c.get("authUser")) })));
+app.patch("/api/v1/auth/me", async c => {
+  const input = await body<{ name?: string; phone?: string }>(c);
+  return c.json(ok({ user: publicUser(updateOwnAccount(c.get("authUser").id, input)) }));
+});
+app.post("/api/v1/auth/password", async c => {
+  const input = await body<{ current?: string; next?: string }>(c);
+  const user = c.get("authUser");
+  const found = findAccountByEmail(user.email)!;
+  if (found.passwordHash && !passwordMatches(input.current ?? "", found.passwordHash)) return c.json(fail("INVALID_CREDENTIALS", "كلمة المرور الحالية غير صحيحة"), 401);
+  if (!input.next || input.next.length < 4) return c.json(fail("VALIDATION_ERROR", "اختاري كلمة مرور من ٤ أحرف أو أرقام على الأقل"), 422);
+  setPassword(user.id, input.next);
+  return c.json(ok({ changed: true }));
+});
+app.post("/api/v1/auth/logout", c => { revokeSession(c.get("authToken")); return c.json(ok({ loggedOut: true })); });
+
+// ---------- Member ----------
+app.get("/api/v1/member/workspace", c => c.json(ok(getWorkspace(requireMember(c)))));
+app.put("/api/v1/member/workspace", async c => {
+  const user = requireMember(c);
+  const response = saveWorkspaceOr409(c, user, await body<WorkspaceSaveInput>(c));
+  if (response.status === 200) touchActivity(user.id);
+  return response;
+});
+app.post("/api/v1/member/submit", c => { const user = requireMember(c); touchActivity(user.id); return c.json(ok(submitWorkspace(user.id)), 201); });
+
+app.get("/api/v1/member/visits", c => { const user = requireMember(c); return c.json(ok(visitsForUser(user.id, getWorkspace(user).schools))); });
+app.post("/api/v1/member/visits", async c => {
+  const user = requireMember(c);
+  const input = await body<VisitInput>(c);
+  if (!cleanText(input.text) && !cleanText(input.schoolName) && !input.schoolId) return c.json(fail("VALIDATION_ERROR", "اكتبي وصفاً مختصراً للزيارة"), 422);
+  touchActivity(user.id);
+  return c.json(ok(createVisit(user.id, input, getWorkspace(user).schools)), 201);
+});
+app.delete("/api/v1/member/visits/:id", c => deleteVisit(requireMember(c).id, c.req.param("id")) ? c.json(ok({ deleted: true })) : c.json(fail("NOT_FOUND", "الزيارة غير موجودة"), 404));
+
+app.get("/api/v1/member/documents", c => c.json(ok(documentsForOwner(requireMember(c).id).map(toDocumentInfo))));
+// One upload request may carry several files, but never more than 100MB in total (it is read into memory).
+const uploadLimit = bodyLimit({ maxSize: 100 * 1024 * 1024, onError: c => c.json(fail("FILE_TOO_LARGE", "حجم الملفات في المرة الواحدة أكبر من ١٠٠ م.ب — ارفعيها على دفعات"), 413) });
+
+app.post("/api/v1/member/documents", uploadLimit, async c => {
+  const user = requireMember(c);
+  const files = await uploadedFiles(c);
+  const saved = [];
+  for (const file of files) saved.push(await saveDocument({ ownerId: user.id, uploadedBy: user.id, ...file }));
+  touchActivity(user.id);
+  return c.json(ok(saved.map(toDocumentInfo)), 201);
+});
+
+// ---------- Documents (shared) ----------
+function visibleDocument(c: Context<AppEnv>, id: string): StoredDocument {
+  const user = c.get("authUser");
+  const document = getDocument(id);
+  const owner = document?.ownerId ? findAccountById(document.ownerId) : null;
+  const allowed = document && (user.role === "head"
+    ? document.uploadedBy === user.id || document.ownerId === user.id || owner?.headId === user.id
+    : document.ownerId === user.id);
+  if (!allowed) deny(404, "NOT_FOUND", "الملف غير موجود");
+  return document!;
+}
+
+app.get("/api/v1/documents/:id", c => { const document = visibleDocument(c, c.req.param("id")); return c.json(ok({ ...toDocumentInfo(document), text: document.text.slice(0, 20000) })); });
+app.get("/api/v1/documents/:id/download", c => {
+  const document = visibleDocument(c, c.req.param("id"));
+  return new Response(new Uint8Array(readDocumentFile(document)), { headers: {
+    "content-type": safeContentType(document.name),
+    "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`,
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "sandbox; default-src 'none'",
+  } });
+});
+app.delete("/api/v1/documents/:id", c => { const document = visibleDocument(c, c.req.param("id")); deleteDocument(document.id); return c.json(ok({ deleted: true })); });
+
+// ---------- Head: team ----------
+app.get("/api/v1/district/team", c => c.json(ok(teamForHead(requireHead(c).id))));
+app.post("/api/v1/district/members", async c => {
+  const head = requireHead(c);
+  const input = await body<MemberCreateInput>(c);
+  try { return c.json(ok(summarize(createMember(head.id, input))), 201); }
+  catch (error) {
+    const code = (error as Error).message;
+    if (code === "NAME_REQUIRED") return c.json(fail(code, "اكتبي اسم العضوة"), 422);
+    if (code === "EMAIL_REQUIRED") return c.json(fail(code, "اكتبي بريد العضوة"), 422);
+    if (code === "ACCOUNT_EXISTS") return c.json(fail(code, "يوجد حساب بهذا البريد بالفعل"), 409);
+    throw error;
+  }
+});
+app.get("/api/v1/district/members/:id", c => {
+  const detail = memberDetail(requireHead(c).id, c.req.param("id"));
+  return detail ? c.json(ok(detail)) : c.json(fail("NOT_FOUND", "العضوة غير موجودة"), 404);
+});
+app.patch("/api/v1/district/members/:id", async c => {
+  const head = requireHead(c);
+  const member = memberOfHead(head, c.req.param("id"));
+  try { updateMember(member.id, await body<MemberUpdateInput>(c)); }
+  catch (error) {
+    const code = (error as Error).message;
+    if (code === "ACCOUNT_EXISTS") return c.json(fail(code, "هذا البريد مستخدم لحساب آخر"), 409);
+    if (code === "EMAIL_REQUIRED") return c.json(fail(code, "البريد مطلوب لتسجيل الدخول"), 422);
+    throw error;
+  }
+  return c.json(ok(memberDetail(head.id, member.id)));
+});
+app.put("/api/v1/district/members/:id/workspace", async c => {
+  const member = memberOfHead(requireHead(c), c.req.param("id"));
+  return saveWorkspaceOr409(c, member, await body<WorkspaceSaveInput>(c));
+});
+app.post("/api/v1/district/members/:id/reset-password", c => { resetPassword(memberOfHead(requireHead(c), c.req.param("id")).id); return c.json(ok({ reset: true })); });
+app.delete("/api/v1/district/members/:id", c => {
+  const member = memberOfHead(requireHead(c), c.req.param("id"));
+  for (const document of documentsForOwner(member.id)) deleteDocument(document.id);
+  return c.json(ok({ deleted: deleteMember(member.id) }));
+});
+app.post("/api/v1/district/members/:id/documents", uploadLimit, async c => {
+  const head = requireHead(c);
+  const member = memberOfHead(head, c.req.param("id"));
+  const saved = [];
+  for (const file of await uploadedFiles(c)) saved.push(await saveDocument({ ownerId: member.id, uploadedBy: head.id, ...file }));
+  return c.json(ok(saved.map(toDocumentInfo)), 201);
+});
+app.get("/api/v1/district/documents", c => c.json(ok(documentsForHead(requireHead(c).id).map(toDocumentInfo))));
+
+// ---------- Head: chat with the agent ----------
+app.get("/api/v1/chat/status", c => { requireHead(c); return c.json(ok(agentStatus())); });
+app.get("/api/v1/chat/conversations", c => c.json(ok(listConversations(requireHead(c).id))));
+app.post("/api/v1/chat/conversations", async c => { const head = requireHead(c); const { title } = await body<{ title?: string }>(c); return c.json(ok(createConversation(head.id, title)), 201); });
+app.patch("/api/v1/chat/conversations/:id", async c => {
+  const head = requireHead(c);
+  const { title } = await body<{ title?: string }>(c);
+  const conversation = renameConversation(head.id, c.req.param("id"), title ?? "");
+  return conversation ? c.json(ok(conversation)) : c.json(fail("NOT_FOUND", "المحادثة غير موجودة"), 404);
+});
+app.delete("/api/v1/chat/conversations/:id", c => deleteConversation(requireHead(c).id, c.req.param("id")) ? c.json(ok({ deleted: true })) : c.json(fail("NOT_FOUND", "المحادثة غير موجودة"), 404));
+app.get("/api/v1/chat/conversations/:id/messages", c => {
+  const head = requireHead(c);
+  const conversation = getConversation(head.id, c.req.param("id"));
+  return conversation ? c.json(ok(listMessages(conversation.id))) : c.json(fail("NOT_FOUND", "المحادثة غير موجودة"), 404);
+});
+
+app.post("/api/v1/chat/attachments", uploadLimit, async c => {
+  const head = requireHead(c);
+  const saved: ChatAttachment[] = [];
+  for (const file of await uploadedFiles(c)) {
+    const document = await saveDocument({ ownerId: null, uploadedBy: head.id, ...file });
+    saved.push({ id: document.id, name: document.name, kind: document.kind, size: document.size });
+  }
+  return c.json(ok(saved), 201);
+});
+
+app.post("/api/v1/chat/messages", async c => {
+  const head = requireHead(c);
+  const input = await body<ChatSendInput>(c);
+  const text = String(input.text ?? "").trim();
+  const attachments = (input.attachmentIds ?? []).map(id => getDocument(id)).filter((document): document is StoredDocument => Boolean(document && document.uploadedBy === head.id));
+  if (!text && !attachments.length) return c.json(fail("VALIDATION_ERROR", "اكتبي سؤالك أو أرفقي ملفاً"), 422);
+
+  let conversation = input.conversationId ? getConversation(head.id, input.conversationId) : null;
+  if (input.conversationId && !conversation) return c.json(fail("NOT_FOUND", "المحادثة غير موجودة"), 404);
+  const history = conversation ? listMessages(conversation.id) : [];
+  const title = titleFrom(text, attachments.map(document => document.name));
+  if (!conversation) conversation = createConversation(head.id, title);
+  else if (!history.length && conversation.title === "محادثة جديدة") renameConversation(head.id, conversation.id, title);
+  linkDocumentsToConversation(attachments.map(document => document.id), conversation.id);
+
+  const userMessage = addMessage(conversation.id, { role: "user", text, attachments: attachments.map(document => ({ id: document.id, name: document.name, kind: document.kind, size: document.size })) });
+  let reply: { text: string; blocks: ChatBlock[] };
+  try { reply = await respond({ head, conversationId: conversation.id, history, attachments }, text); }
+  catch (error) {
+    console.error("agent failed", error);
+    reply = { text: "عذراً، واجهت مشكلة أثناء تجهيز الرد. أعيدي المحاولة أو صيغي السؤال بطريقة أخرى.", blocks: [] };
+  }
+  const assistantMessage = addMessage(conversation.id, { role: "assistant", text: reply.text, blocks: reply.blocks });
+  return c.json(ok({ conversation: getConversation(head.id, conversation.id), userMessage, assistantMessage }), 201);
+});
+
+function markProposalBlocks(proposalId: string, status: "applied" | "rejected", resultText: string) {
+  const message = findMessageWithProposal(proposalId);
+  if (!message) return;
+  updateMessageBlocks(message.id, message.blocks.map(block => {
+    if (block.type === "proposal" && block.proposalId === proposalId) return { ...block, status, resultText };
+    if (block.type === "applied" && block.undoProposalId === proposalId) return { type: "applied", text: `${block.text} — ${status === "applied" ? "تم التراجع" : "أُبقي التغيير"}` };
+    return block;
+  }));
+}
+
+app.post("/api/v1/chat/proposals/:id/:action{apply|reject}", async c => {
+  const head = requireHead(c);
+  const proposal = getProposal(c.req.param("id"));
+  if (!proposal || proposal.userId !== head.id) return c.json(fail("NOT_FOUND", "الاقتراح غير موجود"), 404);
+  if (proposal.status !== "pending") return c.json(fail("ALREADY_RESOLVED", proposal.status === "applied" ? "تم تنفيذ هذا الاقتراح مسبقاً" : "تم إلغاء هذا الاقتراح"), 409);
+  const conversationId = proposal.conversationId;
+  if (c.req.param("action") === "reject") {
+    resolveProposal(proposal.id, "rejected");
+    markProposalBlocks(proposal.id, "rejected", "أُلغي — لم يتم تغيير أي بيانات");
+    const assistantMessage = conversationId ? addMessage(conversationId, { role: "assistant", text: "تمام، ألغيت التغييرات ولم أعدّل أي بيانات." }) : null;
+    return c.json(ok({ proposalId: proposal.id, status: "rejected", assistantMessage }));
+  }
+  const reply = await applyProposal(head, proposal);
+  resolveProposal(proposal.id, "applied", reply.text);
+  markProposalBlocks(proposal.id, "applied", reply.text);
+  const assistantMessage = conversationId ? addMessage(conversationId, { role: "assistant", text: reply.text, blocks: reply.blocks }) : null;
+  return c.json(ok({ proposalId: proposal.id, status: "applied", assistantMessage }));
+});

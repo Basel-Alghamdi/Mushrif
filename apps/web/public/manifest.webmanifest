@@ -1,10 +1,10 @@
 {
-  "name": "رَصد الميداني",
+  "name": "رَصد — متابعة الفريق التنفيذي",
   "short_name": "رَصد",
-  "start_url": "/field",
+  "start_url": "/login",
   "display": "standalone",
-  "background_color": "#f5f3ed",
-  "theme_color": "#16483f",
+  "background_color": "#f2f4f4",
+  "theme_color": "#009688",
   "lang": "ar",
   "dir": "rtl"
 }

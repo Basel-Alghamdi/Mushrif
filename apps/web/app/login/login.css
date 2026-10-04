@@ -1,0 +1,53 @@
+/* Login — email first, then password (or choose one the first time). Phone-first. */
+.lg{min-height:100dvh;display:grid;grid-template-columns:minmax(0,1fr);background:var(--canvas)}
+.lg-panel{display:none}
+
+.lg-main{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px 16px calc(24px + var(--safe-bottom))}
+.lg-card{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px 20px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,57,53,.07);animation:rsFade .25s ease}
+.lg-card form{display:flex;flex-direction:column;gap:16px}
+
+.lg-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.lg-brand b{display:block;font-size:17px;line-height:1.3}
+.lg-mark{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--primary);color:#fff;font-size:20px;font-weight:700;box-shadow:var(--shadow-primary)}
+
+.lg-title h1{font-size:22px}
+.lg-title p{margin-top:2px;color:var(--text-2);font-size:14px}
+.lg-who{display:flex;flex-wrap:wrap;align-items:center;gap:0 10px}
+.lg-who-email{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:13px;font-weight:600}
+
+/* The email box is left-to-right; its Arabic «مثال:» placeholder still reads right-to-left. */
+.lg .input[dir=ltr]:placeholder-shown{direction:rtl}
+
+.lg-password{position:relative}
+.lg-password .input{padding-inline-end:48px}
+.lg-eye{position:absolute;inset-block:0;inset-inline-end:2px;width:44px;display:grid;place-items:center;border:0;background:none;color:var(--text-3);border-radius:var(--radius-sm)}
+.lg-eye:hover{color:var(--primary-dark)}
+.lg-eye svg{font-size:19px}
+
+.lg-remember{display:flex;align-items:center;gap:10px;min-height:44px;color:var(--text-2);cursor:pointer;width:fit-content}
+.lg-remember input{width:20px;height:20px;margin:0;accent-color:var(--primary)}
+
+.lg-error{padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--danger-border);background:var(--danger-bg);color:var(--danger);font-size:13px;line-height:1.6}
+.lg-notice{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--primary-soft);color:var(--deep);font-size:13px;line-height:1.7}
+.lg-notice svg{flex:none;margin-top:4px;color:var(--primary)}
+
+.lg-forgot{display:flex;flex-direction:column;align-items:center;gap:8px}
+.lg-link{min-height:44px;padding:0 4px;border:0;background:none;color:var(--primary-dark);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+
+.lg-checking{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--text-3)}
+.lg-spin{animation:spin .9s linear infinite}
+
+/* Desktop: a calm brand panel beside the form. */
+@media (min-width:900px){
+  .lg{grid-template-columns:minmax(380px,42%) minmax(0,1fr)}
+  .lg-panel{display:flex;align-items:center;padding:56px;background:linear-gradient(160deg,var(--deep) 0%,#005a52 100%);color:#fff}
+  .lg-panel-inner{max-width:420px;display:flex;flex-direction:column;gap:18px}
+  .lg-panel h2{font-size:30px;line-height:1.5}
+  .lg-panel p{font-size:15px;color:#ffffffcc;line-height:1.9}
+  .lg-brand-light{margin-bottom:24px}
+  .lg-brand-light b{font-size:20px}
+  .lg-brand-light .lg-mark{background:#ffffff1f;box-shadow:inset 0 0 0 1px #ffffff33}
+  .lg-main{padding:48px 32px}
+  .lg-card{padding:36px 32px}
+  .lg-card>.lg-brand{display:none}
+}

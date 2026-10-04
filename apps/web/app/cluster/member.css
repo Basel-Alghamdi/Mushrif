@@ -1,0 +1,265 @@
+/* Member (مشرفة) workspace. Phone-first: 4 bottom tabs on phones, a sidebar from 900px. */
+.m-shell,.m-toast{--m-tabs:64px}
+.m-spin{animation:spin .9s linear infinite}
+.m-boot{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center;color:var(--text-3)}
+
+/* ---------- Shell ---------- */
+.m-shell{min-height:100dvh;background:var(--canvas)}
+.m-top{position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:env(safe-area-inset-top,0px) 16px 0;background:#ffffffeb;backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--border)}
+.m-brand{display:flex;align-items:center;gap:8px;min-height:44px;font-size:16px;font-weight:700;color:var(--deep)}
+.m-brand-mark{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--primary);color:#fff;font-size:16px;box-shadow:var(--shadow-primary)}
+
+.m-save{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:0;border-radius:99px;background:none;color:var(--success);font-size:12.5px;font-weight:600;white-space:nowrap;animation:rsFade .2s ease}
+.m-save:empty{display:none}
+.m-save svg{font-size:14px}
+.m-save.is-saving{color:var(--text-3);font-weight:500}
+.m-save.is-error{min-height:44px;padding:0 12px;background:var(--danger-bg);color:var(--danger)}
+
+.m-side{display:none}
+.m-main{width:100%;max-width:760px;margin:0 auto;padding:16px 16px calc(var(--m-tabs) + 24px + var(--safe-bottom))}
+
+.m-tabs{position:fixed;z-index:50;inset-inline:0;bottom:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));height:calc(var(--m-tabs) + var(--safe-bottom));padding-bottom:var(--safe-bottom);background:var(--surface);border-top:1px solid var(--border);box-shadow:0 -6px 18px rgba(0,0,0,.04)}
+.m-tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;color:var(--text-3);font-size:12.5px;font-weight:500}
+.m-tab svg{font-size:22px}
+.m-tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-tab.is-active{color:var(--primary-dark);font-weight:700}
+.m-tab.is-active::before{content:"";position:absolute;top:0;width:32px;height:3px;border-radius:0 0 3px 3px;background:var(--primary)}
+
+.m-toast{inset-block-end:calc(var(--m-tabs) + 12px + var(--safe-bottom))}
+.m-toast button{min-height:44px;padding:0 4px}
+.m-toast-info{background:var(--deep)}
+.m-toast-error{background:#7f1d1d}
+
+/* Phones: the tab bar steps aside while she types, so the keyboard leaves room for the form.
+   It comes back a moment after typing ends, so a tap on a button near the bottom is not caught by it. */
+@media (max-width:899.98px){
+  .m-tabs{transition:visibility 0s .3s,transform 0s .3s}
+  body:has(:is(input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea,select):focus) .m-tabs{visibility:hidden;transform:translateY(100%);transition:none}
+  body:has(:is(input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea,select):focus) .m-main{padding-bottom:calc(24px + var(--safe-bottom))}
+}
+
+@media (min-width:900px){
+  .m-shell{display:grid;grid-template-columns:232px minmax(0,1fr);grid-template-rows:auto 1fr}
+  .m-top{grid-column:1/-1;padding-inline:20px}
+  .m-side{position:sticky;top:56px;display:flex;flex-direction:column;justify-content:space-between;gap:16px;height:calc(100dvh - 56px);padding:16px;background:var(--surface);border-inline-end:1px solid var(--border)}
+  .m-main{padding:28px 32px 56px}
+  .m-tabs{display:none}
+  .m-toast{inset-block-end:24px}
+}
+.m-side-nav{display:flex;flex-direction:column;gap:2px}
+.m-side-link{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border-radius:var(--radius-sm);color:var(--text-2);font-size:14px;font-weight:500}
+.m-side-link svg{font-size:18px}
+.m-side-link:hover{background:var(--surface-alt);color:var(--text)}
+.m-side-link.is-active{background:var(--primary-tint);color:var(--primary-dark);font-weight:700}
+.m-side-user{display:flex;align-items:center;gap:10px;min-width:0;padding:12px 4px 0;border-top:1px solid var(--border)}
+.m-side-user>span{display:flex;flex-direction:column;min-width:0}
+.m-side-user b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.m-side-user small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3);font-size:12px}
+
+/* ---------- Page scaffolding ---------- */
+.m-page{display:flex;flex-direction:column;gap:14px;animation:rsFade .2s ease}
+.m-page h1,.m-hello{font-size:21px;line-height:1.4;overflow-wrap:anywhere}
+.m-head{display:flex;flex-direction:column;gap:2px}
+.m-status{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;color:var(--text-2);font-size:13.5px}
+.m-status.is-done{color:var(--success);font-weight:600}
+.m-lead{color:var(--text-2);font-size:14px}
+.m-hint{margin-top:-6px;color:var(--text-3);font-size:12.5px}
+.m-muted{color:var(--text-3);font-size:13px}
+.m-optional{font-weight:400;color:var(--text-3)}
+.m-note{color:var(--text-2);font-size:13px}
+.m-count{color:var(--text-3);font-weight:500}
+.m-sub{margin-bottom:-6px;font-size:13.5px}
+.m-back{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-height:44px;padding:0 4px;margin-block:-8px -4px;color:var(--primary-dark);font-size:14px;font-weight:600}
+.m-back svg{font-size:17px}
+.m-link{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;min-height:44px;padding:0 2px;border:0;background:none;color:var(--primary-dark);font-size:13.5px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.m-link svg{font-size:16px}
+.m-link.is-danger{color:var(--danger)}
+.m-status .m-link{min-height:44px;margin-block:-10px}
+.m-inline{display:flex;align-items:center;gap:8px;min-width:0}
+.m-inline>.input{flex:1;min-width:0}
+.m-actions{display:flex;flex-wrap:wrap;gap:8px}
+.m-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.m-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;gap:10px}
+.m-done-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.m-done-row>.btn{flex:1 1 120px}
+.m-done-row>.m-link{align-self:center}
+.m-cancel{align-self:flex-start}
+.m-chev{flex:none;color:var(--text-3);font-size:18px}
+
+/* ---------- Fields ---------- */
+.m-form{display:flex;flex-direction:column;gap:16px}
+textarea.input.m-grow{min-height:46px;padding-block:10px;line-height:1.6;resize:none;overflow:hidden}
+.m-field-head{display:flex;align-items:center;gap:8px;min-height:22px}
+.m-field-head .field-label{flex:1}
+.m-field.is-empty .input{border-color:#f59e0b8c}
+.m-field.is-empty .input:focus{border-color:var(--primary)}
+.m-field-wrap{display:flex;flex-direction:column;gap:6px}
+.m-choice{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0;padding:0;border:0}
+.m-choice>legend{margin-bottom:6px;padding:0}
+.m-chips{display:flex;flex-wrap:wrap;gap:8px}
+.m-chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid var(--border-strong);border-radius:99px;background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;transition:background .15s,border-color .15s,color .15s}
+/* The chosen chip is filled; nothing else changes, so the row never reflows when she taps. */
+.m-chip.is-on{border-color:var(--primary-dark);background:var(--primary-dark);color:#fff}
+.m-chosen{display:inline-flex;align-items:center;gap:12px;align-self:flex-start;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+.m-chosen-change{color:var(--primary-dark);font-size:13.5px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.m-choice.is-empty .m-chip{border-color:#f59e0b8c}
+@media (hover:hover){.m-chip:not(.is-on):hover{border-color:var(--primary);color:var(--primary-dark)}}
+/* Phone and email boxes are left-to-right, but their Arabic «مثال:» placeholder reads right-to-left,
+   so a long example is cut at its end («مثال: 05512…»), never at «مثال». */
+.m-shell .input{text-overflow:ellipsis}
+.m-shell input[dir=ltr]:is([type=tel],[type=email]):placeholder-shown{direction:rtl}
+.m-readonly{display:flex;align-items:center;min-height:44px;padding:0 12px;border-radius:var(--radius-sm);background:var(--surface-alt);color:var(--text-2);font-size:14px;overflow-wrap:anywhere}
+.m-add-row{display:flex;flex-direction:column;gap:10px}
+
+/* Collapsed rows */
+.m-exp{padding:0;overflow:hidden}
+.m-exp summary{display:flex;align-items:center;gap:10px;min-height:56px;padding:0 16px;cursor:pointer;list-style:none;user-select:none}
+.m-exp summary::-webkit-details-marker{display:none}
+@media (hover:hover){.m-exp summary:hover{background:var(--surface-alt)}}
+.m-exp-title{flex:1;font-size:15px;font-weight:600}
+.m-exp-chev{flex:none;color:var(--text-3);font-size:18px;transition:transform .2s ease}
+details[open]>summary .m-exp-chev{transform:rotate(180deg)}
+.m-exp[open]>summary{border-bottom:1px solid var(--border)}
+.m-exp-body{display:flex;flex-direction:column;gap:16px;padding:16px}
+/* A fold that opens scrolls into view between the header and the bottom tab bar (see reveal() in ui.tsx). */
+.m-exp,.m-program,.m-confirm{scroll-margin-block:72px calc(var(--m-tabs) + 16px + var(--safe-bottom))}
+@media (min-width:900px){.m-exp,.m-program,.m-confirm{scroll-margin-block:72px 24px}}
+.m-exp-group{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.m-exp-group>.m-exp{border:0;border-radius:0}
+.m-exp-group>.m-exp+.m-exp{border-top:1px solid var(--border)}
+.m-pair{align-items:start}
+.m-pair .input{padding-inline:10px}
+/* A phone/email box paired with a short field gets the room its «مثال: 0551234567» needs, even at 360px. */
+.m-pair:has(> :first-child input[dir=ltr]){grid-template-columns:minmax(min(164px,100%),1fr) minmax(0,1fr)}
+.m-exp-body .m-grid-2:not(.m-pair){align-items:end}
+
+/* Password with an eye */
+.m-password{display:flex;flex-direction:column;gap:12px;padding-top:4px}
+.m-password>.btn{align-self:flex-start}
+.m-pass{position:relative}
+.m-pass .input{padding-inline-end:48px}
+.m-eye{position:absolute;inset-block:0;inset-inline-end:2px;width:44px;display:grid;place-items:center;border:0;background:none;color:var(--text-3);border-radius:var(--radius-sm)}
+.m-eye svg{font-size:19px}
+
+/* ---------- Today ---------- */
+.m-setup{display:flex;flex-direction:column;gap:2px;padding-block:12px 4px}
+.m-setup h2{font-size:16px}
+.m-setup h2 span{color:var(--primary-dark)}
+.m-setup ul{margin:0;padding:0;list-style:none}
+.m-setup li+li{border-top:1px solid var(--border)}
+.m-setup-row{display:flex;align-items:center;gap:10px;min-height:48px}
+.m-setup-mark{width:22px;height:22px;flex:none;display:grid;place-items:center;border:1.5px solid var(--border-strong);border-radius:99px}
+.m-setup-mark svg{font-size:14px}
+.m-setup-row b{font-size:14px}
+.m-setup-status{flex:1;min-width:0;color:var(--warning);font-size:13px}
+.m-setup-row.is-done .m-setup-mark{border-color:transparent;background:var(--success-bg);color:var(--success)}
+.m-setup-row.is-done b{color:var(--text-2);font-weight:500}
+.m-setup-row.is-done .m-setup-status{color:var(--text-3)}
+
+.m-absence{display:flex;flex-direction:column;gap:10px}
+.m-absence h2{font-size:16px}
+.m-absence ul{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.m-absence-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:56px;padding:5px;padding-inline-start:14px;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);text-align:start}
+.m-absence-name{min-width:0;font-weight:600;overflow-wrap:anywhere}
+.m-absence-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;min-width:92px;min-height:44px;padding:0 14px;border:1.5px solid var(--primary-dark);border-radius:10px;background:var(--surface);color:var(--primary-dark);font-size:14px;font-weight:700}
+.m-absence-row.is-done{border-color:#0676474d;background:var(--success-bg)}
+.m-absence-row.is-done .m-absence-btn{border-color:var(--success);background:var(--success);color:#fff}
+
+.m-recent{display:flex;flex-direction:column;gap:6px}
+.m-recent-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.m-recent-head h2{font-size:15px}
+.m-lines{margin:0;padding:0;list-style:none}
+.m-lines li{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;padding:0 16px}
+.m-lines li+li{border-top:1px solid var(--border)}
+.m-line-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.m-lines time{flex:none;color:var(--text-3);font-size:12.5px}
+
+/* ---------- Sheet (bottom sheet on phones, dialog on desktop) ---------- */
+html:has(.m-sheet[open]){overflow:hidden}
+.m-sheet{position:fixed;inset:auto 0 0;width:100%;max-width:100%;max-height:calc(100dvh - 32px);margin:0;padding:0;border:0;border-radius:20px 20px 0 0;background:var(--surface);color:var(--text);box-shadow:var(--shadow-pop);animation:mSheetUp .22s ease}
+.m-sheet::backdrop{background:#00141280}
+.m-sheet-inner{display:flex;flex-direction:column;max-height:calc(100dvh - 32px)}
+.m-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;padding-inline-start:16px;border-bottom:1px solid var(--border)}
+.m-sheet-head h2{font-size:16px}
+.m-sheet-head .btn-icon{width:44px;min-height:44px;color:var(--text-2)}
+.m-sheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px}
+.m-sheet-foot{padding:10px 16px calc(10px + var(--safe-bottom));border-top:1px solid var(--border);background:var(--surface)}
+.m-sheet-note{margin-bottom:8px;color:var(--warning);font-size:12.5px;font-weight:600;text-align:center}
+@keyframes mSheetUp{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
+@media (min-width:900px){
+  .m-sheet{inset:0;width:min(560px,calc(100vw - 48px));max-height:min(760px,calc(100dvh - 48px));margin:auto;border-radius:20px;animation:rsFade .2s ease}
+  .m-sheet-inner{max-height:min(760px,calc(100dvh - 48px))}
+}
+.m-visit-form{display:flex;flex-direction:column;gap:18px}
+.m-more>summary{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--primary-dark);font-size:13.5px;font-weight:600;cursor:pointer;list-style:none}
+.m-more>summary::-webkit-details-marker{display:none}
+.m-more>summary::before{content:"+";display:grid;place-items:center;width:20px;height:20px;border-radius:99px;background:var(--primary-tint);font-size:15px;line-height:1}
+.m-more[open]>summary::before{content:"−"}
+.m-more-body{display:flex;flex-direction:column;gap:14px;padding-top:8px}
+
+/* ---------- Schools ---------- */
+.m-school-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+@media (min-width:640px){.m-school-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.m-school-card{display:flex;align-items:center;gap:10px;height:100%;padding:12px 16px}
+@media (hover:hover){.m-school-card:hover{border-color:#00968866}}
+.m-school-main{display:flex;flex:1;flex-direction:column;min-width:0}
+.m-school-main b{font-size:15px;overflow-wrap:anywhere}
+.m-school-meta{color:var(--text-2);font-size:13px}
+
+.m-leaders{display:flex;flex-direction:column;gap:10px}
+.m-leaders-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-block:-10px -6px}
+.m-leaders-head h2{font-size:14px;font-weight:700;color:var(--text)}
+.m-leaders-head .m-link{align-self:center}
+.m-leader{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border)}
+
+/* ---------- Reports ---------- */
+.m-reports.is-dragging{outline:2px dashed var(--primary);outline-offset:8px;border-radius:12px}
+.m-report-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.m-report-actions .btn{padding-inline:10px}
+.m-uploads{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.m-upload{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);font-size:13px}
+.m-upload>svg{font-size:17px;color:var(--primary)}
+.m-upload-text{display:flex;flex:1;flex-direction:column;min-width:0}
+.m-upload-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-upload-text small{color:var(--text-3);font-size:12.5px;line-height:1.5}
+.m-upload .m-link{flex:none;align-self:center}
+.m-upload-x{flex:none;width:44px;min-height:44px;margin-inline-end:-6px;color:var(--text-2)}
+.m-upload.is-error{padding-block:4px;border-color:var(--danger-border);background:var(--danger-bg)}
+.m-upload.is-error>svg,.m-upload.is-error .m-upload-text small{color:var(--danger)}
+.m-items{margin:0;padding:0;list-style:none}
+.m-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;padding-inline-end:6px}
+.m-item+.m-item{border-top:1px solid var(--border)}
+.m-item-main{display:flex;align-items:center;gap:12px;min-width:0;min-height:60px;padding:8px 14px;padding-inline-end:4px;border:0;background:none;text-align:start}
+.m-item-icon{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:11px;background:var(--surface-alt);color:var(--text-2);font-size:19px}
+.m-item-icon.is-visit{background:var(--primary-tint);color:var(--primary-dark)}
+.m-item-icon.is-spreadsheet{background:#e7f6ec;color:#1d7a46}
+.m-item-icon.is-pdf{background:#fdeceb;color:#b42318}
+.m-item-icon.is-word{background:#e8f0fd;color:#2b5fb8}
+.m-item-icon.is-image{background:#f3ecfd;color:#6d3fc0}
+.m-item-text{display:flex;flex-direction:column;min-width:0}
+.m-item-text b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}
+.m-item-text small{color:var(--text-3);font-size:12.5px}
+@media (hover:hover){.m-item-main:hover b{color:var(--primary-dark)}}
+.m-item-details{grid-column:1/-1;display:flex;flex-direction:column;gap:4px;padding:0 14px 12px;padding-inline-start:64px;font-size:13.5px;overflow-wrap:anywhere}
+
+/* ---------- Programs ---------- */
+.m-programs{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.m-program{border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.m-program summary{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 14px;cursor:pointer;list-style:none}
+.m-program summary::-webkit-details-marker{display:none}
+.m-program summary b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.m-program summary span{flex:none;color:var(--text-3);font-size:12.5px}
+.m-program-body{display:flex;flex-direction:column;gap:14px;padding:4px 14px 12px}
+
+/* ---------- Small pieces ---------- */
+.m-confirm{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px}
+.m-confirm-yes{border-color:var(--danger);background:var(--danger);color:#fff}
+.m-confirm-yes:hover{background:#b91c1c}
+.m-icon-danger{color:var(--text-3)}
+.m-icon-danger:hover:not(:disabled){background:var(--danger-bg);color:var(--danger)}
+.m-item .m-confirm{grid-column:2;padding-block:8px}
+.btn-icon.m-icon-danger{width:44px;min-height:44px}
+
+@media (max-width:360px){
+  .m-report-actions .btn{font-size:14px}
+}

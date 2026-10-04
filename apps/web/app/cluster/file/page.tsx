@@ -1,2 +1,5 @@
-import { MemberWorkspace } from "../../../components/member-workspace";
-export default function ClusterFilePage(){return <MemberWorkspace initialPage="file"/>}
+import { redirect } from "next/navigation";
+
+export default function FileRedirect() {
+  redirect("/cluster/profile");
+}
