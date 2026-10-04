@@ -1,144 +1,99 @@
+// Stored files (decision 7): rows in attachments (+ attachment_contents for the text and tables read out of them),
+// bytes in a private Supabase Storage bucket. A member's files have owner_type "document"; the head's chat uploads
+// start without a cluster and are filed into a member's cluster later (assignDocument).
+import { randomUUID } from "node:crypto";
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
+import type postgres from "postgres";
 import type { DocumentInfo, DocumentKind } from "@rasd/schemas";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { extname, join } from "node:path";
-import mammoth from "mammoth";
-import * as XLSX from "xlsx";
-import { cleanText, db, newId, now, parseJson, uploadsDir } from "./db.js";
+import { auditWith, type AuditContext } from "./audit.js";
+import { supabaseAdmin } from "./auth.js";
+import { atomically, type Row, type Sql } from "./db.js";
+import { env } from "./env.js";
+import { ApiError, notFound } from "./errors.js";
+import { detectKind, extractContent, hasContent, type DocumentTable } from "./extract.js";
+import { cleanText, isUuid } from "./parse.js";
+
+export { detectKind, type DocumentTable } from "./extract.js";
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const MAX_FILES_PER_UPLOAD = 20;
 const MAX_TEXT_CHARS = 400_000;
-const MAX_ROWS_PER_SHEET = 5_000;
-const MAX_COLS = 80;
+const EXCERPT_CHARS = 280;
 
-export type DocumentTable = { sheet: string; rows: string[][] };
-export type StoredDocument = DocumentInfo & { text: string; tables: DocumentTable[]; storagePath: string; conversationId: string | null };
+/** A file without its extracted content: what listings, permission checks and downloads need. */
+export type DocumentRow = DocumentInfo & {
+  clusterId: string | null; districtId: string; conversationId: string | null; ownerType: string; storagePath: string;
+};
+/** A file with the full text and tables read out of it (getDocument, the agent). */
+export type StoredDocument = DocumentRow & { text: string; tables: DocumentTable[] };
 
-export function detectKind(name: string, mime: string): DocumentKind {
-  const ext = extname(name).toLowerCase();
-  if ([".xlsx", ".xlsm", ".xls", ".csv", ".tsv", ".ods"].includes(ext) || /spreadsheet|excel|csv/.test(mime)) return "spreadsheet";
-  if (ext === ".pdf" || mime === "application/pdf") return "pdf";
-  if ([".docx", ".doc", ".odt", ".rtf"].includes(ext) || /word|opendocument\.text/.test(mime)) return "word";
-  if ([".txt", ".md", ".json", ".html", ".htm", ".xml"].includes(ext) || mime.startsWith("text/")) return "text";
-  if (mime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".bmp"].includes(ext)) return "image";
-  if (mime.startsWith("audio/") || [".mp3", ".m4a", ".wav", ".ogg", ".aac"].includes(ext)) return "audio";
-  return "other";
+// ───────── reading files (off the event loop) ─────────
+export const EXTRACT_TIMEOUT_MS = 20_000;
+const WORKER_HEAP_MB = 512;
+/** At most this many files are read at once across all requests; the rest wait their turn. */
+const MAX_PARALLEL_EXTRACTIONS = 2;
+
+type Extracted = { text: string; tablesJson: string; pages?: number };
+
+let running = 0;
+const waiting: (() => void)[] = [];
+const acquireSlot = () => (running < MAX_PARALLEL_EXTRACTIONS ? (running += 1, Promise.resolve()) : new Promise<void>(resolve => waiting.push(resolve)));
+const releaseSlot = () => { const next = waiting.shift(); if (next) next(); else running -= 1; };
+
+// The worker is TypeScript like the rest of the API: it inherits the parent's tsx loader, or gets one if the parent has none.
+const workerFile = new URL(`./extract-worker${extname(fileURLToPath(import.meta.url))}`, import.meta.url);
+const workerExecArgv = () =>
+  workerFile.pathname.endsWith(".ts") && !process.execArgv.some(arg => arg.includes("tsx")) ? [...process.execArgv, "--import", import.meta.resolve("tsx")] : undefined;
+let warnedInThread = false;
+
+/** One file in a worker thread, with a time and memory limit. Resolves null when no worker could be started. */
+function extractInWorker(buffer: Buffer, name: string, kind: DocumentKind, timeoutMs: number) {
+  return new Promise<Extracted | null>((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(workerFile, { workerData: { buffer, name, kind }, execArgv: workerExecArgv(), resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB } });
+    } catch (error) {
+      console.error("extraction worker could not start", error);
+      resolve(null);
+      return;
+    }
+    let started = false;
+    let settled = false;
+    const finish = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      settle();
+    };
+    const timer = setTimeout(() => finish(() => reject(new Error(`reading the file took longer than ${timeoutMs / 1000}s`))), timeoutMs);
+    worker.on("message", (message: Partial<Extracted> & { type: string; error?: string }) => {
+      if (message.type === "ready") { started = true; return; }
+      if (message.type === "done") finish(() => resolve({ text: message.text ?? "", tablesJson: message.tablesJson ?? "[]", pages: message.pages }));
+      else finish(() => reject(new Error(message.error ?? "extraction failed")));
+    });
+    // Before "ready" the worker itself failed to load (no TypeScript loader, a missing module…); after it, the file did.
+    worker.on("error", error => finish(() => (started ? reject(error) : (console.error("extraction worker could not start", error), resolve(null)))));
+    worker.on("exit", code => finish(() => (started ? reject(new Error(`extraction stopped (exit ${code})`)) : resolve(null))));
+  });
 }
 
-const cell = (value: unknown) => cleanText(value instanceof Date ? value.toISOString().slice(0, 10) : value);
-
-function trimTable(rows: unknown[][]): string[][] {
-  const table = rows.slice(0, MAX_ROWS_PER_SHEET).map(row => row.slice(0, MAX_COLS).map(cell));
-  while (table.length && table[table.length - 1].every(value => !value)) table.pop();
-  const width = table.reduce((max, row) => { let last = row.length; while (last > 0 && !row[last - 1]) last--; return Math.max(max, last); }, 0);
-  return table.filter(row => row.some(Boolean)).map(row => Array.from({ length: width }, (_, index) => row[index] ?? ""));
-}
-
-function tablesToText(tables: DocumentTable[]) {
-  return tables.map(table => `## ${table.sheet}\n${table.rows.map(row => row.join(" | ")).join("\n")}`).join("\n\n");
-}
-
-/** Very small HTML table reader for mammoth output (Word tables often hold "label | value" forms). */
-function htmlTables(html: string): DocumentTable[] {
-  const tables: DocumentTable[] = [];
-  const strip = (value: string) => cleanText(value.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'"));
-  for (const [index, tableHtml] of [...html.matchAll(/<table[\s\S]*?<\/table>/g)].map(match => match[0]).entries()) {
-    const rows = [...tableHtml.matchAll(/<tr[\s\S]*?<\/tr>/g)].map(row => [...row[0].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map(cellMatch => strip(cellMatch[1])));
-    const trimmed = trimTable(rows);
-    if (trimmed.length) tables.push({ sheet: `جدول ${index + 1}`, rows: trimmed });
-  }
-  return tables;
-}
-
-export async function extractContent(buffer: Buffer, name: string, kind: DocumentKind): Promise<{ text: string; tables: DocumentTable[]; pages?: number }> {
-  const ext = extname(name).toLowerCase();
-  if (kind === "spreadsheet") {
-    const workbook = ext === ".csv" || ext === ".tsv"
-      ? XLSX.read(buffer.toString("utf8").replace(/^﻿/, ""), { type: "string", cellDates: true, raw: false, FS: ext === ".tsv" ? "\t" : undefined })
-      : XLSX.read(buffer, { type: "buffer", cellDates: true });
-    const tables = workbook.SheetNames.map(sheet => ({
-      sheet,
-      rows: trimTable(XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheet], { header: 1, defval: "", raw: false, blankrows: false })),
-    })).filter(table => table.rows.length);
-    return { text: tablesToText(tables), tables };
-  }
-  if (kind === "word") {
-    if (ext !== ".docx") return { text: "", tables: [] };
-    const [{ value: text }, { value: html }] = await Promise.all([mammoth.extractRawText({ buffer }), mammoth.convertToHtml({ buffer })]);
-    return { text, tables: htmlTables(html) };
-  }
-  if (kind === "pdf") {
-    const { extractText, getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(new Uint8Array(buffer));
-    const { totalPages, text } = await extractText(pdf, { mergePages: true });
-    return { text: Array.isArray(text) ? text.join("\n") : text, tables: [], pages: totalPages };
-  }
-  if (kind === "text") return { text: buffer.toString("utf8").replace(/^﻿/, ""), tables: [] };
-  return { text: "", tables: [] };
-}
-
-function mapDocument(row: Record<string, unknown>): StoredDocument {
-  const text = String(row.text_content ?? "");
-  const tables = parseJson<DocumentTable[]>(row.tables_json, []);
-  return {
-    id: String(row.id),
-    ownerId: row.owner_id ? String(row.owner_id) : null,
-    ownerName: row.owner_name ? String(row.owner_name) : null,
-    uploadedBy: String(row.uploaded_by),
-    uploadedByName: String(row.uploader_name ?? ""),
-    name: String(row.name),
-    mime: String(row.mime ?? ""),
-    size: Number(row.size ?? 0),
-    kind: String(row.kind) as DocumentKind,
-    status: String(row.status) === "failed" ? "failed" : "ready",
-    excerpt: cleanText(text).slice(0, 280),
-    pages: row.pages == null ? undefined : Number(row.pages),
-    sheets: tables.length ? tables.map(table => table.sheet) : undefined,
-    createdAt: String(row.created_at),
-    text,
-    tables,
-    storagePath: String(row.storage_path),
-    conversationId: row.conversation_id ? String(row.conversation_id) : null,
-  };
-}
-
-export const toDocumentInfo = ({ text: _text, tables: _tables, storagePath: _path, conversationId: _conversation, ...info }: StoredDocument): DocumentInfo => info;
-
-const SELECT_DOCUMENT = `SELECT documents.*, owner.name AS owner_name, uploader.name AS uploader_name FROM documents
-  LEFT JOIN users owner ON owner.id = documents.owner_id LEFT JOIN users uploader ON uploader.id = documents.uploaded_by`;
-
-export function getDocument(id: string) {
-  const row = db.prepare(`${SELECT_DOCUMENT} WHERE documents.id = ?`).get(id);
-  return row ? mapDocument(row) : null;
-}
-
-export function documentsForOwner(ownerId: string) {
-  return db.prepare(`${SELECT_DOCUMENT} WHERE documents.owner_id = ? ORDER BY documents.created_at DESC`).all(ownerId).map(mapDocument);
-}
-
-/** Every document the head can see: her team's files plus the files she uploaded herself. */
-export function documentsForHead(headId: string) {
-  return db.prepare(`${SELECT_DOCUMENT} WHERE documents.uploaded_by = ? OR documents.owner_id = ?
-    OR documents.owner_id IN (SELECT id FROM users WHERE head_id = ?) ORDER BY documents.created_at DESC`).all(headId, headId, headId).map(mapDocument);
-}
-
-export async function saveDocument(input: { ownerId: string | null; uploadedBy: string; conversationId?: string | null; name: string; mime: string; buffer: Buffer }) {
-  const id = newId();
-  const name = cleanText(input.name).replace(/[\\/:*?"<>|]/g, "_") || "ملف";
-  const kind = detectKind(name, input.mime);
-  const ext = extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 10);
-  const storagePath = `${id}${ext}`;
-  writeFileSync(join(uploadsDir, storagePath), input.buffer);
-  let content: { text: string; tables: DocumentTable[]; pages?: number } = { text: "", tables: [] };
-  let status = "ready";
-  let error: string | null = null;
-  try { content = await extractContent(input.buffer, name, kind); }
-  catch (reason) { status = "failed"; error = (reason as Error).message.slice(0, 300); }
-  db.prepare(`INSERT INTO documents (id,owner_id,uploaded_by,conversation_id,name,mime,size,kind,storage_path,text_content,tables_json,pages,status,error,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-    id, input.ownerId, input.uploadedBy, input.conversationId ?? null, name, input.mime || "application/octet-stream", input.buffer.length, kind, storagePath,
-    content.text.slice(0, MAX_TEXT_CHARS), JSON.stringify(content.tables), content.pages ?? null, status, error, now(),
-  );
-  return getDocument(id)!;
+/**
+ * Text and tables of an uploaded file, read in a worker thread so a large spreadsheet, document or PDF never blocks
+ * the API (timeout → the file is kept with status "failed"). Only if no worker can start is the file read in-thread.
+ */
+export async function extractOffThread(buffer: Buffer, name: string, kind: DocumentKind, timeoutMs = EXTRACT_TIMEOUT_MS): Promise<Extracted> {
+  if (!hasContent(kind)) return { text: "", tablesJson: "[]" };
+  await acquireSlot();
+  let result: Extracted | null;
+  try { result = await extractInWorker(buffer, name, kind, timeoutMs); }
+  finally { releaseSlot(); }
+  if (result) return result;
+  if (!warnedInThread) { warnedInThread = true; console.error("no extraction worker: reading uploaded files on the main thread"); }
+  const content = await extractContent(buffer, name, kind);
+  return { text: content.text, tablesJson: JSON.stringify(content.tables), pages: content.pages };
 }
 
 // Types a browser may render inline. Everything else (html, svg, js, unknown) is served as a plain download so an
@@ -150,23 +105,202 @@ const SAFE_INLINE: Record<string, string> = {
 };
 export const safeContentType = (name: string) => SAFE_INLINE[extname(name).toLowerCase()] ?? "application/octet-stream";
 
-export function readDocumentFile(document: StoredDocument) {
-  return readFileSync(join(uploadsDir, document.storagePath));
+// ───────── storage ─────────
+const bucket = () => supabaseAdmin.storage.from(env.storageBucket);
+let bucketReady: Promise<void> | null = null;
+
+type BucketApi = Pick<typeof supabaseAdmin.storage, "getBucket" | "createBucket" | "updateBucket">;
+
+/**
+ * Makes sure the uploads bucket exists and is private (decision 7). A public bucket with that name would serve every
+ * file without sign-in, so it is switched to private, and uploads are refused if that is not possible.
+ */
+export async function prepareBucket(storage: BucketApi, name: string) {
+  let existing = await storage.getBucket(name);
+  if (existing.error) {
+    const { error } = await storage.createBucket(name, { public: false });
+    if (!error) return;
+    if (!/exist|duplicate/i.test(error.message)) throw error;
+    existing = await storage.getBucket(name); // created by a parallel request in the meantime
+    if (existing.error) throw existing.error;
+  }
+  if (!existing.data.public) return;
+  console.error(`SECURITY: the Storage bucket "${name}" is PUBLIC — every uploaded file would be readable without signing in. Making it private.`);
+  const { error } = await storage.updateBucket(name, {
+    public: false, fileSizeLimit: existing.data.file_size_limit ?? null, allowedMimeTypes: existing.data.allowed_mime_types ?? null,
+  });
+  if (error) {
+    console.error(`SECURITY: could not make the Storage bucket "${name}" private (${error.message}). Uploads are refused until it is private.`);
+    throw new ApiError(502, "STORAGE_NOT_PRIVATE", "رفع الملفات متوقف مؤقتاً لأن مخزن الملفات غير محمي — تواصلي مع الدعم الفني");
+  }
 }
 
-export function assignDocument(id: string, ownerId: string | null) {
-  db.prepare("UPDATE documents SET owner_id = ? WHERE id = ?").run(ownerId, id);
-  return getDocument(id);
+function ensureBucket() {
+  bucketReady ??= prepareBucket(supabaseAdmin.storage, env.storageBucket).catch(error => { bucketReady = null; throw error; });
+  return bucketReady;
 }
 
-export function linkDocumentsToConversation(ids: string[], conversationId: string) {
-  for (const id of ids) db.prepare("UPDATE documents SET conversation_id = ? WHERE id = ? AND conversation_id IS NULL").run(conversationId, id);
+export async function readDocumentFile(document: DocumentRow) {
+  const { data, error } = await bucket().download(document.storagePath);
+  if (error || !data) throw notFound("تعذّر العثور على محتوى الملف");
+  return Buffer.from(await data.arrayBuffer());
 }
 
-export function deleteDocument(id: string) {
-  const document = getDocument(id);
-  if (!document) return false;
-  db.prepare("DELETE FROM documents WHERE id = ?").run(id);
-  try { rmSync(join(uploadsDir, document.storagePath), { force: true }); } catch { /* file already gone */ }
-  return true;
+// ───────── rows ─────────
+const iso = (value: unknown) => (value instanceof Date ? value.toISOString() : String(value));
+const parseJson = <T>(value: unknown, fallback: T): T => {
+  try { return value == null ? fallback : JSON.parse(String(value)) as T; } catch { return fallback; }
+};
+
+function documentRow(row: Row, sheets: string[]): DocumentRow {
+  return {
+    id: String(row.id),
+    ownerId: row.ownerId ? String(row.ownerId) : null,
+    ownerName: row.ownerName ? String(row.ownerName) : null,
+    uploadedBy: row.uploadedBy ? String(row.uploadedBy) : "",
+    uploadedByName: String(row.uploaderName ?? ""),
+    name: String(row.name),
+    mime: String(row.mimeType ?? ""),
+    size: Number(row.sizeBytes ?? 0),
+    kind: detectKind(String(row.name), String(row.mimeType ?? "")),
+    status: row.status === "failed" ? "failed" : "ready",
+    excerpt: cleanText(row.text ?? "").slice(0, EXCERPT_CHARS),
+    ...(row.pages == null ? {} : { pages: Number(row.pages) }),
+    ...(sheets.length ? { sheets } : {}),
+    createdAt: iso(row.uploadedAt),
+    clusterId: row.clusterId ? String(row.clusterId) : null,
+    districtId: String(row.districtId),
+    conversationId: row.conversationId ? String(row.conversationId) : null,
+    ownerType: String(row.ownerType),
+    storagePath: String(row.storagePath),
+  };
+}
+
+function storedDocument(row: Row): StoredDocument {
+  const tables = parseJson<DocumentTable[]>(row.tablesJson, []);
+  return { ...documentRow(row, tables.map(table => table.sheet)), text: String(row.text ?? ""), tables };
+}
+
+export const toDocumentInfo = ({
+  clusterId: _c, districtId: _d, conversationId: _v, ownerType: _o, storagePath: _p, text: _t, tables: _b, ...info
+}: DocumentRow & Partial<Pick<StoredDocument, "text" | "tables">>): DocumentInfo => info;
+
+// Text/tables come as text: postgres.camel would rewrite keys inside the jsonb. Without `content`, only the start of the
+// text (for the excerpt) and the sheet names are read — listings never load whole files' content.
+const selectDocuments = (db: Sql, where: postgres.Fragment, content: boolean) => db`
+  select a.*, ac.pages, coalesce(ac.status, 'ready') as status,
+    ${content ? db`ac.text, ac.tables::text as tables_json` : db`left(ac.text, 2000) as text, jsonb_path_query_array(ac.tables, '$[*].sheet')::text as sheets_json`},
+    c.member_id as owner_id, owner.name as owner_name, uploader.name as uploader_name
+  from attachments a
+    left join attachment_contents ac on ac.attachment_id = a.id
+    left join clusters c on c.id = a.cluster_id
+    left join profiles owner on owner.id = c.member_id
+    left join profiles uploader on uploader.id = a.uploaded_by
+  where a.deleted_at is null and ${where}
+  order by a.uploaded_at desc`;
+
+const listed = (rows: Row[]) => rows.map(row => documentRow(row, parseJson<unknown[]>(row.sheetsJson, []).map(String)));
+
+/** One file with its full extracted text and tables. */
+export async function getDocument(db: Sql, id: string) {
+  if (!isUuid(id)) return null;
+  const [row] = await selectDocuments(db, db`a.id = ${id}`, true);
+  return row ? storedDocument(row) : null;
+}
+
+/** One file without its content (permission checks, downloads, filing). */
+export async function findDocument(db: Sql, id: string) {
+  if (!isUuid(id)) return null;
+  return listed(await selectDocuments(db, db`a.id = ${id}`, false))[0] ?? null;
+}
+
+export async function documentsForCluster(db: Sql, clusterId: string) {
+  return listed(await selectDocuments(db, db`a.cluster_id = ${clusterId}`, false));
+}
+
+/** Every file in the district: the members' files and the head's chat uploads. */
+export async function documentsForDistrict(db: Sql, districtId: string) {
+  return listed(await selectDocuments(db, db`a.district_id = ${districtId}`, false));
+}
+
+/** documentsForDistrict with each file's full text and tables (the agent searches and quotes them). */
+export async function documentContentsForDistrict(db: Sql, districtId: string) {
+  return (await selectDocuments(db, db`a.district_id = ${districtId}`, true)).map(storedDocument);
+}
+
+/**
+ * Stores a file: the bytes in Storage, then its row and extracted content. Extraction failures keep the file
+ * (status "failed"); a database failure removes the stored bytes again. With `context`, the upload is audited
+ * in the same transaction (a member's upload then counts as today's activity).
+ */
+export async function saveDocument(db: Sql, input: {
+  districtId: string; clusterId: string | null; uploadedBy: string; conversationId?: string | null; ownerType?: string;
+  name: string; buffer: Buffer;
+}, context?: AuditContext) {
+  await ensureBucket();
+  const id = randomUUID();
+  const name = cleanText(input.name).replace(/[\\/:*?"<>|]/g, "_").slice(0, 200) || "ملف";
+  const kind = detectKind(name, "");
+  const ext = extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 10);
+  const storagePath = `${input.districtId}/${id}${ext}`;
+  const upload = await bucket().upload(storagePath, input.buffer, { contentType: safeContentType(name), upsert: false });
+  if (upload.error) throw upload.error;
+
+  let content: Extracted = { text: "", tablesJson: "[]" };
+  let status: "ready" | "failed" = "ready";
+  let error: string | null = null;
+  try { content = await extractOffThread(input.buffer, name, kind); }
+  catch (reason) { status = "failed"; error = String((reason as Error)?.message ?? reason).slice(0, 300); }
+
+  try {
+    await atomically(db, async tx => {
+      await tx`insert into attachments ${tx({
+        id, districtId: input.districtId, clusterId: input.clusterId, conversationId: input.conversationId ?? null,
+        ownerType: input.ownerType ?? "document", name, kind, mimeType: safeContentType(name), sizeBytes: input.buffer.length,
+        storagePath, uploadedBy: input.uploadedBy,
+      })}`;
+      await tx`
+        insert into attachment_contents (attachment_id, text, tables, pages, status, error)
+        values (${id}, ${content.text.slice(0, MAX_TEXT_CHARS).replace(/\u0000/g, "")}, ${content.tablesJson}::text::jsonb, ${content.pages ?? null}, ${status}, ${error})`;
+      if (context) await auditWith(tx, context, { action: "create", entity: "document", entityId: id, clusterId: input.clusterId, after: { name, kind } });
+    });
+  } catch (failure) {
+    await bucket().remove([storagePath]).catch(() => {});
+    throw failure;
+  }
+  return (await findDocument(db, id))!;
+}
+
+/** Files a document into a member's cluster (or back to unfiled with null). */
+export async function assignDocument(db: Sql, id: string, memberId: string | null, context?: AuditContext) {
+  return atomically(db, async tx => {
+    const before = await findDocument(tx, id);
+    if (!before) return null;
+    let clusterId: string | null = null;
+    if (memberId) {
+      const [cluster] = await tx`select id from clusters where member_id = ${memberId} and district_id = ${before.districtId}`;
+      if (!cluster) throw notFound("العضوة غير موجودة");
+      clusterId = String(cluster.id);
+    }
+    await tx`update attachments set cluster_id = ${clusterId}, owner_type = 'document' where id = ${id}`;
+    if (context) await auditWith(tx, context, { action: "assign", entity: "document", entityId: id, clusterId: clusterId ?? before.clusterId, before: before.ownerId, after: memberId });
+    return findDocument(tx, id);
+  });
+}
+
+/** Links chat uploads to the conversation they were sent in (only uploads not linked yet). */
+export async function linkDocumentsToConversation(db: Sql, ids: string[], conversationId: string) {
+  if (!ids.length) return;
+  await db`update attachments set conversation_id = ${conversationId} where id = any(${db.array(ids)}::uuid[]) and conversation_id is null`;
+}
+
+/** Soft delete (main's convention); the bytes stay in Storage so the file can be restored. */
+export async function deleteDocument(db: Sql, id: string, context?: AuditContext) {
+  return atomically(db, async tx => {
+    const document = await findDocument(tx, id);
+    if (!document) return false;
+    await tx`update attachments set deleted_at = now() where id = ${id}`;
+    if (context) await auditWith(tx, context, { action: "delete", entity: "document", entityId: id, clusterId: document.clusterId, before: { name: document.name } });
+    return true;
+  });
 }

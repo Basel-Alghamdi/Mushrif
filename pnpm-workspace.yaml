@@ -1,3 +1,13 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# embedded-postgres (local test stack) unpacks its Postgres binaries in an install script on macOS/Linux.
+onlyBuiltDependencies:
+  - "@embedded-postgres/darwin-arm64"
+  - "@embedded-postgres/darwin-x64"
+  - "@embedded-postgres/linux-arm64"
+  - "@embedded-postgres/linux-x64"
+  - "@embedded-postgres/windows-x64"
+  - embedded-postgres
+  - esbuild

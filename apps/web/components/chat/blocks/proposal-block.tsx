@@ -4,7 +4,7 @@ import type { ChatBlock, ProposalChange } from "@rasd/schemas";
 import { ArrowLeft, CircleCheck, CircleX, Sparkles, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ApiRequestError } from "../../../lib/api";
+import { ApiError } from "../../../lib/api";
 import { useChat } from "../../../lib/chat/chat-context";
 import { counted } from "../../../lib/format";
 
@@ -45,7 +45,7 @@ export function ProposalBlock({ block, conversationId, messageId, messageText }:
     try {
       await resolveProposal(conversationId, messageId, block.proposalId, action);
     } catch (reason) {
-      const failure = reason as ApiRequestError;
+      const failure = reason as ApiError;
       setError(failure.message);
       if (failure.status === 409) await loadMessages(conversationId).catch(() => undefined);
     } finally {

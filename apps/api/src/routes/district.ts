@@ -1,11 +1,16 @@
 import type { Context, Hono } from "hono";
 import { riyadhDate, toWesternDigits, validators } from "@rasd/schemas";
-import { audit } from "../audit.js";
+import { activationDeadline, createMemberAccount, parseMemberInput, randomPassword, revokeSessions } from "../accounts.js";
+
+/** After a reset she has a few days to choose a new password; afterwards the head resets again. */
+const RESET_WINDOW_DAYS = 3;
+import { audit, auditContext } from "../audit.js";
 import { requireHead, supabaseAdmin, type Actor, type AppEnv } from "../auth.js";
 import { sql, type Row, type Sql } from "../db.js";
 import { emailConfigured, escapeHtml, rtlEmail, sendEmail } from "../email.js";
-import { ApiError, invalid, notFound, ok } from "../errors.js";
-import { isUuid, parseDate, readBody } from "../parse.js";
+import { ApiError, invalid, ok } from "../errors.js";
+import { memberInDistrict } from "../ownership.js";
+import { cleanText, isUuid, normalizeEmail, parseDate, readBody } from "../parse.js";
 import { loadWorkspaces, memberSummary, type Workspace } from "../workspace.js";
 
 export async function loadDistrict(db: Sql, districtId: string, date = riyadhDate()) {
@@ -19,11 +24,11 @@ export async function loadDistrict(db: Sql, districtId: string, date = riyadhDat
   return { district, deadline, members };
 }
 
-async function memberInDistrict(db: Sql, head: Actor, memberId: string) {
-  if (!isUuid(memberId)) throw notFound("العضوة غير موجودة");
-  const [row] = await db`select c.id as cluster_id from clusters c where c.member_id = ${memberId} and c.district_id = ${head.districtId}`;
-  if (!row) throw notFound("العضوة غير موجودة");
-  return String(row.clusterId);
+/** One member's summary (the team list shape). */
+export async function loadMemberSummary(db: Sql, districtId: string, clusterId: string) {
+  const [district] = await db`select submission_deadline::text as deadline from districts where id = ${districtId}`;
+  const workspace = (await loadWorkspaces(db, [clusterId])).get(clusterId)!;
+  return memberSummary(workspace, (district?.deadline as string | null) ?? null);
 }
 
 export function buildReport(members: { summary: ReturnType<typeof memberSummary>; workspace: Workspace }[], pendingInvitations: number, date: string) {
@@ -35,12 +40,12 @@ export function buildReport(members: { summary: ReturnType<typeof memberSummary>
   const visits = members.reduce((sum, item) => sum + item.summary.visits, 0);
   const average = count ? Math.round(members.reduce((sum, item) => sum + item.summary.completion, 0) / count) : 0;
   const summaryText = count
-    ? `يضم النطاق ${count} عضوات مفعّلات و${schools} مدارس مسجلة. أرسلت ${submitted} من ${count} عضوات تحديث اليوم${late ? ` (${late} بعد الموعد)` : ""}، وثُبّت الغياب في ${absenceDone} من ${schools} مدارس. مجموع تقارير الزيارات ${visits}، ومتوسط اكتمال الملفات ${average}٪.${pendingInvitations ? ` توجد ${pendingInvitations} دعوات بانتظار القبول.` : ""}`
+    ? `يضم النطاق ${count} عضوات مفعّلات و${schools} مدارس مسجلة. حدّثت ${submitted} من ${count} عضوات ملفاتهن اليوم${late ? ` (${late} بعد الموعد)` : ""}، وثُبّت الغياب في ${absenceDone} من ${schools} مدارس. مجموع تقارير الزيارات ${visits}، ومتوسط اكتمال الملفات ${average}٪.${pendingInvitations ? ` توجد ${pendingInvitations} دعوات بانتظار القبول.` : ""}`
     : "لم تنضم أي عضوة إلى النطاق بعد.";
   return {
     date, summaryText, memberCount: count, schoolCount: schools,
     stats: [
-      { label: "عضوة مفعّلة", value: count }, { label: "أرسلت اليوم", value: submitted }, { label: "مدرسة", value: schools },
+      { label: "عضوة مفعّلة", value: count }, { label: "حدّثت اليوم", value: submitted }, { label: "مدرسة", value: schools },
       { label: "تثبيت الغياب", value: `${absenceDone} / ${schools}` }, { label: "تقارير الزيارات", value: visits }, { label: "متوسط الاكتمال", value: `${average}%` },
     ],
     rows: members.map(({ summary, workspace }) => ({
@@ -53,8 +58,8 @@ export function buildReport(members: { summary: ReturnType<typeof memberSummary>
 
 export const reportCsv = (report: ReturnType<typeof buildReport>) => {
   const escape = (value: unknown) => `"${String(value).replace(/"/g, '""')}"`;
-  const lines = [["المؤشر", "القيمة"], ...report.stats.map(stat => [stat.label, stat.value]), [], ["العضوة", "العنقود", "المدارس", "تثبيت الغياب", "الزيارات", "اكتمال الملف", "حالة الإرسال"],
-    ...report.rows.map(row => [row.name, row.clusterLabel, row.schools, row.absence, row.visits, `${row.completion}%`, { submitted: "أرسلت", late: "متأخرة", missing: "لم ترسل" }[row.submission]])];
+  const lines = [["المؤشر", "القيمة"], ...report.stats.map(stat => [stat.label, stat.value]), [], ["العضوة", "العنقود", "المدارس", "تثبيت الغياب", "الزيارات", "اكتمال الملف", "تحديث اليوم"],
+    ...report.rows.map(row => [row.name, row.clusterLabel, row.schools, row.absence, row.visits, `${row.completion}%`, { submitted: "حدّثت", late: "متأخرة", missing: "لم تحدّث" }[row.submission]])];
   return "﻿" + lines.map(line => line.map(escape).join(",")).join("\n");
 };
 
@@ -64,11 +69,11 @@ const entityLabels: Record<string, string> = {
   section_field: "قسم مخصص", school_field_overrides: "تخصيص حقول المدرسة", cluster: "ملف العنقود", evaluation_indicators: "التقويم المدرسي",
   madrasati_indicators: "مؤشرات مدرستي", discipline_indicators: "مؤشرات الانضباط", discipline_support_plan: "خطة دعم الانضباط",
   absence_confirmation: "تثبيت الغياب", visit_report: "تقرير زيارة", plan: "الخطط", daily_submission: "تحديث اليوم",
-  invitation: "الانضمام", member_contact: "بيانات التواصل", reminder: "تذكير",
+  invitation: "الانضمام", member_contact: "بيانات التواصل", reminder: "تذكير", document: "الملفات", member: "الحساب", account: "الحساب",
 };
 const actionLabels: Record<string, string> = {
   create: "إضافة", update: "تعديل", delete: "حذف", restore: "استعادة", reorder: "إعادة ترتيب", absence_toggle: "تحديث",
-  submit: "إرسال", accept: "قبول الدعوة", send: "إرسال", apply: "اعتماد",
+  submit: "إرسال", accept: "قبول الدعوة", send: "إرسال", apply: "اعتماد", activate: "تفعيل", reset_password: "إعادة تعيين كلمة المرور", assign: "إضافة",
 };
 const sourceLabels: Record<string, string> = { web: "الويب", mobile: "الجوال", ingest: "الاستيراد الذكي", agent: "المساعد", system: "النظام" };
 
@@ -77,6 +82,7 @@ function timelineEntry(row: Row) {
   let body = "";
   if (row.entity === "absence_confirmation") body = after === true ? "تم تثبيت الغياب" : "أُلغي تثبيت الغياب";
   else if (row.entity === "daily_submission") body = "أرسلت العضوة تحديث ملفها إلى رئيسة النطاق";
+  else if (row.entity === "account") body = row.action === "activate" ? "اختارت كلمة المرور وفعّلت حسابها" : "ستختار كلمة مرور جديدة عند دخولها القادم";
   else if (after && typeof after === "object" && !Array.isArray(after)) body = String(after.label ?? after.name ?? after.role ?? after.type ?? after.body ?? "");
   else if (row.field && after !== null && after !== undefined) body = String(after).slice(0, 120);
   return {
@@ -173,41 +179,82 @@ export function districtRoutes(app: Hono<AppEnv>) {
     return c.json(ok(rows.map(timelineEntry)));
   });
 
-  app.get("/district/members/:id/attachments", async c => {
+  // Her visit reports with the school and the full text (the timeline only records that a report was added).
+  app.get("/district/members/:id/visits", async c => {
     const head = requireHead(c);
     const clusterId = await memberInDistrict(sql, head, c.req.param("id"));
-    const rows = await sql`select id, owner_type, owner_id, name, kind, mime_type, size_bytes, uploaded_at from attachments where cluster_id = ${clusterId} and deleted_at is null order by uploaded_at desc`;
+    const rows = await sql`
+      select v.id, v.school_id, s.name as school_name, v.type, v.text, v.beneficiaries, v.sessions, v.blockers, v.source, v.created_at
+      from visit_reports v join schools s on s.id = v.school_id
+      where v.cluster_id = ${clusterId} order by v.created_at desc limit 200`;
     return c.json(ok(rows));
   });
 
-  // The only member data the head may write (EDITABILITY H-3). Email changes also move the login email.
+  // Accounts without an invitation (decision 3): she signs in with this email and chooses her password the first time.
+  app.post("/district/members", async c => {
+    const head = requireHead(c);
+    const input = parseMemberInput(await readBody(c));
+    const { clusterId } = await sql.begin(tx => createMemberAccount(tx, { ...input, districtId: head.districtId }, auditContext(c)));
+    return c.json(ok(await loadMemberSummary(sql, head.districtId, clusterId)), 201);
+  });
+
+  // She chooses a new password at her next sign-in (decision 2).
+  app.post("/district/members/:id/reset-password", async c => {
+    const head = requireHead(c);
+    const memberId = c.req.param("id");
+    const clusterId = await memberInDistrict(sql, head, memberId);
+    // The old password stops working first (outside any transaction), then she gets a short window to choose a new one
+    // and every existing session ends — so whoever held the account before the reset is locked out.
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(memberId, { password: randomPassword() });
+    if (error) throw new ApiError(502, "AUTH_PROVIDER_ERROR", "تعذّر إعادة تعيين كلمة المرور — أعيدي المحاولة");
+    await sql.begin(async tx => {
+      await tx`update profiles set activated_at = null, activation_expires_at = ${activationDeadline(RESET_WINDOW_DAYS)} where id = ${memberId}`;
+      await revokeSessions(tx, memberId);
+      await audit(c, tx, { action: "reset_password", entity: "account", entityId: memberId, clusterId });
+    });
+    return c.json(ok({ reset: true }));
+  });
+
+  // Account details the head may change. An email change also moves the login email; name and الصفة stay in sync
+  // with the matching profile fields, and البريد الوزاري follows only a ministry address.
   app.patch("/district/members/:id/contact", async c => {
     const head = requireHead(c);
     const memberId = c.req.param("id");
     const body = await readBody(c);
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : undefined;
-    const phone = typeof body.phone === "string" ? toWesternDigits(body.phone.trim()) : undefined;
+    const text = (value: unknown, max: number) => (typeof value === "string" ? cleanText(value).slice(0, max) : undefined);
+    const email = typeof body.email === "string" ? normalizeEmail(body.email) : undefined;
+    const phone = typeof body.phone === "string" ? toWesternDigits(cleanText(body.phone)).slice(0, 40) : undefined;
+    const name = text(body.name, 200);
+    const title = text(body.title, 200);
+    const clusterLabel = text(body.clusterLabel, 200);
     const fields: Record<string, string> = {};
-    if (email !== undefined && (!email || validators.email(email))) fields.email = validators.email(email) ?? "البريد مطلوب";
-    if (phone !== undefined && validators.phone(phone)) fields.phone = validators.phone(phone)!;
+    if (email !== undefined && validators.loginEmail(email)) fields.email = validators.loginEmail(email)!;
+    if (name !== undefined && !name) fields.name = "الاسم مطلوب";
     if (Object.keys(fields).length) throw invalid(fields);
-    if (email === undefined && phone === undefined) throw invalid({ body: "لا توجد تغييرات للحفظ" });
+    const profileChanges = Object.fromEntries(Object.entries({ email, phone, name, title }).filter(([, value]) => value !== undefined)) as Record<string, string>;
+    if (!Object.keys(profileChanges).length && clusterLabel === undefined) throw invalid({ body: "لا توجد تغييرات للحفظ" });
     const clusterId = await memberInDistrict(sql, head, memberId);
-    const [before] = await sql`select email, phone from profiles where id = ${memberId}`;
+    const [before] = await sql`select p.email, p.phone, p.name, p.title, c.label as cluster_label from profiles p join clusters c on c.member_id = p.id where p.id = ${memberId}`;
     if (email !== undefined && email !== before.email) {
       const [taken] = await sql`select id from profiles where email = ${email} and id <> ${memberId}`;
       if (taken) throw new ApiError(409, "EMAIL_TAKEN", "البريد مستخدم لحساب آخر", { email: "البريد مستخدم لحساب آخر" });
       const { error } = await supabaseAdmin.auth.admin.updateUserById(memberId, { email, email_confirm: true });
       if (error) throw new ApiError(502, "AUTH_PROVIDER_ERROR", "تعذّر تحديث البريد في نظام الدخول");
     }
-    const changes = { ...(email !== undefined ? { email } : {}), ...(phone !== undefined ? { phone } : {}) };
+    const fieldKeys: Record<string, string> = { phone: "phone", name: "fullName", title: "title" };
+    if (email !== undefined && /@moe\.gov\.sa$/i.test(email)) fieldKeys.email = "email";
     const updated = await sql.begin(async tx => {
-      const [row] = await tx`update profiles set ${tx(changes)} where id = ${memberId} returning id, name, email, phone`;
-      for (const [key, value] of Object.entries(changes)) {
-        await tx`update profile_fields set value = ${value} where cluster_id = ${clusterId} and field_key = ${key} and deleted_at is null`;
+      const [row] = Object.keys(profileChanges).length
+        ? await tx`update profiles set ${tx(profileChanges)} where id = ${memberId} returning id, name, email, phone, title`
+        : await tx`select id, name, email, phone, title from profiles where id = ${memberId}`;
+      for (const [key, value] of Object.entries(profileChanges)) {
+        if (!fieldKeys[key]) continue;
+        await tx`update profile_fields set value = ${value} where cluster_id = ${clusterId} and field_key = ${fieldKeys[key]} and deleted_at is null`;
       }
+      if (clusterLabel !== undefined) await tx`update clusters set label = ${clusterLabel} where id = ${clusterId}`;
+      const changes = { ...profileChanges, ...(clusterLabel !== undefined ? { clusterLabel } : {}) };
       await audit(c, tx, { action: "update", entity: "member_contact", entityId: memberId, clusterId, before, after: changes });
-      return row;
+      return { ...row, clusterLabel: clusterLabel ?? before.clusterLabel };
     });
     return c.json(ok(updated));
   });

@@ -2,10 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
-import { cleanText, normalizeEmail } from "../db.js";
+import { createMemberAccount } from "../accounts.js";
+import type { Sql } from "../db.js";
+import { cleanText, normalizeEmail } from "../parse.js";
 
 // The team roster (names, titles, personal emails) is personal data, so it never lives in git.
-// It is read from RASD_ROSTER_FILE, or apps/api/data/roster.xlsx (or roster.json) — the data folder is git-ignored.
+// It is read from RASD_ROSTER_FILE, or apps/api/data/roster.xlsx (or roster.csv / roster.json) — the data folder is git-ignored.
 // The sign-up form export works as-is: a sheet with columns like «الاسم رباعي», «الصفة», «البريد الالكتروني».
 export type RosterEntry = { name: string; title: string; email: string };
 
@@ -37,9 +39,34 @@ export function loadRoster(): RosterEntry[] {
   if (!file) return [];
   if (extname(file).toLowerCase() === ".json") {
     const entries = JSON.parse(readFileSync(file, "utf8")) as Partial<RosterEntry>[];
-    return entries.map(entry => ({ name: cleanText(entry.name), title: cleanText(entry.title), email: normalizeEmail(entry.email) })).filter(entry => entry.name && entry.email);
+    return entries.map(entry => ({ name: cleanText(entry.name), title: cleanText(entry.title), email: normalizeEmail(entry.email) })).filter(entry => entry.name && entry.email.includes("@"));
   }
   const workbook = XLSX.read(readFileSync(file), { type: "buffer" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   return fromRows(XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: "", raw: false }).map(row => row.map(cell => cleanText(cell))));
+}
+
+/**
+ * Creates an account for every roster entry that has none yet (matched by email), in the district of the first head.
+ * Each new member chooses her password at her first sign-in. Safe to run repeatedly.
+ */
+export async function seedRoster(db: Sql, entries: RosterEntry[]) {
+  const [head] = await db`select id, district_id from profiles where role = 'head' order by created_at limit 1`;
+  if (!head) throw new Error("No head account yet — run `pnpm --filter @rasd/api bootstrap:head` first");
+  const districtId = String(head.districtId);
+  const result = { created: [] as string[], existing: [] as string[], failed: [] as { email: string; error: string }[] };
+  for (const entry of entries) {
+    const email = normalizeEmail(entry.email);
+    const [existing] = await db`select id from profiles where email = ${email}`;
+    if (existing) { result.existing.push(email); continue; }
+    try {
+      await createMemberAccount(db, { districtId, name: entry.name, email, title: entry.title }, {
+        actor: { id: String(head.id), districtId, role: "head" }, source: "system",
+      });
+      result.created.push(email);
+    } catch (error) {
+      result.failed.push({ email, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return result;
 }

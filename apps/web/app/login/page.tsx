@@ -1,21 +1,30 @@
 "use client";
 
-import type { AuthCheckResult, AuthSession, PublicUser, Role } from "@rasd/schemas";
+import type { AuthCheckResult } from "@rasd/schemas";
 import { Eye, EyeOff, Info, LoaderCircle, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, ApiRequestError, getToken, setToken } from "../../lib/api";
-import { firstName } from "../../lib/format";
+import { api, ApiError, errorText } from "../../lib/api";
+import { ar, firstName } from "../../lib/format";
+import { enforceSessionOnly, rememberDevice, supabase, supabaseConfigured } from "../../lib/supabase";
+import type { Me } from "../../lib/types";
 import "./login.css";
 
 type Step = "email" | "password" | "activate";
 
-const homeFor = (role: Role) => (role === "head" ? "/district" : "/cluster");
+const MIN_PASSWORD = 8; // also enforced by the API
 const LAST_EMAIL = "rasd:lastEmail";
+const LAST_NAME = "rasd:lastName"; // remembered on this device after she signs in (the API never reveals names)
+const homeFor = (role: Me["user"]["role"]) => (role === "head" ? "/district" : "/cluster");
 
 const readLastEmail = () => { try { return localStorage.getItem(LAST_EMAIL) ?? ""; } catch { return ""; } };
 const saveLastEmail = (email: string) => { try { localStorage.setItem(LAST_EMAIL, email); } catch { /* private mode */ } };
+const readLastName = (email: string) => { try { return readLastEmail() === email ? localStorage.getItem(LAST_NAME) ?? "" : ""; } catch { return ""; } };
+const saveLastName = (name: string) => { try { localStorage.setItem(LAST_NAME, name); } catch { /* private mode */ } };
 
+const check = (email: string) => api<AuthCheckResult>("/public/auth/check", { method: "POST", body: { email }, auth: false });
+
+/** Email first. Activated → password (Supabase sign-in); first time → she chooses a password (POST /public/auth/activate). */
 export default function LoginPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
@@ -28,7 +37,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [forgot, setForgot] = useState(false);
+  const [forgot, setForgot] = useState<"closed" | "open" | "sent">("closed");
   const passwordInput = useRef<HTMLInputElement>(null);
   const emailInput = useRef<HTMLInputElement>(null);
 
@@ -39,25 +48,27 @@ export default function LoginPage() {
       if (last) {
         setEmail(last);
         try {
-          const result = await api.post<AuthCheckResult>("/auth/check", { email: last });
+          const result = await check(last);
           if (result.exists) {
-            setName(result.name ?? "");
+            setName(readLastName(last));
             setStep(result.activated ? "password" : "activate");
           }
         } catch { /* stay on the email step */ }
       }
       setChecking(false);
     };
-    if (!getToken()) {
-      void resume();
-      return;
-    }
-    api.get<{ user: PublicUser }>("/auth/me")
-      .then(({ user }) => router.replace(homeFor(user.role)))
-      .catch(() => {
-        setToken(null);
-        void resume();
-      });
+    (async () => {
+      await enforceSessionOnly();
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return resume();
+      try {
+        const { user } = await api.get<Me>("/auth/me");
+        router.replace(homeFor(user.role));
+      } catch {
+        await supabase.auth.signOut().catch(() => {});
+        await resume();
+      }
+    })();
   }, [router]);
 
   useEffect(() => {
@@ -69,13 +80,7 @@ export default function LoginPage() {
     setStep(next);
     setPassword("");
     setError("");
-    setForgot(false);
-  };
-
-  const enter = (session: AuthSession) => {
-    saveLastEmail(session.user.email);
-    setToken(session.token);
-    router.replace(homeFor(session.user.role));
+    setForgot("closed");
   };
 
   const run = async (action: () => Promise<void>) => {
@@ -84,10 +89,23 @@ export default function LoginPage() {
     try {
       await action();
     } catch (reason) {
-      setError((reason as Error).message);
+      setError(errorText(reason));
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Supabase session → her role decides where she lands. */
+  const enter = async (address: string, secret: string) => {
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: address, password: secret });
+    if (signInError) {
+      throw new Error(signInError.message.toLowerCase().includes("invalid") ? "كلمة المرور غير صحيحة — جرّبي مرة أخرى" : "تعذّر الدخول — أعيدي المحاولة");
+    }
+    rememberDevice(remember);
+    saveLastEmail(address);
+    const { user } = await api.get<Me>("/auth/me");
+    saveLastName(user.name);
+    router.replace(homeFor(user.role));
   };
 
   const checkEmail = (event: FormEvent) => {
@@ -98,13 +116,13 @@ export default function LoginPage() {
       return;
     }
     void run(async () => {
-      const result = await api.post<AuthCheckResult>("/auth/check", { email: value });
+      const result = await check(value);
       if (!result.exists) {
         setError("هذا البريد غير مسجّل — تأكدي منه أو تواصلي مع رئيسة النطاق");
         return;
       }
       setEmail(value);
-      setName(result.name ?? "");
+      setName(readLastName(value));
       setNotice("");
       goTo(result.activated ? "password" : "activate");
     });
@@ -116,42 +134,36 @@ export default function LoginPage() {
       setError("اكتبي كلمة المرور");
       return;
     }
-    void run(async () => {
-      try {
-        enter(await api.post<AuthSession>("/auth/login", { email, password, remember }));
-      } catch (reason) {
-        if (!(reason instanceof ApiRequestError)) throw reason;
-        if (reason.code === "NOT_ACTIVATED") return goTo("activate");
-        if (reason.code === "ACCOUNT_NOT_FOUND") {
-          goTo("email");
-          throw reason;
-        }
-        if (reason.code === "INVALID_CREDENTIALS") throw new Error("كلمة المرور غير صحيحة — جرّبي مرة أخرى");
-        throw reason;
-      }
-    });
+    void run(() => enter(email, password));
   };
 
   const activate = (event: FormEvent) => {
     event.preventDefault();
     // The rule lives in the placeholder while the box is empty, and in the error once she typed too little — never both.
-    if (password.length < 4) {
-      setError(password ? "اكتبي ٤ أحرف أو أرقام على الأقل" : "اختاري كلمة مرور أولاً");
+    if (password.length < MIN_PASSWORD) {
+      setError(password ? `اكتبي ${ar(MIN_PASSWORD)} أحرف أو أرقام على الأقل` : "اختاري كلمة مرور أولاً");
       return;
     }
     void run(async () => {
       try {
-        enter(await api.post<AuthSession>("/auth/activate", { email, password }));
+        await api("/public/auth/activate", { method: "POST", body: { email, password }, auth: false });
       } catch (reason) {
-        if (reason instanceof ApiRequestError && reason.code === "ALREADY_ACTIVATED") {
+        if (reason instanceof ApiError && reason.code === "ALREADY_ACTIVATED") {
           goTo("password");
           setNotice("حسابك مفعّل مسبقاً — ادخلي بكلمة المرور التي اخترتِها");
           return;
         }
+        if (reason instanceof ApiError && reason.fields?.password) throw new Error(reason.fields.password);
         throw reason;
       }
+      await enter(email, password);
     });
   };
+
+  const sendReset = () => void run(async () => {
+    await api("/public/auth/forgot-password", { method: "POST", body: { email }, auth: false });
+    setForgot("sent");
+  });
 
   const changeEmail = () => {
     goTo("email");
@@ -180,6 +192,8 @@ export default function LoginPage() {
             <span className="lg-mark">ر</span>
             <b>رَصد</b>
           </div>
+
+          {!supabaseConfigured && <p className="lg-error" role="alert">إعدادات الدخول غير مكتملة على هذا الخادم.</p>}
 
           {checking ? (
             <div className="lg-checking"><span className="spinner" aria-hidden />جارٍ التحقق…</div>
@@ -218,7 +232,7 @@ export default function LoginPage() {
                 <div className="lg-password">
                   <input ref={passwordInput} id="login-password" className="input" type={showPassword ? "text" : "password"}
                     autoComplete={step === "password" ? "current-password" : "new-password"} value={password}
-                    placeholder={step === "activate" ? "٤ أحرف أو أرقام على الأقل" : undefined}
+                    placeholder={step === "activate" ? `${ar(MIN_PASSWORD)} أحرف أو أرقام على الأقل` : undefined}
                     onChange={event => { setPassword(event.target.value); setError(""); }}
                     aria-invalid={Boolean(error)} aria-describedby={error ? "login-error" : undefined} />
                   <button type="button" className="lg-eye" onClick={() => setShowPassword(value => !value)}
@@ -243,12 +257,17 @@ export default function LoginPage() {
 
               {step === "password" && (
                 <div className="lg-forgot">
-                  <button type="button" className="lg-link" onClick={() => setForgot(value => !value)} aria-expanded={forgot}>نسيتِ كلمة المرور؟</button>
-                  {forgot && (
-                    <p className="lg-notice">
-                      <Lock aria-hidden />
-                      تواصلي مع رئيسة النطاق لتعيد تعيين كلمة مرورك، ثم ادخلي ببريدك واختاري كلمة مرور جديدة.
-                    </p>
+                  <button type="button" className="lg-link" onClick={() => setForgot(value => (value === "closed" ? "open" : "closed"))} aria-expanded={forgot !== "closed"}>
+                    نسيتِ كلمة المرور؟
+                  </button>
+                  {forgot === "open" && (
+                    <>
+                      <p className="lg-notice"><Lock aria-hidden />رئيسة النطاق تستطيع إعادة تعيين كلمة مرورك، ثم تختارين كلمة جديدة عند الدخول.</p>
+                      <button type="button" className="lg-link" onClick={sendReset} disabled={busy}>أو أرسلي لي رابطاً على بريدي</button>
+                    </>
+                  )}
+                  {forgot === "sent" && (
+                    <p className="lg-notice" role="status"><Info aria-hidden />إن كان بريدك مسجّلاً فسيصلك رابط لتعيين كلمة مرور جديدة.</p>
                   )}
                 </div>
               )}

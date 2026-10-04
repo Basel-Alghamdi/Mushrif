@@ -48,6 +48,13 @@ export const p = {
   nullable: (parser: Parser): Parser => (value, row) => (value === null ? null : parser(value, row)),
 };
 
+/** Trims, removes bidi/zero-width marks, and collapses whitespace (names, titles, file names). */
+export const cleanText = (value: unknown) =>
+  String(value ?? "").replace(/[​-‏‪-‮⁦-⁩﻿]/g, "").replace(/\s+/g, " ").trim();
+
+/** Login emails are stored trimmed, lower-case and with Western digits. */
+export const normalizeEmail = (value: unknown) => toWesternDigits(cleanText(value).toLowerCase());
+
 export const isUuid = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 

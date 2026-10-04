@@ -12,10 +12,14 @@ const lan = Object.values(networkInterfaces()).flat()
   .filter(address => address && address.family === "IPv4" && !address.internal)
   .map(address => `http://${address.address}:3000`);
 
-// Links in the messages the assistant prepares for members must open on their phones, so unless apps/api/.env
+// Links in the messages the assistant prepares for members must open on their phones, so unless the root .env
 // sets APP_URL, use this computer's Wi-Fi address instead of "localhost".
-const apiEnvFile = new URL("../apps/api/.env", import.meta.url);
-const apiEnv = existsSync(apiEnvFile) ? readFileSync(apiEnvFile, "utf8") : "";
+const rootEnvFile = new URL("../.env", import.meta.url);
+if (!existsSync(rootEnvFile)) {
+  console.error("Missing .env at the repo root — copy .env.example to .env and add the Supabase keys (see docs/INTEGRATIONS.md).");
+  process.exit(1);
+}
+const apiEnv = readFileSync(rootEnvFile, "utf8");
 const childEnv = { ...process.env, FORCE_COLOR: "1" };
 if (!process.env.APP_URL && !/^\s*APP_URL\s*=\s*\S/m.test(apiEnv) && lan[0]) childEnv.APP_URL = lan[0];
 

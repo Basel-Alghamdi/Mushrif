@@ -2,9 +2,10 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+// Placeholders such as "PASTE_…" or a non-URL count as "not configured" instead of crashing the build.
+const url = /^https?:\/\//.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") ? process.env.NEXT_PUBLIC_SUPABASE_URL! : "";
 // Supabase publishable key (sb_publishable_…): safe to ship to the browser.
-const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
+const publishableKey = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "").startsWith("PASTE_") ? "" : process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
 
 export const supabaseConfigured = Boolean(url && publishableKey);
 

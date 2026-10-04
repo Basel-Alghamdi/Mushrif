@@ -20,7 +20,7 @@ export function AttachmentChips({ items }: { items: ChatAttachment[] }) {
     <ul className="chat-attachments">
       {items.map(item => (
         <li key={item.id}>
-          <button className="file-chip" onClick={() => void downloadFile(`/documents/${item.id}/download`, item.name)} title={`تنزيل ${item.name}`}>
+          <button className="file-chip" onClick={() => void downloadFile(`/attachments/${item.id}/download`, item.name)} title={`تنزيل ${item.name}`}>
             <KindIcon kind={item.kind} />
             <span className="file-chip-name" dir="auto">{item.name}</span>
             <small>{kindLabel[item.kind]}</small>

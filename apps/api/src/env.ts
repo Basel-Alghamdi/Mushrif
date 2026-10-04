@@ -20,4 +20,8 @@ export const env = {
   supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET?.trim() || null,
   resendApiKey: process.env.RESEND_API_KEY?.trim() || null,
   resendFrom: process.env.RESEND_FROM?.trim() || null,
+  // Private Storage bucket for uploaded files (created on first use).
+  storageBucket: process.env.SUPABASE_STORAGE_BUCKET?.trim() || "attachments",
+  // The head's agent reads ANTHROPIC_API_KEY / ANTHROPIC_MODEL / ANTHROPIC_EFFORT when it runs (src/agent/claude.ts):
+  // without a key it answers with the built-in Arabic engine.
 };

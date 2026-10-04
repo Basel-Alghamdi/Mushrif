@@ -1,22 +1,17 @@
-// Arabic normalization, name matching and spreadsheet-header recognition.
+// Arabic normalization, name matching and spreadsheet-header recognition (pure functions: no database needed).
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { before, describe, test } from "node:test";
 import { testRoster as roster } from "./roster.fixture.js";
 
-process.env.RASD_DATABASE_FILE = join(mkdtempSync(join(tmpdir(), "rasd-test-")), "rasd.sqlite");
-
 let normalize: typeof import("../agent/normalize.js");
 let names: typeof import("../agent/names.js");
-let importer: typeof import("../agent/importer.js");
+let headers: typeof import("../agent/headers.js");
 
 describe("normalization and matching", () => {
   before(async () => {
     normalize = await import("../agent/normalize.js");
     names = await import("../agent/names.js");
-    importer = await import("../agent/importer.js");
+    headers = await import("../agent/headers.js");
   });
 
   test("normalizeArabic unifies letters, strips tashkeel/tatweel, converts digits", () => {
@@ -62,7 +57,7 @@ describe("normalization and matching", () => {
 
   test("spreadsheet headers map to profile fields, school fields, or custom fields", () => {
     const kind = (header: string) => {
-      const column = importer.classifyHeader(header);
+      const column = headers.classifyHeader(header);
       return column.kind === "profile" ? column.fieldId : column.kind === "school" ? `school.${column.key}` : column.kind;
     };
     assert.equal(kind("الاسم رباعي"), "name");
@@ -80,5 +75,7 @@ describe("normalization and matching", () => {
     assert.equal(kind("اسم المشرفة"), "member");
     assert.equal(kind("م"), "ignore");
     assert.equal(kind("الدورات التدريبية"), "custom");
+    assert.equal(kind("نافس"), "school.nafes");
+    assert.equal(kind("القدرات"), "school.qudrat");
   });
 });

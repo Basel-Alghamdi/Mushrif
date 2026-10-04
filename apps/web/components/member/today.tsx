@@ -1,31 +1,35 @@
 "use client";
 
-import type { Visit } from "@rasd/schemas";
 import { Check, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { ar, counted, relativeTime } from "../../lib/format";
-import { absenceDoneToday, FIELD_FORMS, progressOf, riyadhToday, SCHOOL_FORMS, SEP } from "./model";
-import { useWorkspace } from "./workspace-context";
+import type { VisitReport } from "../../lib/types";
+import { useActions } from "./actions";
+import { useMember } from "./context";
+import { FIELD_FORMS, PLAN_FORMS, progressOf, SCHOOL_FORMS, SEP } from "./model";
 
-/** «جهّزي ملفك ٦١٪» — three one-line rows. Hidden once everything is done. */
+/** «جهّزي ملفك ٦١٪» — one row per part of her file that is still missing something. Hidden once they are all done. */
 export function SetupCard() {
-  const { workspace, documents } = useWorkspace();
-  const progress = progressOf(workspace, documents.length);
-  if (progress.completion >= 100) return null;
-  const left = progress.emptyFields.length;
-  const schools = workspace.schools.length;
+  const { ws } = useMember();
+  const progress = progressOf(ws);
+  const schools = ws.schools.length;
   const rows = [
-    { href: "/cluster/profile#next-empty", label: "بياناتي", done: left === 0, status: left ? `باقي ${counted(left, FIELD_FORMS)}` : "مكتملة" },
-    { href: "/cluster/schools", label: "مدارسي", done: schools > 0, status: schools ? counted(schools, SCHOOL_FORMS) : "أضيفي مدارسك" },
-    { href: "/cluster/reports", label: "تقاريري", done: progress.hasDocuments, status: progress.hasDocuments ? "تم" : "ارفعي أول ملف" },
+    { href: "/cluster/profile#next-empty", label: "بياناتي", done: progress.fields.length === 0,
+      status: progress.fields.length ? `باقي ${counted(progress.fields.length, FIELD_FORMS)}` : "مكتملة" },
+    { href: progress.firstIncomplete ? `/cluster/schools/${progress.firstIncomplete.id}` : "/cluster/schools", label: "مدارسي",
+      done: schools > 0 && progress.gaps === 0,
+      status: !schools ? "أضيفي مدارسك" : progress.gaps ? `باقي ${counted(progress.gaps, FIELD_FORMS)}` : counted(schools, SCHOOL_FORMS) },
+    { href: "/cluster/reports#plans", label: "الخطط", done: progress.plansLeft === 0,
+      status: progress.plansLeft ? `باقي ${counted(progress.plansLeft, PLAN_FORMS)}` : "مرفوعة" },
   ];
+  if (rows.every(row => row.done)) return null;
 
   return (
     <section className="card m-setup" aria-labelledby="setup-title">
       <h2 id="setup-title">جهّزي ملفك <span>{ar(progress.completion)}٪</span></h2>
       <ul>
         {rows.map(row => (
-          <li key={row.href}>
+          <li key={row.label}>
             <Link href={row.href} className={`m-setup-row${row.done ? " is-done" : ""}`}>
               <span className="m-setup-mark" aria-hidden>{row.done && <Check />}</span>
               <b>{row.label}</b>
@@ -41,42 +45,38 @@ export function SetupCard() {
 
 /** One row per school: «ثبّتُّه» becomes «تم ✓»; tapping again undoes it. */
 export function AbsenceCard() {
-  const { workspace, update } = useWorkspace();
-  const schools = workspace.schools;
-  if (!schools.length) return null;
-
-  const toggle = (id: string) => {
-    const today = riyadhToday();
-    update(current => ({
-      ...current,
-      schools: current.schools.map(school =>
-        school.id === id ? { ...school, absence: !absenceDoneToday(school), absenceDate: today, updatedAt: new Date().toISOString() } : school),
-    }));
-  };
+  const { ws } = useMember();
+  const { toggleAbsence } = useActions();
+  if (!ws.schools.length) return null;
 
   return (
     <section className="card m-absence" aria-labelledby="absence-title">
       <h2 id="absence-title">هل ثبّتِّ غياب اليوم في نور؟</h2>
       <ul>
-        {schools.map(school => {
-          const done = absenceDoneToday(school);
-          return (
-            <li key={school.id}>
-              <button type="button" className={`m-absence-row${done ? " is-done" : ""}`} onClick={() => toggle(school.id)} aria-pressed={done}>
-                <span className="m-absence-name">{school.name || "مدرسة بدون اسم"}</span>
-                <span className="m-absence-btn">{done ? <>تم<Check aria-hidden /></> : "ثبّتُّه"}</span>
-              </button>
-            </li>
-          );
-        })}
+        {ws.schools.map(school => (
+          <li key={school.id}>
+            <button type="button" className={`m-absence-row${school.absenceToday ? " is-done" : ""}`} onClick={() => toggleAbsence(school)}
+              aria-pressed={school.absenceToday}>
+              <span className="m-absence-name">{school.name || "مدرسة بدون اسم"}</span>
+              <span className="m-absence-btn">{school.absenceToday ? <>تم<Check aria-hidden /></> : "ثبّتُّه"}</span>
+            </button>
+          </li>
+        ))}
       </ul>
     </section>
   );
 }
 
+export const useSchoolName = () => {
+  const { ws } = useMember();
+  return (visit: VisitReport) => ws.schools.find(school => school.id === visit.schoolId)?.name || "مدرسة محذوفة";
+};
+
 /** The last three visits as one-line rows. Nothing at all while there are none. */
-export function RecentVisits({ visits }: { visits: Visit[] | null }) {
-  if (!visits?.length) return null;
+export function RecentVisits() {
+  const { visits } = useMember();
+  const schoolName = useSchoolName();
+  if (!visits.length) return null;
   return (
     <section className="m-recent" aria-labelledby="recent-title">
       <div className="m-recent-head">
@@ -86,7 +86,7 @@ export function RecentVisits({ visits }: { visits: Visit[] | null }) {
       <ul className="card m-lines">
         {visits.slice(0, 3).map(visit => (
           <li key={visit.id}>
-            <span className="m-line-title">{visit.schoolName || "بدون مدرسة"}{SEP}{visit.type}</span>
+            <span className="m-line-title">{schoolName(visit)}{SEP}{visit.type}</span>
             <time dateTime={visit.createdAt}>{relativeTime(visit.createdAt)}</time>
           </li>
         ))}

@@ -1,16 +1,19 @@
 "use client";
 
-import type { DocumentInfo, DocumentKind, Visit } from "@rasd/schemas";
+import type { DocumentInfo, DocumentKind } from "@rasd/schemas";
 import {
-  CircleAlert, ClipboardList, File, FileAudio, FileImage, FileSpreadsheet, FileText, LoaderCircle, Plus, Upload, X, type LucideIcon,
+  Check, CircleAlert, ClipboardList, File, FileAudio, FileImage, FileSpreadsheet, FileText, LoaderCircle, Plus, Upload, X, type LucideIcon,
 } from "lucide-react";
 import { DragEvent, useEffect, useRef, useState } from "react";
+import { useActions } from "../../../components/member/actions";
+import { useMember } from "../../../components/member/context";
 import { SEP } from "../../../components/member/model";
-import { ConfirmDelete } from "../../../components/member/ui";
-import { useVisits, VisitSheet } from "../../../components/member/visits";
-import { useWorkspace } from "../../../components/member/workspace-context";
-import { api, downloadFile } from "../../../lib/api";
+import { useSchoolName } from "../../../components/member/today";
+import { ConfirmDelete, Expander } from "../../../components/member/ui";
+import { VisitSheet } from "../../../components/member/visits";
+import { downloadFile, errorText } from "../../../lib/api";
 import { ar, relativeTime } from "../../../lib/format";
+import type { VisitReport } from "../../../lib/types";
 
 const ACCEPT = ".pdf,.docx,.xlsx,.xls,.csv,.txt,image/*";
 
@@ -25,7 +28,7 @@ const KIND_ICON: Record<DocumentKind, LucideIcon> = {
 };
 
 type Upload = { key: string; file: File; status: "uploading" | "error"; error?: string };
-type Item = { kind: "visit"; at: string; visit: Visit } | { kind: "file"; at: string; document: DocumentInfo };
+type Item = { kind: "visit"; at: string; visit: VisitReport } | { kind: "file"; at: string; document: DocumentInfo };
 
 /** Drag & drop only where it means something: a wide screen with a mouse. */
 function useCanDrop() {
@@ -41,8 +44,9 @@ function useCanDrop() {
 }
 
 export default function ReportsPage() {
-  const { user, documents, setDocuments, notify } = useWorkspace();
-  const { visits, add, remove: removeVisit } = useVisits();
+  const { me, documents, visits, notify } = useMember();
+  const { uploadDocument, removeDocument } = useActions();
+  const schoolName = useSchoolName();
   const [logging, setLogging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -51,18 +55,25 @@ export default function ReportsPage() {
   const canDrop = useCanDrop();
   const busy = uploads.some(item => item.status === "uploading");
 
+  // #plans (from «جهّزي ملفك») opens the plans and brings them into view.
+  useEffect(() => {
+    if (window.location.hash !== "#plans") return;
+    const section = document.getElementById("plans");
+    if (section instanceof HTMLDetailsElement) section.open = true;
+    section?.scrollIntoView({ block: "start" });
+  }, []);
+
   // One file at a time; a row shows only while it uploads or if it failed. Success = the file in the list + a toast.
   const send = async (batch: { key: string; file: File }[]) => {
     let succeeded = 0;
     for (const { key, file } of batch) {
       setUploads(items => items.map(item => (item.key === key ? { ...item, status: "uploading", error: undefined } : item)));
       try {
-        const saved = await api.upload<DocumentInfo[]>("/member/documents", [file]);
-        setDocuments(current => [...saved, ...current]);
+        await uploadDocument(file);
         setUploads(items => items.filter(item => item.key !== key));
         succeeded += 1;
       } catch (error) {
-        setUploads(items => items.map(item => (item.key === key ? { ...item, status: "error", error: (error as Error).message } : item)));
+        setUploads(items => items.map(item => (item.key === key ? { ...item, status: "error", error: errorText(error) } : item)));
       }
     }
     if (succeeded) notify(succeeded === 1 ? "رُفع الملف" : "رُفعت الملفات");
@@ -81,19 +92,8 @@ export default function ReportsPage() {
   const retryUpload = (item: Upload) => void send([{ key: item.key, file: item.file }]);
   const dismissUpload = (key: string) => setUploads(items => items.filter(item => item.key !== key));
 
-  const removeFile = async (document: DocumentInfo) => {
-    setDocuments(current => current.filter(item => item.id !== document.id));
-    try {
-      await api.del(`/documents/${document.id}`);
-      notify("حُذف الملف");
-    } catch (error) {
-      setDocuments(current => [document, ...current]);
-      notify((error as Error).message, "error");
-    }
-  };
-
   const openFile = (document: DocumentInfo) =>
-    downloadFile(`/documents/${document.id}/download`, document.name, true).catch(error => notify((error as Error).message, "error"));
+    downloadFile(`/attachments/${document.id}/download`, document.name, true).catch(error => notify(errorText(error), { tone: "error" }));
 
   const dropProps = canDrop ? {
     onDragOver: (event: DragEvent) => { event.preventDefault(); setDragging(true); },
@@ -102,7 +102,7 @@ export default function ReportsPage() {
   } : {};
 
   const items: Item[] = [
-    ...(visits ?? []).map(visit => ({ kind: "visit" as const, at: visit.createdAt, visit })),
+    ...visits.map(visit => ({ kind: "visit" as const, at: visit.createdAt, visit })),
     ...documents.map(document => ({ kind: "file" as const, at: document.createdAt, document })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
@@ -141,9 +141,9 @@ export default function ReportsPage() {
         </ul>
       )}
 
-      {visits === null ? (
-        <div className="skeleton" style={{ height: 64 }} />
-      ) : items.length === 0 ? (
+      <Plans />
+
+      {items.length === 0 ? (
         <p className="m-lead">زياراتك وملفاتك تظهر هنا.</p>
       ) : (
         <ul className="card m-items">
@@ -155,11 +155,11 @@ export default function ReportsPage() {
                   <b><bdi>{item.document.name}</bdi></b>
                   <small>
                     {relativeTime(item.document.createdAt)}
-                    {item.document.uploadedBy !== user.id && item.document.uploadedByName ? `${SEP}رفعته ${item.document.uploadedByName}` : ""}
+                    {item.document.uploadedBy !== me.id && item.document.uploadedByName ? `${SEP}رفعته ${item.document.uploadedByName}` : ""}
                   </small>
                 </span>
               </button>
-              <ConfirmDelete label={`حذف ${item.document.name}`} onConfirm={() => removeFile(item.document)} />
+              <ConfirmDelete label={`حذف ${item.document.name}`} onConfirm={() => void removeDocument(item.document)} />
             </li>
           ) : (
             <li key={`v-${item.visit.id}`} className="m-item">
@@ -167,18 +167,45 @@ export default function ReportsPage() {
                 aria-expanded={openVisit === item.visit.id}>
                 <span className="m-item-icon is-visit" aria-hidden><ClipboardList /></span>
                 <span className="m-item-text">
-                  <b>{item.visit.schoolName || "بدون مدرسة"}{SEP}{item.visit.type}</b>
+                  <b>{schoolName(item.visit)}{SEP}{item.visit.type}</b>
                   <small>{relativeTime(item.visit.createdAt)}</small>
                 </span>
               </button>
-              <ConfirmDelete label="حذف الزيارة" onConfirm={() => removeVisit(item.visit)} />
               {openVisit === item.visit.id && <VisitDetails visit={item.visit} />}
             </li>
           ))}
         </ul>
       )}
 
-      {logging && <VisitSheet onClose={() => setLogging(false)} onSaved={add} />}
+      {logging && <VisitSheet onClose={() => setLogging(false)} />}
+    </div>
+  );
+}
+
+/** main's five plans as link rows (a link marks the plan as uploaded), plus the Nafes card folder. */
+function Plans() {
+  const { ws } = useMember();
+  const { setPlanUrl, setNafesFolder } = useActions();
+  const uploaded = ws.plans.filter(plan => plan.status === "uploaded").length;
+  return (
+    <div className="m-exp-group">
+      <Expander id="plans" title={<>روابط الخطط <span className="m-count">({ar(uploaded)} من {ar(ws.plans.length)})</span></>}>
+        {ws.plans.map(plan => (
+          <div className="field" key={plan.id}>
+            <label className="field-label m-plan-label" htmlFor={`plan-${plan.id}`}>
+              {plan.label}
+              {plan.status === "uploaded" && <span className="m-plan-done"><Check aria-hidden />مرفوعة</span>}
+            </label>
+            <input id={`plan-${plan.id}`} className="input" type="url" inputMode="url" dir="ltr" value={plan.url} placeholder="الصقي رابط الملف"
+              onChange={event => setPlanUrl(plan, event.target.value)} />
+          </div>
+        ))}
+        <div className="field">
+          <label className="field-label" htmlFor="nafes-folder">مجلد بطاقة نافس <span className="m-optional">(اختياري)</span></label>
+          <input id="nafes-folder" className="input" type="url" inputMode="url" dir="ltr" value={ws.cluster.nafesCardFolderUrl} placeholder="الصقي رابط المجلد"
+            onChange={event => setNafesFolder(event.target.value)} />
+        </div>
+      </Expander>
     </div>
   );
 }
@@ -188,10 +215,10 @@ function FileIcon({ kind }: { kind: DocumentKind }) {
   return <span className={`m-item-icon is-${kind}`} aria-hidden><Icon /></span>;
 }
 
-function VisitDetails({ visit }: { visit: Visit }) {
+function VisitDetails({ visit }: { visit: VisitReport }) {
   const counts = [
-    visit.beneficiaries > 0 ? `المستفيدات: ${ar(visit.beneficiaries)}` : "",
-    visit.sessions > 0 ? `الجلسات: ${ar(visit.sessions)}` : "",
+    visit.beneficiaries ? `المستفيدات: ${ar(visit.beneficiaries)}` : "",
+    visit.sessions ? `الجلسات: ${ar(visit.sessions)}` : "",
   ].filter(Boolean).join(SEP);
   return (
     <div className="m-item-details">

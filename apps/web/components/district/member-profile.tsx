@@ -1,47 +1,50 @@
 "use client";
 
-import type { MemberDetail } from "@rasd/schemas";
-import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, MessageCircle, Phone, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import type { DocumentInfo } from "@rasd/schemas";
+import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, MessageCircle, Phone, RefreshCw, Sparkles, X } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiRequestError } from "../../lib/api";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError, errorText, redirectIfSignedOut } from "../../lib/api";
 import { copyText, initialsOf, loginMessage, whatsappLink } from "../../lib/chat/helpers";
-import { ar, counted, firstName, pct, relativeTime } from "../../lib/format";
+import { ar, counted, firstName, pct } from "../../lib/format";
+import type { MemberDetail, MemberSummary } from "../../lib/types";
 import { ConfirmDialog, Dialog } from "./dialog";
 import { DocumentsTab } from "./documents-tab";
-import { VisitsTab } from "./member-lists";
-import { emptyEssentialIds, ProfileTab } from "./profile-tab";
+import { fieldValue, isDerived, missingItems, statusLine } from "./model";
+import { ProfileTab } from "./profile-tab";
 import { SchoolsTab } from "./schools-tab";
 import { useToast } from "./toast";
-import { SaveState, useWorkspaceAutosave } from "./use-workspace-autosave";
+import { useMemberFile } from "./use-member-file";
+import type { SaveState } from "./use-saver";
+import { VisitsTab } from "./visits-tab";
 
 type Tab = "profile" | "schools" | "documents" | "visits";
 
 export function MemberProfile({ memberId }: { memberId: string }) {
   const [detail, setDetail] = useState<MemberDetail | null>(null);
-  const [error, setError] = useState<ApiRequestError | null>(null);
+  const [error, setError] = useState<ApiError | Error | null>(null);
 
   const load = useCallback(async () => {
     try {
       setDetail(await api.get<MemberDetail>(`/district/members/${memberId}`));
       setError(null);
     } catch (reason) {
-      setError(reason as ApiRequestError);
+      if (!redirectIfSignedOut(reason)) setError(reason as Error);
     }
   }, [memberId]);
 
   useEffect(() => { void load(); }, [load]);
 
   if (error && !detail) {
+    const missing = error instanceof ApiError && error.status === 404;
     return (
       <div className="d-page">
         <BackLink />
         <div className="empty">
           <CircleAlert />
-          <b>{error.status === 404 ? "لم نجد هذه المشرفة" : "تعذّر تحميل الملف"}</b>
-          <span>{error.status === 404 ? "ربما حُذفت من الفريق." : error.message}</span>
-          {error.status === 404
+          <b>{missing ? "لم نجد هذه المشرفة" : "تعذّر تحميل الملف"}</b>
+          <span>{missing ? "ربما لم تعد في فريقك." : error.message}</span>
+          {missing
             ? <Link href="/district/team" className="btn btn-primary">العودة للفريق</Link>
             : <button className="btn btn-primary" onClick={() => void load()}><RefreshCw /> إعادة المحاولة</button>}
         </div>
@@ -49,7 +52,7 @@ export function MemberProfile({ memberId }: { memberId: string }) {
     );
   }
   if (!detail) return <ProfileSkeleton />;
-  return <ProfileView detail={detail} setDetail={setDetail} />;
+  return <ProfileView memberId={memberId} detail={detail} />;
 }
 
 /** Desktop only — on phones the topbar shows a back arrow instead. */
@@ -57,47 +60,46 @@ function BackLink() {
   return <Link href="/district/team" className="mp-back"><ArrowRight /> الفريق والأرقام</Link>;
 }
 
-function statusText(detail: MemberDetail) {
-  if (!detail.activated) return { text: "لم تفعّل حسابها بعد", tone: "warn" };
-  if (detail.submittedToday) return { text: "حدّثت اليوم", tone: "ok" };
-  if (detail.lastActivityAt) return { text: `آخر تحديث ${relativeTime(detail.lastActivityAt)}`, tone: "" };
-  if (detail.lastLoginAt) return { text: `آخر دخول ${relativeTime(detail.lastLoginAt)}`, tone: "" };
-  return { text: "فعّلت حسابها", tone: "" };
-}
-
-function ProfileView({ detail, setDetail }: { detail: MemberDetail; setDetail: (detail: MemberDetail) => void }) {
-  const router = useRouter();
+function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDetail }) {
   const toast = useToast();
-  const { workspace, state, update, absorb, retry } = useWorkspaceAutosave(detail.id, detail.workspace, () => toast("تم تحديث الملف للتو — عرضنا أحدث نسخة"));
+  const file = useMemberFile(memberId, detail.workspace);
+  const { workspace } = file;
+  const [summary, setSummary] = useState<MemberSummary>(detail.summary);
+  const [documents, setDocuments] = useState<DocumentInfo[] | null>(null);
+  const [documentsError, setDocumentsError] = useState("");
   const [tab, setTab] = useState<Tab>("profile");
   const [onlyIds, setOnlyIds] = useState<string[] | null>(null);
   const [editingEmail, setEditingEmail] = useState(false);
-  const [dialog, setDialog] = useState<"reminder" | "reset" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"reminder" | "reset" | null>(null);
   const panel = useRef<HTMLDivElement>(null);
 
-  const value = (id: string) => workspace.profile.find(field => field.id === id)?.value.trim() ?? "";
-  const name = value("name") || detail.name;
-  const title = value("title") || detail.title;
-  const phone = value("phone") || detail.phone;
-  const status = statusText(detail);
+  const loadDocuments = useCallback(async () => {
+    try {
+      setDocuments(await api.get<DocumentInfo[]>(`/district/members/${memberId}/attachments`));
+      setDocumentsError("");
+    } catch (reason) {
+      setDocumentsError(errorText(reason));
+    }
+  }, [memberId]);
+  useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
-  const refresh = useCallback(async () => {
-    const fresh = await api.get<MemberDetail>(`/district/members/${detail.id}`);
-    setDetail(fresh);
-    absorb(fresh.workspace);
-  }, [detail.id, setDetail, absorb]);
+  const name = fieldValue(workspace, "fullName") || summary.name;
+  const title = fieldValue(workspace, "title") || summary.title;
+  const phone = fieldValue(workspace, "phone") || detail.phone;
+  const missing = useMemo(() => missingItems(workspace), [workspace]);
+  const status = statusLine(summary);
 
   const showMissing = () => {
     setTab("profile");
-    setOnlyIds(emptyEssentialIds(workspace));
+    setOnlyIds(workspace.profile.filter(field => !isDerived(field) && !field.value.trim()).map(field => field.id));
     window.setTimeout(() => panel.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 30);
   };
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "profile", label: "البيانات" },
     { id: "schools", label: "المدارس", count: workspace.schools.length },
-    { id: "documents", label: "الملفات", count: detail.documents.length },
-    { id: "visits", label: "الزيارات", count: detail.visits.length },
+    { id: "documents", label: "الملفات", count: documents?.length ?? summary.documentCount },
+    { id: "visits", label: "الزيارات", count: workspace.schools.reduce((sum, school) => sum + school.visitCount, 0) },
   ];
 
   return (
@@ -111,15 +113,10 @@ function ProfileView({ detail, setDetail }: { detail: MemberDetail; setDetail: (
             <h1>{name}</h1>
             {title && <p>{title}</p>}
             {editingEmail
-              ? <LoginEmailForm detail={detail} beforeSave={retry} onDone={() => setEditingEmail(false)} onSaved={fresh => { setDetail(fresh); absorb(fresh.workspace); }} />
-              : <span className="mp-email" dir="ltr">{detail.email}</span>}
+              ? <LoginEmailForm memberId={memberId} email={summary.email} onDone={() => setEditingEmail(false)} onSaved={email => setSummary(current => ({ ...current, email }))} />
+              : <span className="mp-email" dir="ltr">{summary.email}</span>}
           </div>
-          <MoreMenu
-            phone={phone}
-            onEmail={() => setEditingEmail(true)}
-            onReset={() => setDialog("reset")}
-            onDelete={() => setDialog("delete")}
-          />
+          <MoreMenu phone={phone} onEmail={() => setEditingEmail(true)} onReset={() => setDialog("reset")} />
         </div>
 
         <p className="mp-status">
@@ -128,8 +125,8 @@ function ProfileView({ detail, setDetail }: { detail: MemberDetail; setDetail: (
           <span aria-hidden>·</span>
           <span>{pct(workspace.completion)}</span>
           <span aria-hidden>·</span>
-          {workspace.missing.length
-            ? <button className="mp-missing-link" onClick={showMissing}>ينقصها {ar(workspace.missing.length)}</button>
+          {missing.length
+            ? <button className="mp-missing-link" onClick={showMissing}>ينقصها {ar(missing.length)}</button>
             : <span className="mp-complete">مكتمل ✓</span>}
         </p>
 
@@ -148,40 +145,26 @@ function ProfileView({ detail, setDetail }: { detail: MemberDetail; setDetail: (
       </div>
 
       <div id="mp-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-        {tab === "profile" && <ProfileTab workspace={workspace} update={update} onlyIds={onlyIds} onShowAll={() => setOnlyIds(null)} onGo={setTab} />}
-        {tab === "schools" && <SchoolsTab workspace={workspace} update={update} />}
-        {tab === "documents" && <DocumentsTab memberId={detail.id} documents={detail.documents} onChanged={() => void refresh()} />}
-        {tab === "visits" && <VisitsTab visits={detail.visits} />}
+        {tab === "profile" && <ProfileTab file={file} missing={missing} onlyIds={onlyIds} onShowAll={() => setOnlyIds(null)} onGo={setTab} />}
+        {tab === "schools" && <SchoolsTab file={file} />}
+        {tab === "documents" && <DocumentsTab memberId={memberId} documents={documents} error={documentsError} onChanged={() => void loadDocuments()} />}
+        {tab === "visits" && <VisitsTab memberId={memberId} workspace={workspace} />}
       </div>
 
-      <SaveIndicator state={state} onRetry={() => void retry()} />
+      <SaveIndicator state={file.saveState} onRetry={file.retry} />
 
       {dialog === "reminder" && (
-        <ReminderDialog target={{ name, email: detail.email, activated: detail.activated, missing: workspace.missing }} phone={phone} onClose={() => setDialog(null)} />
+        <ReminderDialog target={{ name, email: summary.email, activated: summary.activated, missing: missing.map(item => item.label) }} phone={phone} onClose={() => setDialog(null)} />
       )}
       {dialog === "reset" && (
         <ConfirmDialog
           title="إعادة تعيين كلمة المرور؟"
-          description={<>عند دخولها القادم ستكتب بريدها <span dir="ltr">{detail.email}</span> ثم تختار كلمة مرور جديدة. بياناتها وملفاتها تبقى كما هي.</>}
+          description={<>عند دخولها القادم ستكتب بريدها <span dir="ltr">{summary.email}</span> ثم تختار كلمة مرور جديدة. بياناتها وملفاتها تبقى كما هي.</>}
           confirmLabel="إعادة التعيين"
           onConfirm={async () => {
-            await api.post(`/district/members/${detail.id}/reset-password`);
+            await api.post(`/district/members/${memberId}/reset-password`);
+            setSummary(current => ({ ...current, activated: false }));
             toast("تمت إعادة التعيين — ستختار كلمة مرور جديدة عند دخولها");
-            await refresh();
-          }}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      {dialog === "delete" && (
-        <ConfirmDialog
-          title={`حذف ${name}؟`}
-          description="سيُحذف حسابها وملفها وملفاتها المرفوعة نهائياً، ولن تتمكن من الدخول."
-          confirmLabel="حذف نهائياً"
-          danger
-          onConfirm={async () => {
-            await api.del(`/district/members/${detail.id}`);
-            toast(`حُذفت ${name} من الفريق`);
-            router.push("/district/team");
           }}
           onClose={() => setDialog(null)}
         />
@@ -190,10 +173,10 @@ function ProfileView({ detail, setDetail }: { detail: MemberDetail; setDetail: (
   );
 }
 
-type MoreMenuProps = { phone: string; onEmail: () => void; onReset: () => void; onDelete: () => void };
+type MoreMenuProps = { phone: string; onEmail: () => void; onReset: () => void };
 
-/** The rare actions live behind «⋯»: call, change login email, reset password, delete. */
-function MoreMenu({ phone, onEmail, onReset, onDelete }: MoreMenuProps) {
+/** The rare actions live behind «⋯»: call, change the login email, reset the password. */
+function MoreMenu({ phone, onEmail, onReset }: MoreMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -218,7 +201,6 @@ function MoreMenu({ phone, onEmail, onReset, onDelete }: MoreMenuProps) {
           {phone && <a role="menuitem" href={`tel:${phone}`} onClick={() => setOpen(false)}><Phone /> اتصال <span dir="ltr" className="muted">{phone}</span></a>}
           <button role="menuitem" onClick={pick(onEmail)}><Mail /> تغيير بريد الدخول</button>
           <button role="menuitem" onClick={pick(onReset)}><KeyRound /> إعادة تعيين كلمة المرور</button>
-          <button role="menuitem" className="is-danger" onClick={pick(onDelete)}><Trash2 /> حذف من الفريق</button>
         </div>
       )}
     </div>
@@ -247,26 +229,27 @@ function SaveIndicator({ state, onRetry }: { state: SaveState; onRetry: () => vo
   );
 }
 
-type LoginEmailProps = { detail: MemberDetail; beforeSave: () => Promise<void>; onSaved: (detail: MemberDetail) => void; onDone: () => void };
+type LoginEmailProps = { memberId: string; email: string; onSaved: (email: string) => void; onDone: () => void };
 
-/** The email she signs in with (separate from the profile's email field, which is just information). */
-function LoginEmailForm({ detail, beforeSave, onSaved, onDone }: LoginEmailProps) {
+/** The email she signs in with (PATCH /district/members/:id/contact); the profile's البريد الوزاري is separate. */
+function LoginEmailForm({ memberId, email: initial, onSaved, onDone }: LoginEmailProps) {
   const toast = useToast();
-  const [email, setEmail] = useState(detail.email);
+  const [email, setEmail] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (email.trim() === initial) { onDone(); return; }
     setBusy(true);
     setError("");
     try {
-      await beforeSave();
-      onSaved(await api.patch<MemberDetail>(`/district/members/${detail.id}`, { email: email.trim() }));
+      const saved = await api.patch<{ email: string }>(`/district/members/${memberId}/contact`, { email: email.trim() });
+      onSaved(saved.email);
       onDone();
       toast("تم تغيير بريد الدخول");
     } catch (reason) {
-      setError((reason as Error).message);
+      setError(reason instanceof ApiError ? reason.fields?.email ?? reason.message : errorText(reason));
     } finally {
       setBusy(false);
     }

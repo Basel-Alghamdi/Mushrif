@@ -1,22 +1,24 @@
 "use client";
 
-import type { ProfileField } from "@rasd/schemas";
+import { yearsSinceHijri } from "@rasd/schemas";
 import { useEffect, useRef } from "react";
-import { ProfileFieldInput } from "../../../components/member/profile-input";
+import { useActions } from "../../../components/member/actions";
+import { useMember } from "../../../components/member/context";
+import { emptyFields, FIELD_FORMS, splitProfile, YEAR_FORMS } from "../../../components/member/model";
 import { Account, CustomFields, Programs } from "../../../components/member/profile-extras";
+import { ProfileFieldInput } from "../../../components/member/profile-input";
 import { Expander } from "../../../components/member/ui";
-import { FIELD_FORMS, isEssential, isFilled, yearsSince, YEAR_FORMS } from "../../../components/member/model";
-import { useWorkspace } from "../../../components/member/workspace-context";
 import { ar, counted } from "../../../lib/format";
+import type { ProfileField } from "../../../lib/types";
 
 /** Short fields sit two to a row so the page stays short on a phone. */
-const HALF = new Set(["phone", "national_id", "employee_no", "cluster", "hire_date", "major", "supervision_major"]);
+const HALF = new Set(["phone", "nationalId", "employeeNo", "hireDate", "major", "supervisoryMajor"]);
 function pairUp(fields: ProfileField[]) {
   const rows: ProfileField[][] = [];
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index];
     const next = fields[index + 1];
-    if (next && HALF.has(field.id) && HALF.has(next.id)) {
+    if (next && HALF.has(field.key ?? "") && HALF.has(next.key ?? "")) {
       rows.push([field, next]);
       index += 1;
     } else rows.push([field]);
@@ -36,24 +38,19 @@ function focusField(id: string) {
 }
 
 export default function ProfilePage() {
-  const { workspace, update } = useWorkspace();
-  const profile = workspace.profile;
-  const essentials = profile.filter(isEssential);
-  const optional = profile.filter(field => field.optional && !field.derived && !field.custom);
-  const custom = profile.filter(field => field.custom);
-  const empty = essentials.filter(field => !isFilled(field.value));
-  const hire = profile.find(field => field.id === "hire_date")?.value ?? "";
-  const years = yearsSince(hire);
+  const { ws } = useMember();
+  const { setProfileValue } = useActions();
+  const { essentials, extras, custom } = splitProfile(ws.profile);
+  const empty = emptyFields(ws.profile);
+  const extrasLeft = emptyFields([...extras, ...custom]).length;
+  const hire = ws.profile.find(field => field.key === "hireDate")?.value ?? "";
+  const years = yearsSinceHijri(hire);
 
-  const setValue = (id: string, value: string) =>
-    update(current => ({
-      ...current,
-      profile: current.profile.map(field => (field.id === id ? { ...field, value, updatedAt: new Date().toISOString() } : field)),
-    }));
+  // Same order as on screen, so «اذهبي للناقصة» always lands on the next one down.
+  const ordered = [...essentials, ...extras, ...custom].filter(field => empty.includes(field));
+  const goToEmpty = () => { if (ordered[0]) focusField(`f-${ordered[0].id}`); };
 
-  const goToEmpty = () => { if (empty[0]) focusField(`f-${empty[0].id}`); };
-
-  // Links like /cluster/profile#f-phone, #next-empty or #account land on the right spot.
+  // Links like /cluster/profile#next-empty or #account land on the right spot.
   const goToEmptyRef = useRef(goToEmpty);
   goToEmptyRef.current = goToEmpty;
   useEffect(() => {
@@ -80,15 +77,15 @@ export default function ProfilePage() {
     };
   }, []);
 
-  const renderField = (field: ProfileField, essential: boolean) => (
-    <ProfileFieldInput key={field.id} field={field} essential={essential} onChange={value => setValue(field.id, value)}
-      note={field.id === "hire_date" && years !== null
-        ? <p className="m-note">≈ {years === 0 ? "أقل من سنة" : counted(years, YEAR_FORMS)} خبرة</p>
+  const renderField = (field: ProfileField) => (
+    <ProfileFieldInput key={field.id} field={field} empty onChange={(value, typed) => setProfileValue(field, value, typed ? undefined : 0)}
+      note={field.key === "hireDate" && years !== ""
+        ? <p className="m-note">≈ {years === "0" ? "أقل من سنة" : counted(Number(years), YEAR_FORMS)} خبرة</p>
         : undefined} />
   );
-  const render = (fields: ProfileField[], essential: boolean) => pairUp(fields).map(row => (row.length === 2
-    ? <div key={row[0].id} className="m-grid-2 m-pair">{row.map(field => renderField(field, essential))}</div>
-    : renderField(row[0], essential)));
+  const render = (fields: ProfileField[]) => pairUp(fields).map(row => (row.length === 2
+    ? <div key={row[0].id} className="m-grid-2 m-pair">{row.map(renderField)}</div>
+    : renderField(row[0])));
 
   return (
     <div className="m-page">
@@ -105,15 +102,15 @@ export default function ProfilePage() {
       </header>
 
       <section className="card m-form" aria-label="البيانات الأساسية">
-        {render(essentials, true)}
+        {render(essentials)}
       </section>
 
       <div className="m-exp-group">
-        <Expander id="extra" title="بيانات إضافية (اختياري)">
-          {render(optional, false)}
-          <CustomFields fields={custom} onValue={setValue} />
+        <Expander id="extra" title={<>بيانات إضافية {extrasLeft > 0 && <span className="m-count">(باقي {ar(extrasLeft)})</span>}</>}>
+          {render(extras)}
+          <CustomFields fields={custom} />
         </Expander>
-        <Expander id="programs" title={<>التطوير المهني <span className="m-count">({ar(workspace.programs.length)})</span></>}>
+        <Expander id="programs" title={<>التطوير المهني <span className="m-count">({ar(ws.programs.length)})</span></>}>
           <Programs />
         </Expander>
         <Expander id="account" title="الحساب">
@@ -123,3 +120,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+

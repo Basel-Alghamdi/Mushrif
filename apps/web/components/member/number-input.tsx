@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import { toNumber } from "./model";
 
-/** Numeric text box that keeps what she typed (e.g. "85.") while storing a number. 0 shows as empty. */
-export function NumberInput({ id, value, onChange, placeholder = "", decimal = false, label }: {
+/** A whole-number box that keeps what she typed while storing a number (0 shows as empty). `max` caps percentages at 100. */
+export function NumberInput({ id, value, onChange, placeholder = "", max, label }: {
   id: string;
   value: number;
   onChange: (value: number) => void;
   placeholder?: string;
-  decimal?: boolean;
+  max?: number;
   label?: string;
 }) {
   const [text, setText] = useState(value ? String(value) : "");
@@ -23,13 +23,15 @@ export function NumberInput({ id, value, onChange, placeholder = "", decimal = f
     <input
       id={id}
       className="input m-num"
-      inputMode={decimal ? "decimal" : "numeric"}
+      inputMode="numeric"
       value={text}
       placeholder={placeholder}
       aria-label={label}
       onChange={event => {
-        setText(event.target.value);
-        onChange(toNumber(event.target.value));
+        const next = toNumber(event.target.value);
+        const capped = max === undefined ? next : Math.min(max, next);
+        setText(capped === next ? event.target.value : String(capped));
+        onChange(capped);
       }}
     />
   );

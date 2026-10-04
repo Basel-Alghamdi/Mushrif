@@ -15,6 +15,7 @@ export type Actor = {
   name: string;
   email: string;
   phone: string;
+  title: string;
   clusterId: string | null;
   clusterLabel: string;
 };
@@ -28,32 +29,42 @@ const issuer = `${env.supabaseUrl}/auth/v1`;
 const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
 const legacySecret = env.supabaseJwtSecret ? new TextEncoder().encode(env.supabaseJwtSecret) : null;
 
-/** Verifies a Supabase access token and returns the user id (`sub`). */
+/** Verifies a Supabase access token and returns the user id (`sub`) and when the token was issued (seconds). */
 export async function verifyAccessToken(token: string) {
   const options = { issuer, audience: "authenticated" };
   const { payload } = legacySecret ? await jwtVerify(token, legacySecret, options) : await jwtVerify(token, jwks, options);
   if (!payload.sub) throw new Error("TOKEN_WITHOUT_SUBJECT");
-  return payload.sub;
+  return { userId: payload.sub, issuedAt: typeof payload.iat === "number" ? payload.iat : 0 };
 }
 
-export async function loadActor(userId: string): Promise<Actor | null> {
+type ActorRow = Actor & { activatedAt: Date | null; sessionsValidAfter: Date | null };
+
+export async function loadActor(userId: string): Promise<ActorRow | null> {
   const [row] = await sql`
-    select p.id, p.role, p.district_id, p.name, p.email, p.phone, c.id as cluster_id, coalesce(c.label, '') as cluster_label
+    select p.id, p.role, p.district_id, p.name, p.email, p.phone, p.title, p.activated_at, p.sessions_valid_after,
+      c.id as cluster_id, coalesce(c.label, '') as cluster_label
     from profiles p left join clusters c on c.member_id = p.id
     where p.id = ${userId}`;
-  return row ? (row as Actor) : null;
+  return row ? (row as ActorRow) : null;
 }
 
 export const authenticate = createMiddleware<AppEnv>(async (c, next) => {
   const header = c.req.header("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  let userId: string | null = null;
+  let verified: { userId: string; issuedAt: number } | null = null;
   if (token) {
-    try { userId = await verifyAccessToken(token); } catch { userId = null; }
+    try { verified = await verifyAccessToken(token); } catch { verified = null; }
   }
-  if (!userId) return c.json(fail("UNAUTHENTICATED", "انتهت الجلسة أو لم يتم تسجيل الدخول"), 401);
-  const actor = await loadActor(userId);
-  if (!actor) return c.json(fail("NO_PROFILE", "هذا الحساب غير مرتبط بمنصة رَصد"), 403);
+  if (!verified) return c.json(fail("UNAUTHENTICATED", "انتهت الجلسة أو لم يتم تسجيل الدخول"), 401);
+  const row = await loadActor(verified.userId);
+  if (!row) return c.json(fail("NO_PROFILE", "هذا الحساب غير مرتبط بمنصة رَصد"), 403);
+  // A password reset ends every session that started before it.
+  if (row.sessionsValidAfter && verified.issuedAt < Math.floor(row.sessionsValidAfter.getTime() / 1000)) {
+    return c.json(fail("UNAUTHENTICATED", "انتهت الجلسة — سجّلي الدخول مرة أخرى"), 401);
+  }
+  // Signing in proves she has a password (first sign-in, an invitation or the recovery link), so the account is no longer claimable.
+  if (!row.activatedAt) await sql`update profiles set activated_at = now(), activation_expires_at = null where id = ${row.id} and activated_at is null`;
+  const { activatedAt: _activated, sessionsValidAfter: _sessions, ...actor } = row;
   c.set("actor", actor);
   c.set("source", c.req.header("x-rasd-source") === "mobile" ? "mobile" : "web");
   const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "";

@@ -528,12 +528,33 @@ body:has(.d-app) .toast button{min-height:44px;padding:0 6px}
 .mp-visit p{color:var(--text-2);font-size:13.5px;white-space:pre-wrap}
 .mp-visit-meta{color:var(--text-3);font-size:12.5px}
 
+/* Main's structure on the head side: items only she can fill, school gaps, indicator chips, visits per school, invitations. */
+.mp-goto-static{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;min-height:52px;padding:8px 16px;font-size:14px}
+.mp-goto-static span{flex:1;min-width:0}
+.mp-goto-static small{color:var(--text-3);font-size:12px}
+.mp-school-head small.mp-school-gaps{color:var(--warning)}
+.mp-chips{display:flex;flex-wrap:wrap;gap:8px}
+.mp-sub-title{margin:14px 0 8px;color:var(--text-2);font-size:13px;font-weight:600}
+.mp-school-more .mp-school-form,.mp-school-more .mp-school-counts{margin-top:10px;align-items:end}
+.mp-school-more .field-label .muted{font-weight:400}
+.mp-visit-schools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px;padding:0;list-style:none}
+.mp-visit-schools li{display:flex;align-items:center;gap:8px;min-height:36px;padding:4px 12px;border:1px solid var(--border);border-radius:99px;background:#fff;font-size:13px}
+.mp-visit-schools span{color:var(--text-3)}
+.d-invitations{border:1px solid var(--border);border-radius:12px;background:#fff}
+.d-invitations>summary{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 14px;cursor:pointer;color:var(--text-2);font-size:13.5px;font-weight:600;list-style:none}
+.d-invitations>summary::-webkit-details-marker{display:none}
+.d-invitations>summary svg{font-size:17px}
+.d-invitations ul{margin:0;padding:0 14px 8px;list-style:none}
+.d-invitations li{display:flex;align-items:center;gap:10px;min-height:52px;border-top:1px solid var(--border)}
+.d-invitations .pill{flex:none}
+
 .mp-skeleton-head{display:block;height:170px;border-radius:var(--radius)}
 .mp-skeleton-tabs{display:block;height:46px}
 .mp-skeleton-field{display:block;height:68px}
 
 @media (max-width:899.98px){
   .d-page{gap:14px;padding:16px 16px 44px}
+  .mp-school-more .mp-school-counts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .d-team-head,.mp-back{display:none}
   .d-kpis{gap:8px}
   .d-kpi{padding:8px 12px;border-radius:12px}

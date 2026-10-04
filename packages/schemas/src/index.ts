@@ -9,32 +9,29 @@ export const riyadhDate = (at: Date = new Date()) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 
 // ───────────── validation (SPEC §6.5) — each returns an Arabic message or null ─────────────
+// The team asked for no blocking formats: emails, IDs, phones, ministry numbers, dates and links accept any text
+// (digits are still normalized where they are stored). Only numbers keep their ranges, and a login email needs an "@".
 export const messages = {
-  email: "البريد يجب أن ينتهي بـ moe.gov.sa",
-  nationalId: "السجل المدني ١٠ أرقام ويبدأ بـ ١ أو ٢",
-  phone: "رقم الجوال يبدأ بـ ٠٥ ويكون ١٠ أرقام",
-  ministryNo: "الرقم الوزاري ٦ أرقام",
+  email: "اكتبي البريد الإلكتروني كاملاً، مثال: name@gmail.com",
   ministryNoTaken: "الرقم الوزاري مستخدم لمدرسة أخرى",
   percent: "النسبة بين ٠ و١٠٠",
   count: "القيمة يجب أن تكون رقماً",
-  hijriDate: "صيغة التاريخ غير صحيحة",
-  label: "اسم الحقل مطلوب",
-  url: "الرابط غير صحيح",
+  label: "الاسم مطلوب (حتى ٢٠٠ حرف)",
 } as const;
 
-const optional = (check: (value: string) => boolean, message: string) => (value: string) => {
-  const normalized = toWesternDigits(value.trim());
-  return normalized === "" || check(normalized) ? null : message;
-};
+const anything = (_value: string): string | null => null;
 
 export const validators = {
-  email: optional(value => /^[^\s@]+@moe\.gov\.sa$/i.test(value), messages.email),
-  nationalId: optional(value => /^[12]\d{9}$/.test(value), messages.nationalId),
-  phone: optional(value => /^05\d{8}$/.test(value), messages.phone),
-  ministryNo: optional(value => /^\d{6}$/.test(value), messages.ministryNo),
-  hijriDate: optional(value => /^14\d{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|30)$/.test(value), messages.hijriDate),
-  url: optional(value => { try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } }, messages.url),
-  label: (value: string) => { const length = value.trim().length; return length >= 1 && length <= 60 ? null : messages.label; },
+  /** A free-text email field (البريد الوزاري, school email): any value. */
+  email: anything,
+  /** The address someone signs in with: anything that looks like an address. */
+  loginEmail: (value: string) => (/^\S+@\S+$/.test(toWesternDigits(value.trim())) ? null : messages.email),
+  nationalId: anything,
+  phone: anything,
+  ministryNo: anything,
+  hijriDate: anything,
+  url: anything,
+  label: (value: string) => { const length = value.trim().length; return length >= 1 && length <= 200 ? null : messages.label; },
   percent: (value: unknown) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 100 ? null : messages.percent,
   count: (value: unknown) => Number.isInteger(value) && (value as number) >= 0 ? null : messages.count,
 };
@@ -45,9 +42,11 @@ export type ProfileFieldSeed = { key: string; label: string; span: 1 | 2; type: 
 
 export const RANKS = ["خبير", "متقدم", "ممارس متقدم", "ممارس"];
 
-/** The 12 built-in profile fields (SPEC §3.3 Section 1). Members may rename, reorder or delete them. */
+/** The 13 built-in profile fields (SPEC §3.3 Section 1). Members may rename, reorder or delete them. */
 export const DEFAULT_PROFILE_FIELDS: ProfileFieldSeed[] = [
   { key: "fullName", label: "الاسم الرباعي", span: 2, type: "text" },
+  // Kept in sync with profiles.title (الصفة) by the API.
+  { key: "title", label: "الصفة", span: 1, type: "text" },
   { key: "nationalId", label: "السجل المدني", span: 1, type: "text" },
   { key: "employeeNo", label: "الرقم الوظيفي", span: 1, type: "text" },
   { key: "email", label: "البريد الوزاري", span: 2, type: "text" },
@@ -61,7 +60,7 @@ export const DEFAULT_PROFILE_FIELDS: ProfileFieldSeed[] = [
   { key: "yearsOfExperience", label: "عدد سنوات الخبرة", span: 1, type: "derived" },
 ];
 
-/** Validation for a profile field value, chosen by its built-in key (labels are renamable, keys are not). */
+/** Validation for a profile field value, chosen by its built-in key (labels are renamable, keys are not). Never blocks today. */
 export function validateProfileValue(key: string | null, type: ProfileFieldType, value: string) {
   if (key === "nationalId") return validators.nationalId(value);
   if (key === "phone") return validators.phone(value);
@@ -125,12 +124,26 @@ const hijriParts = (at: Date) => {
   return { year: part("year"), month: part("month"), day: part("day") };
 };
 
-/** Whole Hijri years since a `14XX/MM/DD` hire date, or "" when the date is missing or malformed. */
+const gregorianParts = (at: Date) => {
+  const [year, month, day] = riyadhDate(at).split("-").map(Number);
+  return { year, month, day };
+};
+
+/**
+ * Whole years since a hire date, or "" when it cannot be read. Accepts `YYYY/MM/DD`, `YYYY-MM-DD`, `DD/MM/YYYY`
+ * (any separator among / - . and Arabic-Indic digits) or a bare year. Years 1300–1499 are Hijri, 1900–2100 Gregorian.
+ */
 export function yearsSinceHijri(hireDate: string, at: Date = new Date()) {
-  const match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(toWesternDigits(hireDate.trim()));
-  if (!match) return "";
-  const [year, month, day] = match.slice(1).map(Number);
-  const now = hijriParts(at);
+  const parts = toWesternDigits(hireDate.trim()).split(/\s*[/.\-]\s*/).filter(Boolean);
+  if (!parts.length || parts.length === 2 || parts.length > 3 || !parts.every(part => /^\d{1,4}$/.test(part))) return "";
+  const numbers = parts.map(Number);
+  const [year, month, day] = parts.length === 1 ? [numbers[0], 1, 1]
+    : parts[0].length === 4 ? numbers
+    : parts[2].length === 4 ? [numbers[2], numbers[1], numbers[0]]
+    : [NaN, NaN, NaN];
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return "";
+  const now = year >= 1300 && year <= 1499 ? hijriParts(at) : year >= 1900 && year <= 2100 ? gregorianParts(at) : null;
+  if (!now) return "";
   const years = now.year - year - (now.month < month || (now.month === month && now.day < day) ? 1 : 0);
   return years >= 0 ? String(years) : "";
 }

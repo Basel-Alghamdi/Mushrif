@@ -3,10 +3,10 @@
 import { ClipboardList, House, School, UserRound, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
+import { useMember } from "./context";
 import { displayName, initialsOf } from "./model";
 import { SaveIndicator } from "./ui";
-import { useWorkspace } from "./workspace-context";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -22,8 +22,15 @@ const isActive = (pathname: string, href: string) =>
 
 export function MemberShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/cluster";
-  const { user, workspace, saveState, retry } = useWorkspace();
-  const name = displayName(workspace, user.name);
+  const { me, ws, saveState, retry, flush } = useMember();
+  const name = displayName(ws, me.name);
+
+  // Leaving a box sends what she typed right away (the pause timer is only for while she is still typing).
+  useEffect(() => {
+    const send = (event: FocusEvent) => { if ((event.target as Element | null)?.matches?.("input,textarea")) flush(); };
+    document.addEventListener("focusout", send);
+    return () => document.removeEventListener("focusout", send);
+  }, [flush]);
 
   return (
     <div className="m-shell">
@@ -48,7 +55,7 @@ export function MemberShell({ children }: { children: ReactNode }) {
           <i className="avatar avatar-sm" aria-hidden>{initialsOf(name)}</i>
           <span>
             <b>{name}</b>
-            <small dir="ltr">{user.email}</small>
+            <small dir="ltr">{me.email}</small>
           </span>
         </div>
       </aside>

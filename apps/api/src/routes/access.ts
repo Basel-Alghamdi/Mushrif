@@ -1,18 +1,21 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Hono } from "hono";
-import { DEFAULT_PLANS, DEFAULT_PROFILE_FIELDS, toWesternDigits, validators } from "@rasd/schemas";
-import { audit } from "../audit.js";
+import { toWesternDigits, validators } from "@rasd/schemas";
+import { MIN_PASSWORD, seedMember } from "../accounts.js";
+import { audit, auditWith } from "../audit.js";
 import { requireHead, supabaseAdmin, type AppEnv } from "../auth.js";
-import { sql, type Row, type Sql } from "../db.js";
+import { sql, type Row } from "../db.js";
 import { env } from "../env.js";
 import { emailConfigured, escapeHtml, rtlEmail, sendEmail } from "../email.js";
 import { ApiError, invalid, notFound, ok } from "../errors.js";
-import { isUuid, readBody } from "../parse.js";
+import { cleanText, isUuid, normalizeEmail, readBody } from "../parse.js";
+import { clientIp, HOUR, limit, MINUTE } from "../rate-limit.js";
 
 const INVITATION_DAYS = 7;
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 const newToken = () => randomBytes(32).toString("base64url");
 const invitationUrl = (token: string) => `${env.appUrl}/invite/${token}`;
+const passwordError = (password: string) => (password.length < MIN_PASSWORD ? `اختاري كلمة مرور من ${MIN_PASSWORD.toLocaleString("ar-SA")} أحرف أو أرقام على الأقل` : null);
 
 const invitationDto = (row: Row) => ({
   id: row.id, name: row.name, email: row.email, clusterLabel: row.clusterLabel, status: row.status,
@@ -35,37 +38,85 @@ async function deliverInvitation(invitation: Row, link: string, headName: string
   }
 }
 
-/** Creates the member's cluster with the built-in profile fields and the five plans. */
-export async function seedMember(db: Sql, input: { userId: string; districtId: string; name: string; email: string; phone: string; clusterLabel: string }) {
-  await db`insert into profiles ${db({ id: input.userId, districtId: input.districtId, role: "member", name: input.name, email: input.email, phone: input.phone })}`;
-  const [cluster] = await db`insert into clusters ${db({ districtId: input.districtId, memberId: input.userId, label: input.clusterLabel })} returning id`;
-  const prefilled: Record<string, string> = { fullName: input.name, email: input.email, phone: input.phone };
-  for (const [index, field] of DEFAULT_PROFILE_FIELDS.entries()) {
-    await db`insert into profile_fields ${db({
-      clusterId: cluster.id, fieldKey: field.key, label: field.label, value: prefilled[field.key] ?? field.value ?? "",
-      span: field.span, fieldType: field.type, options: field.options ?? [], sortOrder: index,
-    })}`;
-  }
-  for (const [index, plan] of DEFAULT_PLANS.entries()) {
-    await db`insert into plans ${db({ clusterId: cluster.id, kind: plan.kind, label: plan.label, sortOrder: index })}`;
-  }
-  return String(cluster.id);
-}
-
 export function accessRoutes(app: Hono<AppEnv>) {
   app.get("/auth/me", c => {
     const actor = c.get("actor");
     const permissions = actor.role === "head"
-      ? ["district:read", "members:contact", "imports", "reminders", "reports", "agent"]
+      ? ["district:read", "district:write", "members:contact", "imports", "reminders", "reports", "agent"]
       : ["cluster:read", "cluster:write", "ai:ask"];
-    return c.json(ok({ user: { id: actor.id, name: actor.name, email: actor.email, phone: actor.phone, role: actor.role, clusterLabel: actor.clusterLabel }, permissions }));
+    return c.json(ok({
+      user: { id: actor.id, name: actor.name, email: actor.email, phone: actor.phone, title: actor.title, role: actor.role, clusterLabel: actor.clusterLabel },
+      permissions,
+    }));
+  });
+
+  // ───────── first sign-in (decision 2): she types her email, then chooses her password ─────────
+  // Members only: the head's account always gets its password at setup (bootstrap:head), so it can never be claimed here.
+  // Rate limits per IP and per address keep the unauthenticated endpoints from being used to scan or claim accounts.
+  app.post("/public/auth/check", async c => {
+    limit(`check:${clientIp(c)}`, 60, 10 * MINUTE);
+    const body = await readBody(c);
+    const email = normalizeEmail(typeof body.email === "string" ? body.email : "");
+    if (validators.loginEmail(email)) throw invalid({ email: validators.loginEmail(email)! });
+    const [profile] = await sql`select activated_at from profiles where email = ${email}`;
+    // No name in the answer: the address alone must not reveal who it belongs to.
+    return c.json(ok({ exists: Boolean(profile), activated: Boolean(profile?.activatedAt) }));
+  });
+
+  app.post("/public/auth/activate", async c => {
+    const ip = clientIp(c);
+    limit(`activate:${ip}`, 30, HOUR);
+    const body = await readBody(c);
+    const email = normalizeEmail(typeof body.email === "string" ? body.email : "");
+    const password = typeof body.password === "string" ? body.password : "";
+    const fields: Record<string, string> = {};
+    if (validators.loginEmail(email)) fields.email = validators.loginEmail(email)!;
+    if (passwordError(password)) fields.password = passwordError(password)!;
+    if (Object.keys(fields).length) throw invalid(fields);
+    limit(`activate:${email}`, 5, HOUR);
+
+    const [profile] = await sql`
+      select p.id, p.district_id, p.role, p.name, p.activated_at, p.activation_expires_at, c.id as cluster_id
+      from profiles p left join clusters c on c.member_id = p.id where p.email = ${email}`;
+    const notFound = new ApiError(404, "ACCOUNT_NOT_FOUND", "هذا البريد غير مسجّل في المنصة — تأكدي منه أو تواصلي مع رئيسة النطاق");
+    if (!profile || profile.role !== "member") throw notFound;
+    if (profile.activatedAt) throw new ApiError(409, "ALREADY_ACTIVATED", "الحساب مفعّل مسبقاً — ادخلي بكلمة المرور");
+    if (profile.activationExpiresAt && (profile.activationExpiresAt as Date) <= new Date()) {
+      throw new ApiError(410, "ACTIVATION_EXPIRED", "انتهت مهلة تفعيل الحساب — اطلبي من رئيسة النطاق إعادة تعيين كلمة المرور");
+    }
+    // Claim the account first (only one of two simultaneous attempts wins), then talk to Supabase outside any transaction.
+    const [claimed] = await sql`
+      update profiles set activated_at = now(), activation_expires_at = null
+      where id = ${profile.id} and role = 'member' and activated_at is null returning id`;
+    if (!claimed) throw new ApiError(409, "ALREADY_ACTIVATED", "الحساب مفعّل مسبقاً — ادخلي بكلمة المرور");
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(String(profile.id), { password, email_confirm: true });
+    if (error) {
+      await sql`update profiles set activated_at = null, activation_expires_at = ${profile.activationExpiresAt} where id = ${profile.id}`;
+      if (error.code === "weak_password") throw invalid({ password: "كلمة المرور ضعيفة — اختاري كلمة أطول" });
+      console.error("activation failed", error);
+      throw new ApiError(502, "AUTH_PROVIDER_ERROR", "تعذّر تفعيل الحساب — أعيدي المحاولة");
+    }
+    await sql.begin(async tx => {
+      await auditWith(tx, {
+        actor: { id: String(profile.id), districtId: String(profile.districtId), role: "member", clusterId: profile.clusterId },
+        source: c.get("source") ?? "web", ip: ip === "unknown" ? null : ip,
+      }, { action: "activate", entity: "account", entityId: String(profile.id), clusterId: profile.clusterId });
+      // The head sees every first sign-in, so a claim she did not expect stands out.
+      const heads = await tx`select id from profiles where district_id = ${profile.districtId} and role = 'head'`;
+      for (const head of heads) {
+        await tx`insert into notifications ${tx({ userId: head.id, kind: "activation", text: `فعّلت ${profile.name} حسابها`, level: "info" })}`;
+      }
+    });
+    return c.json(ok({ email }));
   });
 
   // Always answers the same way so the endpoint cannot be used to discover which emails have accounts.
   app.post("/public/auth/forgot-password", async c => {
+    limit(`forgot:${clientIp(c)}`, 10, HOUR);
     const body = await readBody(c);
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    if (validators.email(email) || !email) throw invalid({ email: "أدخلي بريدك الوزاري" });
+    const email = normalizeEmail(typeof body.email === "string" ? body.email : "");
+    if (validators.loginEmail(email)) throw invalid({ email: "أدخلي بريدك" });
+    limit(`forgot:${email}`, 3, HOUR);
     const [profile] = await sql`select name from profiles where email = ${email}`;
     if (profile) {
       try {
@@ -95,13 +146,12 @@ export function accessRoutes(app: Hono<AppEnv>) {
   app.post("/district/invitations", async c => {
     const actor = requireHead(c);
     const body = await readBody(c);
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    const email = typeof body.email === "string" ? toWesternDigits(body.email.trim().toLowerCase()) : "";
-    const clusterLabel = typeof body.clusterLabel === "string" ? body.clusterLabel.trim() : "";
+    const name = typeof body.name === "string" ? cleanText(body.name) : "";
+    const email = normalizeEmail(typeof body.email === "string" ? body.email : "");
+    const clusterLabel = typeof body.clusterLabel === "string" ? cleanText(body.clusterLabel) : "";
     const fields: Record<string, string> = {};
     if (!name) fields.name = "اسم العضوة مطلوب";
-    if (!email || validators.email(email)) fields.email = "استخدمي البريد الوزاري المنتهي بـ moe.gov.sa";
-    if (!clusterLabel) fields.clusterLabel = "اسم العنقود مطلوب";
+    if (validators.loginEmail(email)) fields.email = validators.loginEmail(email)!;
     if (Object.keys(fields).length) throw invalid(fields, "أكملي بيانات الدعوة");
 
     const token = newToken();
@@ -154,6 +204,7 @@ export function accessRoutes(app: Hono<AppEnv>) {
 
   // ───────── invitations (public) ─────────
   app.get("/public/invitations/:token", async c => {
+    limit(`invite:${clientIp(c)}`, 60, 10 * MINUTE);
     const [row] = await sql`select * from invitations where token_hash = ${tokenHash(c.req.param("token"))}`;
     if (!row) throw notFound("رابط الدعوة غير صحيح");
     const status = row.status === "pending" && (row.expiresAt as Date) <= new Date() ? "expired" : row.status;
@@ -161,14 +212,11 @@ export function accessRoutes(app: Hono<AppEnv>) {
   });
 
   app.post("/public/invitations/:token/accept", async c => {
+    limit(`invite:${clientIp(c)}`, 60, 10 * MINUTE);
     const body = await readBody(c);
     const password = typeof body.password === "string" ? body.password : "";
-    const phone = typeof body.phone === "string" ? toWesternDigits(body.phone.trim()) : "";
-    const fields: Record<string, string> = {};
-    if (password.length < 8) fields.password = "كلمة المرور يجب ألا تقل عن ٨ أحرف";
-    const phoneError = validators.phone(phone);
-    if (!phone || phoneError) fields.phone = phoneError ?? "رقم الجوال مطلوب";
-    if (Object.keys(fields).length) throw invalid(fields);
+    const phone = typeof body.phone === "string" ? toWesternDigits(cleanText(body.phone)).slice(0, 40) : "";
+    if (passwordError(password)) throw invalid({ password: passwordError(password)! });
 
     const [invitation] = await sql`select * from invitations where token_hash = ${tokenHash(c.req.param("token"))} and status = 'pending' and expires_at > now()`;
     if (!invitation) throw new ApiError(410, "INVITATION_INVALID", "الدعوة منتهية أو سبق استخدامها");
@@ -189,6 +237,7 @@ export function accessRoutes(app: Hono<AppEnv>) {
         if (!claimed) throw new ApiError(410, "INVITATION_INVALID", "الدعوة منتهية أو سبق استخدامها");
         const clusterId = await seedMember(tx, {
           userId, districtId: invitation.districtId, name: invitation.name, email: invitation.email, phone, clusterLabel: invitation.clusterLabel,
+          activated: true,
         });
         await tx`update invitations set accepted_user_id = ${userId} where id = ${invitation.id}`;
         await tx`insert into audit_log ${tx({ districtId: invitation.districtId, clusterId, actorId: userId, action: "accept", entity: "invitation", entityId: invitation.id, source: "web" })}`;

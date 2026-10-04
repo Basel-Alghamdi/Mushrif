@@ -1,18 +1,21 @@
 // Parsed view of Khulood's message that every local-engine handler works from.
-import type { ChatBlock, ChatMessage, MemberDetail, MemberSummary } from "@rasd/schemas";
-import type { Account } from "../accounts.js";
-import { detailOf, allDetails, teamSnapshot, type TeamSnapshot } from "./data.js";
+import type { ChatBlock, ChatMessage } from "@rasd/schemas";
+import type { Actor } from "../auth.js";
+import { allDetails, detailOf, type TeamSnapshot } from "./data.js";
 import { firstSpan, hasAny, METRIC_TABLE, phrases, PROFILE_FIELD_TABLE, scan, W, type MetricId, type Phrase, type Span } from "./lexicon.js";
+import type { MemberDetail, MemberSummary, Session } from "./model.js";
 import { findMentions, resolvedIds, type Mention } from "./names.js";
 import { tokenize, type Token } from "./normalize.js";
 import type { AgentReply } from "./proposals.js";
 import { ar, choices, shortName } from "./render.js";
 
-export type EngineInput = { head: Account; conversationId: string; history: ChatMessage[]; text: string };
+/** One message to answer: who asks (and where changes go), the team as read for this message, and the conversation so far. */
+export type EngineInput = { session: Session; team: TeamSnapshot; history: ChatMessage[]; text: string };
 
 export type Ctx = {
-  head: Account;
-  conversationId: string;
+  session: Session;
+  head: Actor;
+  conversationId: string | null;
   history: ChatMessage[];
   raw: string;
   tokens: Token[];
@@ -101,15 +104,13 @@ function qualifyFields(tokens: Token[], fields: Ctx["fields"]): Ctx["fields"] {
 }
 
 export function buildContext(input: EngineInput): Ctx {
-  const team = teamSnapshot(input.head.id);
+  const { team } = input;
   const tokens = splitFusedNegation(tokenize(input.text));
   const mentions = findMentions(tokens, team.index);
   const memberIds = resolvedIds(mentions);
   const fields = qualifyFields(tokens, scan(tokens, PROFILE_FIELD_TABLE));
   const metrics = scan(tokens, METRIC_TABLE);
   const byId = new Map(team.members.map(member => [member.id, member]));
-  const detailCache = new Map<string, MemberDetail | null>();
-  let detailsCache: MemberDetail[] | null = null;
 
   let targetId: string | null = memberIds[0] ?? null;
   let focusBy: Ctx["focusBy"] = null;
@@ -120,8 +121,9 @@ export function buildContext(input: EngineInput): Ctx {
   }
 
   return {
-    head: input.head,
-    conversationId: input.conversationId,
+    session: input.session,
+    head: input.session.head,
+    conversationId: input.session.conversationId,
     history: input.history,
     raw: input.text.trim(),
     tokens,
@@ -135,11 +137,8 @@ export function buildContext(input: EngineInput): Ctx {
     fromFocus: focusBy !== null,
     focusBy,
     member: id => byId.get(id)!,
-    detail: id => {
-      if (!detailCache.has(id)) detailCache.set(id, detailOf(input.head.id, id));
-      return detailCache.get(id) ?? null;
-    },
-    details: () => (detailsCache ??= allDetails(input.head.id, team)),
+    detail: id => detailOf(team, id),
+    details: () => allDetails(team),
   };
 }
 

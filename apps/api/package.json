@@ -9,9 +9,11 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 \"src/test/**/*.test.ts\"",
     "db:migrate": "tsx scripts/migrate.ts",
-    "bootstrap:head": "tsx scripts/bootstrap-head.ts"
+    "bootstrap:head": "tsx scripts/bootstrap-head.ts",
+    "seed:roster": "tsx scripts/seed-roster.ts",
+    "stack:local": "tsx src/test/support/stack.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.32",
+    "embedded-postgres": "17.10.0-beta.17",
     "typescript": "^5.8.3"
   }
 }

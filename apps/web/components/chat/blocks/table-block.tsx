@@ -20,11 +20,15 @@ export function TableBlock({ block }: { block: TableBlockData }) {
   const phoneRows = showAll ? block.rows : block.rows.slice(0, PHONE_ROWS);
 
   // Phone rows: skip columns that say the same on every row, and put short numbers first so the ellipsis never hides them.
+  // A leading «#» column (rankings) is not the row's title: the next column is, prefixed with its rank («١. بدرية…»).
   const text = (row: (string | number)[], index: number) => String(row[index] ?? "").trim();
   const numeric = (index: number) => block.rows.every(row => !text(row, index) || isNumeric(text(row, index)));
+  const ranked = block.columns.length > 1 && block.columns[0].trim() === "#";
+  const primary = ranked ? 1 : 0;
+  const titleOf = (row: (string | number)[]) => (ranked ? `${formatCell(row[0])}. ${formatCell(row[1])}` : formatCell(row[0]));
   const detailColumns = block.columns
     .map((column, index) => ({ column, index }))
-    .slice(1)
+    .slice(primary + 1)
     .filter(({ index }) => block.rows.length < 3 || new Set(block.rows.map(row => text(row, index))).size > 1)
     .sort((a, b) => Number(numeric(b.index)) - Number(numeric(a.index)));
 
@@ -71,7 +75,7 @@ export function TableBlock({ block }: { block: TableBlockData }) {
           const body = (
             <>
               <span className="blk-row-text">
-                <b>{formatCell(row[0])}</b>
+                <b>{titleOf(row)}</b>
                 {details && <small>{details}</small>}
               </span>
               {memberId && <ChevronLeft aria-hidden className="blk-row-chevron" />}

@@ -4,7 +4,7 @@ import type {
   ChatAttachment, ChatBlock, ChatMessage, ChatSendResult, Conversation, ProposalResolveResult, ProposalStatus,
 } from "@rasd/schemas";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api, ApiError, redirectIfSignedOut } from "../api";
 
 /** Key used for the in-flight send of a conversation that does not exist yet. */
 export const NEW_CHAT = "__new__";
@@ -62,7 +62,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     api.get<Conversation[]>("/chat/conversations")
       .then(list => setConversations(list.sort(byUpdatedDesc)))
-      .catch(() => { /* the sidebar shows an empty list; the chat still works */ })
+      .catch(error => { redirectIfSignedOut(error); /* otherwise the sidebar shows an empty list; the chat still works */ })
       .finally(() => setConversationsLoaded(true));
   }, []);
 
@@ -121,12 +121,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [patchMessages]);
 
   const undoApplied = useCallback(async (conversationId: string, messageId: string, undoProposalId: string) => {
-    const result = await api.post<ProposalResolveResult>(`/chat/proposals/${undoProposalId}/apply`);
+    let result: ProposalResolveResult;
+    try {
+      result = await api.post<ProposalResolveResult>(`/chat/proposals/${undoProposalId}/apply`);
+    } catch (error) {
+      // Expired (410) or already decided (409): the server has rewritten the card — show its current state.
+      if (error instanceof ApiError && (error.status === 410 || error.status === 409)) await loadMessages(conversationId).catch(() => undefined);
+      throw error;
+    }
     patchMessages(conversationId, list => {
       const updated = list.map(message => message.id === messageId ? { ...message, blocks: markUndone(message.blocks, undoProposalId) } : message);
       return result.assistantMessage ? [...updated, result.assistantMessage] : updated;
     });
-  }, [patchMessages]);
+  }, [patchMessages, loadMessages]);
 
   const value = useMemo<ChatContextValue>(() => ({
     conversations, conversationsLoaded, messages, pending, loadMessages, send, rename, remove, resolveProposal, undoApplied,

@@ -97,7 +97,7 @@ textarea.input.m-grow{min-height:46px;padding-block:10px;line-height:1.6;resize:
 .m-choice{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0;padding:0;border:0}
 .m-choice>legend{margin-bottom:6px;padding:0}
 .m-chips{display:flex;flex-wrap:wrap;gap:8px}
-.m-chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid var(--border-strong);border-radius:99px;background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;transition:background .15s,border-color .15s,color .15s}
+.m-chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;min-width:44px;justify-content:center;padding:0 14px;border:1px solid var(--border-strong);border-radius:99px;background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;transition:background .15s,border-color .15s,color .15s}
 /* The chosen chip is filled; nothing else changes, so the row never reflows when she taps. */
 .m-chip.is-on{border-color:var(--primary-dark);background:var(--primary-dark);color:#fff}
 .m-chosen{display:inline-flex;align-items:center;gap:12px;align-self:flex-start;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer}
@@ -263,3 +263,25 @@ html:has(.m-sheet[open]){overflow:hidden}
 @media (max-width:360px){
   .m-report-actions .btn{font-size:14px}
 }
+
+/* ---------- Toast actions (conflict choices, undo, retry) ---------- */
+.m-toast{flex-wrap:wrap;row-gap:0;padding-block:6px;padding-inline-end:6px}
+.m-toast-text{flex:1 1 auto;min-width:0;padding-block:6px}
+.m-toast .m-toast-x{width:44px;display:grid;place-items:center;color:#ffffffb3;font-size:16px}
+
+/* ---------- Values رئيسة النطاق fills (read-only for her) ---------- */
+.m-ro{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:12px;background:var(--surface-alt)}
+.m-ro-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:0 14px}
+.m-ro-row+.m-ro-row{border-top:1px solid var(--border)}
+.m-ro-row span{color:var(--text-2);font-size:13.5px}
+.m-ro-row b{font-size:14px}
+.m-ro-row small{color:var(--text-3);font-size:12.5px}
+
+/* ---------- Plans ---------- */
+.m-plan-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.m-plan-done{display:inline-flex;align-items:center;gap:4px;color:var(--success);font-size:12px;font-weight:600}
+.m-plan-done svg{font-size:14px}
+/* With choices: the message and × on the first line, the choices on the next. */
+.m-toast.has-actions .m-toast-text{flex-basis:calc(100% - 64px)}
+.m-toast.has-actions .m-toast-x{order:1}
+.m-toast.has-actions>button:not(.m-toast-x){order:2;padding-inline:8px}

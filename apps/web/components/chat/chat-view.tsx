@@ -5,7 +5,7 @@ import { ArrowDown, CircleAlert, RefreshCw, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DragEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ApiRequestError } from "../../lib/api";
+import { ApiError } from "../../lib/api";
 import { NEW_CHAT, useChat } from "../../lib/chat/chat-context";
 import { useAttachments } from "../../lib/chat/use-attachments";
 import { useHead } from "../district/session";
@@ -59,7 +59,7 @@ export function ChatView({ conversationId, initialText = "", sendInitial = false
   const { loadMessages } = chat;
   useEffect(() => {
     if (!conversationId) return;
-    loadMessages(conversationId).catch((error: ApiRequestError) => setLoadError({ status: error.status, message: error.message }));
+    loadMessages(conversationId).catch((error: ApiError) => setLoadError({ status: error.status, message: error.message }));
   }, [conversationId, loadMessages]);
 
   const send = useCallback(async (text: string, attachments: ChatAttachment[]) => {
@@ -171,7 +171,7 @@ export function ChatView({ conversationId, initialText = "", sendInitial = false
               <span>{notFound ? "ربما حُذفت. ابدئي محادثة جديدة." : loadError.message}</span>
               {notFound
                 ? <Link href="/district" className="btn btn-primary">محادثة جديدة</Link>
-                : <button className="btn btn-primary" onClick={() => { setLoadError(null); loadMessages(conversationId!).catch((error: ApiRequestError) => setLoadError({ status: error.status, message: error.message })); }}><RefreshCw /> إعادة المحاولة</button>}
+                : <button className="btn btn-primary" onClick={() => { setLoadError(null); loadMessages(conversationId!).catch((error: ApiError) => setLoadError({ status: error.status, message: error.message })); }}><RefreshCw /> إعادة المحاولة</button>}
             </div>
           )}
           {showEmpty && <ChatEmptyState name={head.name} onPrompt={sendText} disabled={busy} />}

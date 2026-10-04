@@ -79,7 +79,7 @@ function table<T extends string>(source: Record<T, string[]>) {
     .sort((a, b) => byLength(a.phrase, b.phrase));
 }
 
-// ---------- Profile fields (ids match DEFAULT_PROFILE in workspaces.ts) ----------
+// ---------- Profile fields (ids match BUILT_IN_FIELDS in model.ts) ----------
 export const PROFILE_FIELD_WORDS: Record<string, string[]> = {
   supervision_major: ["التخصص الإشرافي", "تخصصها الإشرافي", "تخصص إشرافي"],
   moe_email: ["البريد الوزاري", "بريدها الوزاري", "الإيميل الوزاري", "ايميلها الوزاري", "ايميل الوزارة", "بريد الوزارة", "البريد الرسمي", "الإيميل الرسمي"],

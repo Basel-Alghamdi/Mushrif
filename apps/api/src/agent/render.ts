@@ -1,7 +1,7 @@
 // Arabic formatting helpers and chat block builders shared by both brains.
-import type { ChatBlock, ChatTone, DocumentInfo, MemberDetail, MemberSummary, TeamStats } from "@rasd/schemas";
-import { riyadhDay, today } from "../db.js";
+import { riyadhDate, type ChatBlock, type ChatTone, type DocumentInfo } from "@rasd/schemas";
 import { env } from "../env.js";
+import type { MemberDetail, MemberSummary, TeamStats } from "./model.js";
 
 const arabicNumber = new Intl.NumberFormat("ar-SA", { useGrouping: true, maximumFractionDigits: 1 });
 
@@ -21,6 +21,7 @@ export const NOUNS = {
   field: { one: "حقل واحد", oneAcc: "حقلاً واحداً", two: "حقلان", twoGen: "حقلين", few: "حقول", many: "حقلاً" },
   program: { one: "برنامج واحد", oneAcc: "برنامجاً واحداً", two: "برنامجان", twoGen: "برنامجين", few: "برامج", many: "برنامجاً" },
   row: { one: "صف واحد", oneAcc: "صفاً واحداً", two: "صفان", twoGen: "صفين", few: "صفوف", many: "صفاً" },
+  page: { one: "صفحة واحدة", two: "صفحتان", twoGen: "صفحتين", few: "صفحات", many: "صفحة" },
   completeFile: { one: "ملف واحد مكتمل", two: "ملفان مكتملان", few: "ملفات مكتملة", many: "ملفاً مكتملاً" },
 } satisfies Record<string, Noun>;
 
@@ -46,6 +47,19 @@ function countRest(value: number, noun: Noun) {
   return `${ar(value)} ${rest >= 3 && rest <= 10 ? noun.few : noun.many}`;
 }
 
+/** "فعّلت واحدة منهن حسابها"، "فعّلت اثنتان منهن حسابيهما"، "فعّلت ٥ منهن حساباتهن". */
+export function activatedText(activated: number) {
+  if (!activated) return "لم تفعّل أي واحدة منهن حسابها بعد";
+  if (activated === 1) return "فعّلت واحدة منهن حسابها";
+  if (activated === 2) return "فعّلت اثنتان منهن حسابيهما";
+  return `فعّلت ${ar(activated)} منهن حساباتهن`;
+}
+
+/** "٤٥٠ طالبة و٣٣ معلمة", leaving out a count nobody entered yet (never "٠ معلمة"). */
+export function peopleText(students: number, teachers: number) {
+  return [students ? count(students, NOUNS.student) : "", teachers ? count(teachers, NOUNS.teacher) : ""].filter(Boolean).join(" و");
+}
+
 export function firstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? name;
 }
@@ -56,11 +70,15 @@ export function shortName(name: string) {
   return parts.length <= 2 ? parts.join(" ") : `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
+/** The calendar day (YYYY-MM-DD) of a moment in Riyadh, and today's. */
+export const riyadhDay = (iso: string) => riyadhDate(new Date(iso));
+export const today = () => riyadhDate();
+
 export function relativeTime(iso: string | null | undefined) {
   if (!iso) return "لم يحدث بعد";
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (minutes < 1) return "قبل لحظات";
-  if (minutes < 60) return minutes <= 2 ? "قبل دقيقة" : `قبل ${ar(minutes)} دقيقة`;
+  if (minutes < 60) return minutes === 1 ? "قبل دقيقة" : minutes === 2 ? "قبل دقيقتين" : `قبل ${ar(minutes)} ${minutes <= 10 ? "دقائق" : "دقيقة"}`;
   const hours = Math.round(minutes / 60);
   if (riyadhDay(iso) === today()) return hours <= 1 ? "قبل ساعة" : hours === 2 ? "قبل ساعتين" : `قبل ${ar(hours)} ${hours <= 10 ? "ساعات" : "ساعة"}`;
   return dayLabel(iso);
@@ -79,11 +97,12 @@ export function riyadhDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("ar-SA-u-ca-gregory", { timeZone: "Asia/Riyadh", weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(date);
 }
 
-export const appUrl = () => env("APP_URL") ?? "http://localhost:3000";
+export const appUrl = () => env.appUrl;
 
 export function listText(items: string[], max = 6) {
   if (!items.length) return "";
-  const shown = items.slice(0, max);
+  // Hiding a single item behind «و١ غيرها» saves nothing — show it instead.
+  const shown = items.length - max === 1 ? items : items.slice(0, max);
   const rest = items.length - shown.length;
   const joined = shown.length > 1 ? `${shown.slice(0, -1).join("، ")} و${shown[shown.length - 1]}` : shown[0];
   return rest > 0 ? `${shown.join("، ")} و${ar(rest)} غيرها` : joined;

@@ -1,35 +1,30 @@
-// Data tools over the database, shared by the local engine, the importer and the Claude brain.
-import type { MemberCreateInput, MemberDetail, MemberSummary, ProfileField, School, TeamResponse, Visit } from "@rasd/schemas";
-import { type Account, createMember, deleteMember, findAccountById, updateMember } from "../accounts.js";
-import { cleanText, newId, now, riyadhDay, today } from "../db.js";
-import { assignDocument, documentsForHead, type StoredDocument } from "../documents.js";
-import { memberDetail, teamForHead } from "../team.js";
-import { DEFAULT_PROFILE, getWorkspace, saveWorkspace } from "../workspaces.js";
+// Reading the team snapshot, shared by the local engine, the importer and the Claude brain (all synchronous).
+import type { StoredDocument } from "../documents.js";
+import { cleanText } from "../parse.js";
 import type { MetricId } from "./lexicon.js";
-import { buildNameIndex, type NameIndex } from "./names.js";
+import type { MemberDetail, MemberSummary, ProfileField, Visit } from "./model.js";
 import { comparable, normalizeText, variantsOf, westernDigits } from "./normalize.js";
+import type { TeamSnapshot } from "./snapshot.js";
+
+export { builtInField } from "./model.js";
+export type { TeamSnapshot } from "./snapshot.js";
 
 // ---------- Reading ----------
-export type TeamSnapshot = TeamResponse & { index: NameIndex };
-
-export function teamSnapshot(headId: string): TeamSnapshot {
-  const team = teamForHead(headId);
-  return { ...team, index: buildNameIndex(team.members) };
+/** One member's full file (noted in team.read so the reply is audited like the head's detail view). */
+export function detailOf(team: TeamSnapshot, memberId: string): MemberDetail | null {
+  const detail = team.details.get(memberId) ?? null;
+  if (detail) team.read.add(memberId);
+  return detail;
 }
 
-/** The member account when it belongs to this head's team. */
-export function memberAccount(headId: string, memberId: string): Account | null {
-  const account = findAccountById(memberId);
-  return account && account.role === "member" && account.headId === headId ? account : null;
+/** Every member's file, for team-wide questions about schools, visits, files or gaps (not audited by itself). */
+export const allDetails = (team: TeamSnapshot): MemberDetail[] =>
+  team.members.map(member => team.details.get(member.id)).filter((detail): detail is MemberDetail => Boolean(detail));
+
+/** Notes that a reply shows these members' personal data (IDs, phones…) so it is audited as read_pii. */
+export function markRead(team: TeamSnapshot, memberIds: string[]) {
+  for (const id of memberIds) if (team.details.has(id)) team.read.add(id);
 }
-
-export const detailOf = (headId: string, memberId: string): MemberDetail | null => memberDetail(headId, memberId);
-
-export function allDetails(headId: string, team: TeamResponse): MemberDetail[] {
-  return team.members.map(member => memberDetail(headId, member.id)).filter((detail): detail is MemberDetail => Boolean(detail));
-}
-
-export const builtInField = (fieldId: string) => DEFAULT_PROFILE.find(field => field.id === fieldId) ?? null;
 
 /** Light tidy-up before a value is stored (western digits, 05… phones, lowercase emails). Never rejects anything. */
 export function normalizeFieldValue(fieldId: string | null, value: string) {
@@ -90,6 +85,19 @@ export const FILTER_LABELS: Record<MemberFilter, string> = {
   no_visits: "لم يسجّلن زيارات",
 };
 
+/** The same, for exactly one member ("مشرفة واحدة من ١٨ فعّلت حسابها"). */
+export const FILTER_LABELS_ONE: Record<MemberFilter, string> = {
+  not_activated: "لم تفعّل حسابها بعد",
+  activated: "فعّلت حسابها",
+  complete: "ملفها مكتمل (٨٥٪ فأكثر)",
+  incomplete: "ملفها غير مكتمل",
+  submitted_today: "حدّثت اليوم",
+  not_submitted_today: "لم تحدّث شيئاً اليوم",
+  no_schools: "لم تضف مدارس بعد",
+  no_documents: "لم ترفع أي ملف",
+  no_visits: "لم تسجّل زيارات",
+};
+
 export function filterMembers(members: MemberSummary[], filter: MemberFilter) {
   const test: Record<MemberFilter, (member: MemberSummary) => boolean> = {
     not_activated: member => !member.activated,
@@ -105,7 +113,6 @@ export function filterMembers(members: MemberSummary[], filter: MemberFilter) {
   return members.filter(test[filter]);
 }
 
-/** Members who changed something in their file today (version 1 = never saved since the account was created). */
 /** Members who did something themselves today (edited their file, logged a visit, uploaded). */
 export function updatedToday(details: MemberDetail[]) {
   return details.filter(detail => detail.submittedToday);
@@ -142,7 +149,7 @@ export function searchPhrase(query: string) {
   }).join(" ").replace(/[؟?!.،,]+$/g, "");
 }
 
-export type DocumentHit ={ document: StoredDocument; snippets: string[]; where: string; score: number };
+export type DocumentHit = { document: StoredDocument; snippets: string[]; where: string; score: number };
 
 function snippetOf(line: string, term: string) {
   const clean = line.replace(/\s+/g, " ").trim();
@@ -152,10 +159,10 @@ function snippetOf(line: string, term: string) {
 }
 
 /** Full-text search over every document the head can see (team files + her own uploads). */
-export function searchDocuments(headId: string, query: string, options: { memberId?: string; limit?: number; requireAll?: boolean } = {}): DocumentHit[] {
+export function searchDocuments(team: TeamSnapshot, query: string, options: { memberId?: string; limit?: number; requireAll?: boolean } = {}): DocumentHit[] {
   const terms = searchTerms(query);
   if (!terms.length) return [];
-  const documents = documentsForHead(headId).filter(document => !options.memberId || document.ownerId === options.memberId);
+  const documents = team.documents.filter(document => !options.memberId || document.ownerId === options.memberId);
   const hits: (DocumentHit & { matched: number })[] = [];
   for (const document of documents) {
     const name = normalizeText(document.name);
@@ -187,11 +194,11 @@ export function searchDocuments(headId: string, query: string, options: { member
 }
 
 /** A document whose name best matches the text ("ملف خطة الزيارات" → خطة الزيارات.docx). */
-export function findDocumentByName(headId: string, text: string): StoredDocument | null {
+export function findDocumentByName(team: TeamSnapshot, text: string): StoredDocument | null {
   const terms = searchTerms(text.replace(/\.[a-z0-9]{2,5}\b/gi, ""));
   if (!terms.length) return null;
   let best: { document: StoredDocument; score: number } | null = null;
-  for (const document of documentsForHead(headId)) {
+  for (const document of team.documents) {
     const name = normalizeText(document.name.replace(/\.[a-z0-9]{2,5}$/i, ""));
     const score = terms.filter(term => name.includes(term)).length / terms.length;
     if (score >= 0.5 && (!best || score > best.score)) best = { document, score };
@@ -210,94 +217,4 @@ export function searchVisits(details: MemberDetail[], query = ""): VisitHit[] {
       return terms.some(term => haystack.includes(term));
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-// ---------- Writing ----------
-export type FieldWrite = { fieldId: string | null; fieldLabel: string; value: string };
-export type FieldResult = { fieldId: string; fieldLabel: string; before: string; after: string; created: boolean; error?: string };
-
-function findFieldIndex(profile: ProfileField[], write: FieldWrite) {
-  if (write.fieldId) {
-    const byId = profile.findIndex(field => field.id === write.fieldId);
-    if (byId >= 0) return byId;
-  }
-  const label = comparable(write.fieldLabel);
-  return label ? profile.findIndex(field => comparable(field.label) === label) : -1;
-}
-
-/**
- * Sets profile fields of one member (creating custom fields for unknown labels) without a version check.
- * The login email goes through updateMember so the account and the profile stay in step.
- */
-export function writeProfileFields(account: Account, writes: FieldWrite[]): FieldResult[] {
-  const profile = [...getWorkspace(account).profile];
-  const results: FieldResult[] = [];
-  let emailChange: { value: string; result: FieldResult } | null = null;
-  for (const write of writes) {
-    const value = String(write.value ?? "").trim();
-    const index = findFieldIndex(profile, write);
-    if (index >= 0) {
-      const field = profile[index];
-      if (field.derived) {
-        results.push({ fieldId: field.id, fieldLabel: field.label, before: field.value, after: field.value, created: false, error: "هذا الحقل يُحسب تلقائياً" });
-        continue;
-      }
-      const result: FieldResult = { fieldId: field.id, fieldLabel: field.label, before: field.value, after: value, created: false };
-      results.push(result);
-      if (field.id === "email") { emailChange = { value, result }; continue; }
-      profile[index] = { ...field, value, updatedAt: now() };
-    } else {
-      const label = write.fieldLabel.trim() || builtInField(write.fieldId ?? "")?.label || "حقل";
-      const builtIn = write.fieldId ? builtInField(write.fieldId) : null;
-      const field: ProfileField = builtIn
-        ? { ...builtIn, value, updatedAt: now() }
-        : { id: newId(), label, value, kind: "text", custom: true, updatedAt: now() };
-      profile.push(field);
-      results.push({ fieldId: field.id, fieldLabel: field.label, before: "", after: value, created: true });
-    }
-  }
-  if (results.some(result => !result.error && result.fieldId !== "email")) saveWorkspace(account, { profile });
-  if (emailChange) {
-    try { updateMember(account.id, { email: emailChange.value }); }
-    catch (error) {
-      emailChange.result.after = emailChange.result.before;
-      emailChange.result.error = (error as Error).message === "ACCOUNT_EXISTS" ? "هذا البريد مستخدم لحساب آخر" : "البريد مطلوب لتسجيل الدخول";
-    }
-  }
-  return results;
-}
-
-export type FieldRestore = { fieldId: string; fieldLabel: string; value: string; remove?: boolean };
-
-/** Puts earlier values back (used by undo); fields created by the change are removed again. */
-export function restoreProfileFields(account: Account, values: FieldRestore[]) {
-  let profile = [...getWorkspace(account).profile];
-  let email: string | null = null;
-  for (const item of values) {
-    if (item.remove) { profile = profile.filter(field => field.id !== item.fieldId); continue; }
-    if (item.fieldId === "email") { email = item.value; continue; }
-    const index = findFieldIndex(profile, item);
-    if (index >= 0) profile[index] = { ...profile[index], value: item.value, updatedAt: now() };
-    else profile.push({ id: item.fieldId, label: item.fieldLabel, value: item.value, kind: "text", custom: true, updatedAt: now() });
-  }
-  saveWorkspace(account, { profile });
-  if (email) {
-    try { updateMember(account.id, { email }); } catch { /* the old address was taken meanwhile: keep the current one */ }
-  }
-}
-
-export function createTeamMember(headId: string, input: MemberCreateInput) {
-  return createMember(headId, input);
-}
-
-export function removeTeamMember(headId: string, memberId: string) {
-  return memberAccount(headId, memberId) ? deleteMember(memberId) : false;
-}
-
-export function assignDocumentTo(documentId: string, ownerId: string | null) {
-  return assignDocument(documentId, ownerId);
-}
-
-export function saveSchools(account: Account, schools: School[]) {
-  return saveWorkspace(account, { schools });
 }

@@ -1,27 +1,29 @@
 "use client";
 
-import type { ProfileField, Program } from "@rasd/schemas";
+import { PD_KINDS } from "@rasd/schemas";
 import { ChevronDown, Eye, EyeOff, LoaderCircle, LogOut, Plus } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, logout } from "../../lib/api";
 import { ar } from "../../lib/format";
-import { newCustomField, newId } from "./model";
+import { signOut, supabase } from "../../lib/supabase";
+import type { ProfileField } from "../../lib/types";
+import { useActions } from "./actions";
+import { useMember } from "./context";
 import { NumberInput } from "./number-input";
 import { ConfirmDelete, Field, reveal, revealOnOpen } from "./ui";
-import { useWorkspace } from "./workspace-context";
+
+const MIN_PASSWORD = 8; // also enforced by the API
 
 // ---------- Custom fields (label + value, deletable) ----------
-export function CustomFields({ fields, onValue }: { fields: ProfileField[]; onValue: (id: string, value: string) => void }) {
-  const { update } = useWorkspace();
+export function CustomFields({ fields }: { fields: ProfileField[] }) {
+  const { setProfileValue, addCustomField, removeCustomField } = useActions();
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [value, setValue] = useState("");
 
-  const remove = (id: string) => update(current => ({ ...current, profile: current.profile.filter(field => field.id !== id) }));
-  const add = (event: FormEvent) => {
+  const add = async (event: FormEvent) => {
     event.preventDefault();
     if (!label.trim()) return;
-    update(current => ({ ...current, profile: [...current.profile, newCustomField(label, value)] }));
+    if (!(await addCustomField(label, value))) return;
     setLabel("");
     setValue("");
     setAdding(false);
@@ -31,8 +33,8 @@ export function CustomFields({ fields, onValue }: { fields: ProfileField[]; onVa
     <>
       {fields.map(field => (
         <Field key={field.id} label={field.label} htmlFor={`f-${field.id}`}
-          tools={<ConfirmDelete label={`حذف خانة ${field.label}`} onConfirm={() => remove(field.id)} />}>
-          <input id={`f-${field.id}`} className="input" value={field.value} onChange={event => onValue(field.id, event.target.value)} />
+          tools={<ConfirmDelete label={`حذف خانة ${field.label}`} onConfirm={() => void removeCustomField(field)} />}>
+          <input id={`f-${field.id}`} className="input" value={field.value} onChange={event => setProfileValue(field, event.target.value)} />
         </Field>
       ))}
       {adding ? (
@@ -59,12 +61,13 @@ export function CustomFields({ fields, onValue }: { fields: ProfileField[]; onVa
   );
 }
 
-// ---------- Professional development ----------
-const PROGRAM_KINDS = ["دورة تدريبية", "ورشة عمل", "برنامج تطويري", "مجتمع تعلم مهني", "لقاء"];
+// ---------- Professional development (main's pd_programs) ----------
+const KINDS = Object.entries(PD_KINDS) as [keyof typeof PD_KINDS, string][];
 
 export function Programs() {
-  const { workspace, update } = useWorkspace();
-  const programs = workspace.programs;
+  const { ws } = useMember();
+  const { addProgram, setProgram, removeProgram } = useActions();
+  const programs = ws.programs;
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [opened, setOpened] = useState<string | null>(null);
@@ -77,24 +80,20 @@ export function Programs() {
     added.current = null;
   }, [programs]);
 
-  const setPrograms = (change: (programs: Program[]) => Program[]) => update(current => ({ ...current, programs: change(current.programs) }));
-  const patch = (id: string, value: Partial<Program>) => setPrograms(list => list.map(item => (item.id === id ? { ...item, ...value } : item)));
-
   // A program is created only once it has a name.
-  const add = (event: FormEvent) => {
+  const add = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return;
-    const program: Program = { id: newId(), label: name.trim(), kind: "", count: 0, url: "", status: "" };
-    setPrograms(list => [...list, program]);
-    setOpened(program.id);
-    added.current = program.id;
+    const id = await addProgram(name);
+    if (!id) return;
+    setOpened(id);
+    added.current = id;
     setName("");
     setAdding(false);
   };
 
   return (
     <>
-      <datalist id="program-kinds">{PROGRAM_KINDS.map(kind => <option key={kind} value={kind} />)}</datalist>
       {programs.length > 0 && (
         <ul className="m-programs">
           {programs.map(program => (
@@ -108,25 +107,29 @@ export function Programs() {
                 <div className="m-program-body">
                   <div className="field">
                     <label className="field-label" htmlFor={`program-label-${program.id}`}>اسم البرنامج</label>
-                    <input id={`program-label-${program.id}`} className="input" value={program.label} onChange={event => patch(program.id, { label: event.target.value })} />
+                    <input id={`program-label-${program.id}`} className="input" value={program.label} onChange={event => setProgram(program, "label", event.target.value)} />
                   </div>
-                  <div className="m-grid-2">
-                    <div className="field">
-                      <label className="field-label" htmlFor={`program-kind-${program.id}`}>النوع</label>
-                      <input id={`program-kind-${program.id}`} className="input" list="program-kinds" value={program.kind} placeholder="مثال: ورشة عمل"
-                        onChange={event => patch(program.id, { kind: event.target.value })} />
+                  <fieldset className="m-choice">
+                    <legend className="field-label">النوع</legend>
+                    <div className="m-chips">
+                      {KINDS.map(([kind, label]) => (
+                        <button key={kind} type="button" className={`m-chip${program.kind === kind ? " is-on" : ""}`} aria-pressed={program.kind === kind}
+                          onClick={() => setProgram(program, "kind", kind, 0)}>
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                    <div className="field">
-                      <label className="field-label" htmlFor={`program-count-${program.id}`}>عدد المستفيدات</label>
-                      <NumberInput id={`program-count-${program.id}`} value={Number(program.count) || 0} onChange={count => patch(program.id, { count })} />
-                    </div>
+                  </fieldset>
+                  <div className="field">
+                    <label className="field-label" htmlFor={`program-count-${program.id}`}>عدد المستفيدات</label>
+                    <NumberInput id={`program-count-${program.id}`} value={program.count} onChange={count => setProgram(program, "count", count)} />
                   </div>
                   <div className="field">
-                    <label className="field-label" htmlFor={`program-url-${program.id}`}>الرابط <span className="m-optional">(اختياري)</span></label>
-                    <input id={`program-url-${program.id}`} className="input" type="url" inputMode="url" dir="ltr" value={program.url} placeholder="https://"
-                      onChange={event => patch(program.id, { url: event.target.value })} />
+                    <label className="field-label" htmlFor={`program-url-${program.id}`}>رابط التقارير <span className="m-optional">(اختياري)</span></label>
+                    <input id={`program-url-${program.id}`} className="input" type="url" inputMode="url" dir="ltr" value={program.reportsUrl} placeholder="https://"
+                      onChange={event => setProgram(program, "reportsUrl", event.target.value)} />
                   </div>
-                  <ConfirmDelete variant="link" label="حذف البرنامج" onConfirm={() => setPrograms(list => list.filter(item => item.id !== program.id))} />
+                  <ConfirmDelete variant="link" label="حذف البرنامج" onConfirm={() => void removeProgram(program)} />
                 </div>
               </details>
             </li>
@@ -151,52 +154,58 @@ export function Programs() {
 
 // ---------- Account: login email, password, sign out ----------
 export function Account() {
-  const { user, flush, notify } = useWorkspace();
+  const { me, settle, notify } = useMember();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [show, setShow] = useState(false);
   const [state, setState] = useState<{ busy: boolean; error: string }>({ busy: false, error: "" });
 
+  // Supabase changes the password of the signed-in session; the current one is checked first by signing in with it.
   const changePassword = async (event: FormEvent) => {
     event.preventDefault();
-    if (next.length < 4) {
-      setState({ busy: false, error: "اكتبي ٤ أحرف أو أرقام على الأقل" });
+    if (next.length < MIN_PASSWORD) {
+      setState({ busy: false, error: `اكتبي ${ar(MIN_PASSWORD)} أحرف أو أرقام على الأقل` });
       return;
     }
     setState({ busy: true, error: "" });
-    try {
-      await api.post("/auth/password", { current, next });
-      setCurrent("");
-      setNext("");
-      setState({ busy: false, error: "" });
-      notify("تغيّرت كلمة المرور");
-    } catch (error) {
-      setState({ busy: false, error: (error as Error).message });
+    const { error: wrong } = await supabase.auth.signInWithPassword({ email: me.email, password: current });
+    if (wrong) {
+      setState({ busy: false, error: "كلمة المرور الحالية غير صحيحة" });
+      return;
     }
+    const { error } = await supabase.auth.updateUser({ password: next });
+    if (error) {
+      setState({ busy: false, error: error.message.includes("different") ? "اختاري كلمة مرور مختلفة عن الحالية" : "تعذّر تغيير كلمة المرور — أعيدي المحاولة" });
+      return;
+    }
+    setCurrent("");
+    setNext("");
+    setState({ busy: false, error: "" });
+    notify("تغيّرت كلمة المرور");
   };
 
-  const signOut = async () => {
-    await flush();
-    await logout();
+  const leave = async () => {
+    await settle();
+    await signOut();
   };
 
   return (
     <>
       <div className="field">
         <span className="field-label">بريد الدخول</span>
-        <span className="m-readonly" dir="ltr">{user.email}</span>
+        <span className="m-readonly" dir="ltr">{me.email}</span>
       </div>
       <form className="m-password" onSubmit={changePassword}>
-        <input type="text" name="username" autoComplete="username" value={user.email} readOnly hidden />
+        <input type="text" name="username" autoComplete="username" value={me.email} readOnly hidden />
         <div className="field">
           <label className="field-label" htmlFor="password-current">كلمة المرور الحالية</label>
-          <input id="password-current" className="input" type="password" value={current} dir="ltr"
-            onChange={event => setCurrent(event.target.value)} autoComplete="current-password" />
+          <input id="password-current" className="input" type="password" value={current}
+            onChange={event => { setCurrent(event.target.value); setState(value => ({ ...value, error: "" })); }} autoComplete="current-password" />
         </div>
         <div className="field">
           <label className="field-label" htmlFor="password-next">كلمة المرور الجديدة</label>
           <div className="m-pass">
-            <input id="password-next" className="input" type={show ? "text" : "password"} value={next} dir="ltr"
+            <input id="password-next" className="input" type={show ? "text" : "password"} value={next}
               onChange={event => { setNext(event.target.value); setState(value => ({ ...value, error: "" })); }} autoComplete="new-password" />
             <button type="button" className="m-eye" onClick={() => setShow(value => !value)} aria-label={show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"} aria-pressed={show}>
               {show ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
@@ -208,7 +217,7 @@ export function Account() {
           {state.busy && <LoaderCircle className="m-spin" aria-hidden />}تغيير كلمة المرور
         </button>
       </form>
-      <button type="button" className="btn btn-danger btn-block" onClick={() => void signOut()}>
+      <button type="button" className="btn btn-danger btn-block" onClick={() => void leave()}>
         <LogOut aria-hidden />تسجيل الخروج
       </button>
     </>

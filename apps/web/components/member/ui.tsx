@@ -2,7 +2,7 @@
 
 import { Check, ChevronDown, CloudOff, LoaderCircle, Trash2 } from "lucide-react";
 import { MouseEvent, ReactNode, TextareaHTMLAttributes, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { SaveState } from "./workspace-context";
+import type { SaveState } from "./context";
 
 /** Shows «جارٍ الحفظ…», then «حُفظ ✓» for two seconds, then nothing. Errors stay until she retries. */
 export function SaveIndicator({ state, onRetry }: { state: SaveState; onRetry: () => void }) {
@@ -103,7 +103,8 @@ export function ChoiceChips({ id, label, options, value, onChange, placeholder =
   label: string;
   options: string[];
   value: string;
-  onChange: (value: string) => void;
+  /** `typed` is true while she writes in «أخرى» (saved after a pause); taps save at once. */
+  onChange: (value: string, typed?: boolean) => void;
   placeholder?: string;
   empty?: boolean;
 }) {
@@ -154,7 +155,7 @@ export function ChoiceChips({ id, label, options, value, onChange, placeholder =
       </div>
       {showOther && (
         <input ref={otherInput} id={`${id}-other`} className="input" value={isCustom ? value : ""} placeholder={placeholder}
-          aria-label={`${label} — أخرى`} onChange={event => onChange(event.target.value)} />
+          aria-label={`${label} — أخرى`} onChange={event => onChange(event.target.value, true)} />
       )}
     </fieldset>
   );

@@ -1,24 +1,22 @@
 // The local engine's question bank: dialect, typos, with/without "ال", Arabic-Indic digits and follow-ups,
 // each checked against what the database actually holds.
 import assert from "node:assert/strict";
-import { before, describe, test } from "node:test";
-import type { ChatBlock } from "@rasd/schemas";
-import { setupFixture } from "./fixture.js";
+import { after, before, describe, test } from "node:test";
+import { yearsSinceHijri, type ChatBlock } from "@rasd/schemas";
+import { setupFixture, type Fixture } from "./fixture.js";
 
-type Fixture = Awaited<ReturnType<typeof setupFixture>>;
 type Reply = { text: string; blocks: ChatBlock[]; intent?: string };
 type Truth = Awaited<ReturnType<typeof loadTruth>>;
 
 let f: Fixture;
 let truth: Truth;
 
+/** What the database actually holds, read through the same snapshot the agent answers from. */
 async function loadTruth(fixture: Fixture) {
-  const { teamForHead, memberDetail } = await import("../team.js");
-  const { ar, pct } = await import("../agent/render.js");
-  const { yearsSince } = await import("../workspaces.js");
-  const team = teamForHead(fixture.head.id);
+  const { ar, pct, appUrl } = await import("../agent/render.js");
+  const team = await fixture.team();
   const byEmail = (email: string) => team.members.find(member => member.email === email)!;
-  return { team, stats: team.stats, byEmail, detail: (id: string) => memberDetail(fixture.head.id, id)!, ar, pct, yearsSince };
+  return { team, stats: team.stats, byEmail, detail: (id: string) => team.details.get(id)!, ar, pct, appUrl: appUrl(), yearsSince: (date: string) => yearsSinceHijri(date) };
 }
 
 const everything = (reply: Reply) => `${reply.text}\n${JSON.stringify(reply.blocks)}`;
@@ -141,8 +139,9 @@ const CASES: Case[] = [
   })),
   { q: "من دخلت؟", intent: "filter", check: reply => assert.equal(tableOf(reply).rows.length, truth.stats.activated) },
   { q: "من أكملت ملفها", intent: "filter", check: reply => assert.equal(tableOf(reply).rows.length, truth.stats.completeProfiles) },
-  { q: "من أرسلت اليوم", intent: "filter", check: reply => includes(reply, "لم تحدّث أي مشرفة") },
-  { q: "من أرسلت تحديثها اليوم؟", intent: "filter", check: reply => includes(reply, "لم تحدّث أي مشرفة") },
+  // رشا ومها ومنيرة عبّأن ملفاتهن بأنفسهن اليوم (main: any work of her own counts as «حدّثت اليوم»).
+  { q: "من أرسلت اليوم", intent: "filter", check: reply => assert.equal(tableOf(reply).rows.length, truth.stats.submittedToday) },
+  { q: "من أرسلت تحديثها اليوم؟", intent: "filter", check: reply => assert.deepEqual([...tableOf(reply).memberIds!].sort(), [RASHA, MAHA, MUNEERA].map(email => truth.byEmail(email).id).sort()) },
   { q: "رتبي المشرفات حسب المدارس", intent: "ranking", check: reply => assert.equal(tableOf(reply).memberIds?.[0], truth.byEmail(RASHA).id) },
   { q: "مين ما ارسلت", intent: "filter", check: reply => assert.equal(tableOf(reply).rows.length, truth.stats.members - truth.stats.submittedToday) },
   { q: "من بدون مدارس", intent: "filter", check: reply => assert.equal(tableOf(reply).rows.length, truth.team.members.filter(member => !member.schoolCount).length) },
@@ -202,11 +201,11 @@ const CASES: Case[] = [
     check: reply => {
       const copies = reply.blocks.filter(block => block.type === "copy");
       assert.equal(copies.length, truth.stats.notActivated);
-      includes(reply, "https://rasd.example", "أول مرة اختاري كلمة مرور", MANAL);
+      includes(reply, truth.appUrl, "أول مرة اختاري كلمة مرور", MANAL);
       excludes(reply, RASHA);
     },
   },
-  { q: "رسالة دخول لمنال", intent: "messages", check: reply => { assert.equal(reply.blocks.filter(block => block.type === "copy").length, 1); includes(reply, MANAL, "https://rasd.example"); } },
+  { q: "رسالة دخول لمنال", intent: "messages", check: reply => { assert.equal(reply.blocks.filter(block => block.type === "copy").length, 1); includes(reply, MANAL, truth.appUrl); } },
   { q: "ذكري منيرة", intent: "messages", check: reply => { const copy = blockOf(reply, "copy"); assert.ok(copy?.title.includes("منيرة")); includes(reply, "السجل المدني"); } },
   { q: "جهّزي رسالة تذكير", intent: "messages", check: reply => { assert.ok(blockOf(reply, "copy")?.title.includes("مجموعة")); excludes(reply, "تذكير — رشا"); } },
   { q: "جهّزي التقرير", intent: "report", check: reply => { assert.ok(blockOf(reply, "stats")); includes(reply, "تقرير متابعة", truth.pct(truth.stats.averageCompletion)); } },
@@ -298,3 +297,6 @@ describe("follow-ups use the member discussed last", () => {
     assert.ok(blockOf(reply, "copy")?.title.includes("مها"));
   });
 });
+
+// One stack for the whole file (both describe blocks use it).
+after(() => f?.stop());

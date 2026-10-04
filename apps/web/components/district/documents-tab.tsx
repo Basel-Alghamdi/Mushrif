@@ -3,16 +3,18 @@
 import type { DocumentInfo, DocumentKind } from "@rasd/schemas";
 import { Trash2, Upload } from "lucide-react";
 import { DragEvent, useEffect, useRef, useState } from "react";
-import { api, downloadFile } from "../../lib/api";
-import { relativeTime } from "../../lib/format";
+import { api, downloadFile, errorText } from "../../lib/api";
+import { counted, relativeTime } from "../../lib/format";
 import { KindIcon } from "../chat/blocks/shared";
 import { ConfirmDialog } from "./dialog";
 import { useToast } from "./toast";
 
-type Props = { memberId: string; documents: DocumentInfo[]; onChanged: () => void };
+type Props = { memberId: string; documents: DocumentInfo[] | null; error: string; onChanged: () => void };
 const OPENABLE: DocumentKind[] = ["pdf", "image", "text"];
+const FILES = { one: "ملف واحد", two: "ملفان", few: "ملفات", many: "ملفاً" };
 
-export function DocumentsTab({ memberId, documents, onChanged }: Props) {
+/** Her files (GET /district/members/:id/attachments): open, add (POST …/documents), delete (DELETE /attachments/:id). */
+export function DocumentsTab({ memberId, documents, error: loadError, onChanged }: Props) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -30,22 +32,23 @@ export function DocumentsTab({ memberId, documents, onChanged }: Props) {
     setError("");
     try {
       const saved = await api.upload<DocumentInfo[]>(`/district/members/${memberId}/documents`, files);
-      toast(saved.length === 1 ? "رُفع الملف" : `رُفعت ${saved.length} ملفات`);
+      toast(saved.length === 1 ? "رُفع الملف" : `رُفعت ${counted(saved.length, FILES)}`);
       onChanged();
     } catch (reason) {
-      setError((reason as Error).message);
+      setError(errorText(reason));
     } finally {
       setUploading(false);
     }
   };
 
-  // Tap a file: open it when the browser can show it, otherwise download it.
+  // Tap a file: open it when the browser can show it safely, otherwise download it.
   const openFile = (item: DocumentInfo) => {
-    downloadFile(`/documents/${item.id}/download`, item.name, OPENABLE.includes(item.kind)).catch((reason: Error) => setError(reason.message));
+    setError("");
+    downloadFile(`/attachments/${item.id}/download`, item.name, OPENABLE.includes(item.kind)).catch(reason => setError(errorText(reason)));
   };
 
   const remove = async (item: DocumentInfo) => {
-    await api.del(`/documents/${item.id}`);
+    await api.del(`/attachments/${item.id}`);
     toast("حُذف الملف");
     onChanged();
   };
@@ -71,11 +74,11 @@ export function DocumentsTab({ memberId, documents, onChanged }: Props) {
         {canDrop && <span className="mp-note">أو أفلتي الملفات هنا</span>}
         <input ref={input} type="file" multiple hidden onChange={event => { void upload(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
       </div>
-      {error && <p className="field-error" role="alert">{error}</p>}
+      {(error || loadError) && <p className="field-error" role="alert">{error || loadError}</p>}
 
-      {!documents.length ? (
-        <p className="mp-note">لا توجد ملفات بعد. ما ترفعه هي أو ترفعينه أنتِ يظهر هنا.</p>
-      ) : (
+      {documents === null && !loadError && <div className="mp-fields"><i className="skeleton mp-skeleton-field" /><i className="skeleton mp-skeleton-field" /></div>}
+      {documents?.length === 0 && <p className="mp-note">لا توجد ملفات بعد. ما ترفعه هي أو ترفعينه أنتِ يظهر هنا.</p>}
+      {documents && documents.length > 0 && (
         <ul className="doc-list">
           {documents.map(item => (
             <li key={item.id} className="doc-row">
@@ -83,7 +86,7 @@ export function DocumentsTab({ memberId, documents, onChanged }: Props) {
                 <KindIcon kind={item.kind} />
                 <span className="doc-main">
                   <bdi className="doc-name">{item.name}</bdi>
-                  <small>{[item.uploadedByName && `رفعته ${item.uploadedByName}`, relativeTime(item.createdAt)].filter(Boolean).join(" · ")}</small>
+                  <small>{[item.uploadedByName && item.uploadedBy !== item.ownerId ? `رفعته ${item.uploadedByName}` : "", relativeTime(item.createdAt)].filter(Boolean).join(" · ")}</small>
                 </span>
               </button>
               <button className="btn btn-ghost btn-icon mp-danger-text" onClick={() => setRemoving(item)} aria-label={`حذف ${item.name}`}><Trash2 /></button>
@@ -95,7 +98,7 @@ export function DocumentsTab({ memberId, documents, onChanged }: Props) {
       {removing && (
         <ConfirmDialog
           title="حذف الملف؟"
-          description={<>سيُحذف «<bdi>{removing.name}</bdi>» نهائياً من ملفها.</>}
+          description={<>سيُحذف «<bdi>{removing.name}</bdi>» من ملفها.</>}
           confirmLabel="حذف"
           danger
           onConfirm={() => remove(removing)}

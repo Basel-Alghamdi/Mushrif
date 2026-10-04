@@ -1,43 +1,14 @@
 "use client";
 
-import type { Visit, VisitInput } from "@rasd/schemas";
+import { VISIT_TYPES } from "@rasd/schemas";
 import { Check, LoaderCircle, X } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../../lib/api";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { errorText } from "../../lib/api";
+import { useActions } from "./actions";
+import { useMember } from "./context";
 import { NumberInput } from "./number-input";
-import { useWorkspace } from "./workspace-context";
 
-const VISIT_TYPES = ["زيارة صفية", "زيارة إشرافية", "متابعة خطة", "ورشة عمل"];
 const OTHER = "__other";
-
-/** Her visits, newest first, with add/remove that keep the list in sync. */
-export function useVisits() {
-  const { notify } = useWorkspace();
-  const [visits, setVisits] = useState<Visit[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.get<Visit[]>("/member/visits")
-      .then(list => !cancelled && setVisits([...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))))
-      .catch(() => !cancelled && setVisits([]));
-    return () => { cancelled = true; };
-  }, []);
-
-  const add = useCallback((visit: Visit) => setVisits(list => [visit, ...(list ?? [])]), []);
-
-  const remove = useCallback(async (visit: Visit) => {
-    setVisits(list => (list ?? []).filter(item => item.id !== visit.id));
-    try {
-      await api.del(`/member/visits/${visit.id}`);
-      notify("حُذفت الزيارة");
-    } catch (error) {
-      setVisits(list => [visit, ...(list ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-      notify((error as Error).message, "error");
-    }
-  }, [notify]);
-
-  return { visits, add, remove };
-}
 
 /** A bottom sheet on phones and a centred dialog on wider screens. Escape, the scrim and X close it. */
 function Sheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
@@ -65,10 +36,14 @@ function Sheet({ title, onClose, children, footer }: { title: string; onClose: (
   );
 }
 
-/** «سجّلي زيارة»: school, type, what happened — the rest is optional and folded away. */
-export function VisitSheet({ onClose, onSaved }: { onClose: () => void; onSaved: (visit: Visit) => void }) {
-  const { workspace, notify } = useWorkspace();
-  const schools = workspace.schools;
+/**
+ * «سجّلي زيارة»: school, type, what happened — the rest is optional and folded away.
+ * A school that is not on her list yet («مدرسة أخرى») is added to مدارسي first, because every visit belongs to one of her schools.
+ */
+export function VisitSheet({ onClose }: { onClose: () => void }) {
+  const { ws, notify } = useMember();
+  const { addSchool, addVisit } = useActions();
+  const schools = ws.schools;
   const [schoolId, setSchoolId] = useState(schools.length === 1 ? schools[0].id : schools.length ? "" : OTHER);
   const [schoolName, setSchoolName] = useState("");
   const [type, setType] = useState(VISIT_TYPES[0]);
@@ -79,26 +54,21 @@ export function VisitSheet({ onClose, onSaved }: { onClose: () => void; onSaved:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const otherInput = useRef<HTMLInputElement>(null);
+  const missingSchool = !schoolId || (schoolId === OTHER && !schoolName.trim());
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
+    if (missingSchool) return;
     setError("");
     setSaving(true);
-    const input: VisitInput = {
-      type,
-      text: text.trim(),
-      beneficiaries,
-      sessions,
-      blockers: blockers.trim(),
-      ...(schoolId === OTHER || !schoolId ? { schoolName: schoolName.trim() } : { schoolId }),
-    };
     try {
-      const visit = await api.post<Visit>("/member/visits", input);
-      onSaved(visit);
+      const target = schoolId === OTHER ? await addSchool(schoolName) : schoolId;
+      if (!target) { setSaving(false); return; }
+      await addVisit({ schoolId: target, type, text: text.trim(), beneficiaries, sessions, blockers: blockers.trim() });
       onClose();
       notify("حُفظت الزيارة");
     } catch (reason) {
-      setError((reason as Error).message);
+      setError(errorText(reason));
       setSaving(false);
     }
   };
@@ -107,8 +77,8 @@ export function VisitSheet({ onClose, onSaved }: { onClose: () => void; onSaved:
     <Sheet title="سجّلي زيارة" onClose={onClose}
       footer={(
         <>
-          {!schoolId && <p className="m-sheet-note" role="status">لم تختاري مدرسة بعد</p>}
-          <button type="submit" form="visit-form" className="btn btn-primary btn-lg btn-block" disabled={saving}>
+          {missingSchool && <p className="m-sheet-note" role="status">{schoolId === OTHER ? "اكتبي اسم المدرسة" : "اختاري المدرسة"}</p>}
+          <button type="submit" form="visit-form" className="btn btn-primary btn-lg btn-block" disabled={saving || missingSchool}>
             {saving ? <LoaderCircle className="m-spin" aria-hidden /> : <Check aria-hidden />}
             {saving ? "جارٍ الحفظ…" : "حفظ الزيارة"}
           </button>
@@ -132,8 +102,11 @@ export function VisitSheet({ onClose, onSaved }: { onClose: () => void; onSaved:
             </div>
           )}
           {schoolId === OTHER && (
-            <input ref={otherInput} className="input" value={schoolName} onChange={event => setSchoolName(event.target.value)}
-              placeholder="مثال: الابتدائية ١٢٠" aria-label="اسم المدرسة" />
+            <>
+              <input ref={otherInput} className="input" value={schoolName} onChange={event => setSchoolName(event.target.value)}
+                placeholder="مثال: الابتدائية ١٢٠" aria-label="اسم المدرسة" />
+              <p className="m-muted">تُضاف إلى مدارسي.</p>
+            </>
           )}
         </fieldset>
 

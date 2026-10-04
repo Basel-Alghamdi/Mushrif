@@ -1,18 +1,18 @@
 // The built-in Arabic engine: answers Khulood's questions from the database without any API key.
-import type { ChatBlock, MemberDetail, MemberSummary } from "@rasd/schemas";
-import { riyadhDay } from "../db.js";
+import type { ChatBlock } from "@rasd/schemas";
 import {
-  builtInField, FILTER_LABELS, filterMembers, findDocumentByName, membersMissingField, metricValue, profileField, profileFieldByLabel, searchDocuments, searchPhrase,
+  builtInField, FILTER_LABELS, FILTER_LABELS_ONE, filterMembers, findDocumentByName, markRead, membersMissingField, metricValue, profileField, profileFieldByLabel, searchDocuments, searchPhrase,
   searchVisits, updatedToday, type MemberFilter,
 } from "./data.js";
 import { askWhich, buildContext, has, metric, negated, reply, smallNumber, spanOf, words, type Ctx, type EngineInput } from "./engine-context.js";
 import { METRIC_LABELS, phrases, TITLE_FILTERS, W, type MetricId } from "./lexicon.js";
+import type { MemberDetail, MemberSummary } from "./model.js";
 import { addCustomField, addMember, deleteMemberHelp, editCommand, implicitEdit, messages, report, undoLast } from "./local-actions.js";
-import { normalizeArabic, normalizeText } from "./normalize.js";
+import { coreWord, normalizeArabic, normalizeText } from "./normalize.js";
 import { describeSchool, type AgentReply } from "./proposals.js";
 import {
-  activationLabel, ar, choices, cleanExcerpt, completionTone, count, countAcc, countGen, dayLabel, documentsBlock, firstName, listText, memberBlock, membersTable, NOUNS, pct,
-  relativeTime, shortName, statsBlock,
+  activatedText, activationLabel, ar, choices, peopleText, cleanExcerpt, completionTone, count, countAcc, countGen, dayLabel, documentsBlock, firstName, listText, memberBlock, membersTable, NOUNS, pct,
+  relativeTime, riyadhDay, shortName, statsBlock,
 } from "./render.js";
 
 export type { EngineInput } from "./engine-context.js";
@@ -54,7 +54,7 @@ function social(ctx: Ctx): AgentReply | null {
 
 function greeting(ctx: Ctx): AgentReply {
   const { stats } = ctx.team;
-  const status = `الآن: ${count(stats.members, NOUNS.member)}، فعّلت ${ar(stats.activated)} منهن حساباتهن، ومتوسط اكتمال الملفات ${pct(stats.averageCompletion)}.`;
+  const status = `الآن: ${count(stats.members, NOUNS.member)}، ${activatedText(stats.activated)}، ومتوسط اكتمال الملفات ${pct(stats.averageCompletion)}.`;
   return reply(
     `أهلاً خلود 👋 أنا مساعدك في رَصد. اسأليني عن أي مشرفة أو عن أرقام الفريق، وأقدر أعدّل البيانات بطلبك، وإذا رفعتِ ملفاً أقرأه وأعبّي بياناته في ملفات المشرفات.\n\n${status}`,
     starterChoices(ctx),
@@ -70,9 +70,9 @@ function overviewText(ctx: Ctx) {
     stats.documents ? `رفعن ${countAcc(stats.documents, NOUNS.file)}` : "",
   ].filter(Boolean);
   const lines = [
-    `عندك ${count(stats.members, NOUNS.member)}: ${stats.activated ? `فعّلت ${ar(stats.activated)} منهن حساباتهن` : "لم تفعّل أي واحدة حسابها بعد"}${stats.notActivated && stats.activated ? `، و${ar(stats.notActivated)} لم يدخلن بعد` : ""}.`,
+    `عندك ${count(stats.members, NOUNS.member)}: ${activatedText(stats.activated)}${stats.notActivated && stats.activated ? `، و${ar(stats.notActivated)} لم يدخلن بعد` : ""}.`,
     `متوسط اكتمال الملفات ${pct(stats.averageCompletion)}${best && best.completion > 0 ? `، وأعلى ملف لـ ${mention(best)} (${pct(best.completion)})` : ""}.`,
-    stats.schools ? `سُجّلت ${count(stats.schools, NOUNS.school)} تضم ${count(stats.students, NOUNS.student)} و${count(stats.teachers, NOUNS.teacher)}.` : "لم تُسجَّل أي مدرسة بعد.",
+    stats.schools ? `سُجّلت ${count(stats.schools, NOUNS.school)}${peopleText(stats.students, stats.teachers) ? ` تضم ${peopleText(stats.students, stats.teachers)}` : ""}.` : "لم تُسجَّل أي مدرسة بعد.",
     work.length ? `و${work.join(" و")}.` : "",
   ];
   return lines.filter(Boolean).join(" ");
@@ -154,7 +154,7 @@ function metricAnswer(ctx: Ctx, detail: MemberDetail, key: MetricId): AgentReply
   switch (key) {
     case "schools":
       if (!schools.length) return reply(`${who} لم تضف مدارسها بعد.`, memberChoices(detail));
-      return reply(`عند ${who} ${count(schools.length, NOUNS.school)}: ${listText(schools.map(school => school.name), 8)} — فيها ${count(detail.studentCount, NOUNS.student)} و${count(detail.teacherCount, NOUNS.teacher)}.`,
+      return reply(`عند ${who} ${count(schools.length, NOUNS.school)}: ${listText(schools.map(school => school.name), 8)}${peopleText(detail.studentCount, detail.teacherCount) ? ` — فيها ${peopleText(detail.studentCount, detail.teacherCount)}` : ""}.`,
         { type: "table", title: `مدارس ${who}`, columns: ["المدرسة", "المرحلة", "الطالبات", "المعلمات", "التصنيف"], rows: schools.map(school => [school.name, school.stage || "—", Number(school.students) || 0, Number(school.teachers) || 0, school.tier || "—"]) });
     case "students":
       return reply(schools.length ? `مجموع طالبات مدارس ${who}: **${ar(detail.studentCount)}** طالبة في ${countGen(schools.length, NOUNS.school)}.` : `${who} لم تضف مدارسها بعد، فلا يوجد عدد طالبات.`);
@@ -174,7 +174,7 @@ function metricAnswer(ctx: Ctx, detail: MemberDetail, key: MetricId): AgentReply
       return reply(detail.activated ? `نعم، ${who} فعّلت حسابها${detail.lastLoginAt ? ` — آخر دخول ${relativeTime(detail.lastLoginAt)}` : ""}.` : `لا، ${who} لم تفعّل حسابها بعد.`,
         !detail.activated && choices([{ label: "جهّزي رسالة دخول لها", message: `جهّزي رسالة دخول لـ ${detail.name}` }]));
     case "lastUpdate":
-      return reply(detail.workspace.version > 1 ? `آخر تحديث لملف ${who}: ${relativeTime(detail.workspace.updatedAt)} (${detail.workspace.updatedAt.slice(0, 10)}).` : `ملف ${who} لم يُحدَّث منذ إنشاء حسابها.`);
+      return reply(detail.workspace.updatedAt ? `آخر تحديث لملف ${who}: ${relativeTime(detail.workspace.updatedAt)} (${riyadhDay(detail.workspace.updatedAt)}).` : `ملف ${who} لم يُحدَّث منذ إنشاء حسابها.`);
     case "submitted":
       return reply(detail.lastActivityAt ? `آخر تحديث من ${who} كان ${relativeTime(detail.lastActivityAt)}${detail.submittedToday ? " (اليوم)" : ""}.` : `${who} لم تحدّث شيئاً في ملفها بعد.`);
     case "absence":
@@ -243,7 +243,7 @@ function compareMembers(ctx: Ctx, ids: string[]): AgentReply {
     row("المعلمات", detail => detail.teacherCount),
     row("الزيارات", detail => detail.visitCount),
     row("الملفات", detail => detail.documentCount),
-    row("آخر تحديث", detail => (detail.workspace.version > 1 ? relativeTime(detail.workspace.updatedAt) : "لم يُحدَّث")),
+    row("آخر تحديث", detail => (detail.workspace.updatedAt ? relativeTime(detail.workspace.updatedAt) : "لم يُحدَّث")),
     row("عدد النواقص", detail => detail.missing.length),
   ];
   const leader = [...details].sort((a, b) => b.completion - a.completion)[0];
@@ -273,7 +273,7 @@ function search(ctx: Ctx): AgentReply | null {
   const inMention = (index: number) => ctx.mentions.some(item => index >= item.start && index <= item.end);
   const query = ctx.tokens.filter(token => !token.punct && !inMention(token.index) && (token.index < verb.start || token.index > verb.end)).map(token => token.raw).join(" ");
   const memberId = ctx.memberIds[0];
-  const hits = searchDocuments(ctx.head.id, query, { memberId });
+  const hits = searchDocuments(ctx.team, query, { memberId });
   const visits = searchVisits(memberId ? ctx.details().filter(detail => detail.id === memberId) : ctx.details(), query).slice(0, 8);
   const shownQuery = searchPhrase(query);
   if (!shownQuery) return reply("وش الكلمة اللي أبحث عنها؟ اكتبي مثلاً: «ابحثي في الملفات عن خطة التحسين».");
@@ -295,8 +295,10 @@ function documentContent(ctx: Ctx): AgentReply | null {
   const summarize = has(ctx, W.summarize);
   const fileWord = has(ctx, W.documentWords);
   if (!summarize && !fileWord) return null;
+  // «وش الملفات اللي رفعها الفريق؟» asks for the list, not for one file whose name happens to contain «الفريق».
+  if (!summarize && metric(ctx, "documents") && !ctx.tokens.some(token => token.norm === "ملف" || token.norm === "الملف")) return null;
   const textWithoutNames = ctx.tokens.filter(token => !ctx.mentions.some(item => token.index >= item.start && token.index <= item.end)).map(token => token.raw).join(" ");
-  const document = findDocumentByName(ctx.head.id, textWithoutNames);
+  const document = findDocumentByName(ctx.team, textWithoutNames);
   if (!document || (!summarize && ctx.targetId)) return null;
   const body = document.text.trim();
   const owner = document.ownerName ? ` (ملف ${shortName(document.ownerName)})` : "";
@@ -390,7 +392,8 @@ function filters(ctx: Ctx): AgentReply | null {
   const members = filter === "updated_today"
     ? updatedToday(ctx.details())
     : filterMembers(ctx.team.members, filter);
-  const label = filter === "updated_today" ? FILTER_LABELS.submitted_today : FILTER_LABELS[filter];
+  const labels = members.length === 1 ? FILTER_LABELS_ONE : FILTER_LABELS;
+  const label = filter === "updated_today" ? labels.submitted_today : labels[filter];
   if (!members.length) {
     const none: Record<string, string> = {
       not_activated: "كل المشرفات فعّلن حساباتهن ✅",
@@ -413,13 +416,15 @@ function filters(ctx: Ctx): AgentReply | null {
 }
 
 // ---------- Schools across the team ("مدارس تصنيفها تميز"، "المدارس الابتدائية"، "المتوسطة ٣٣ لمين؟") ----------
-const TIERS = ["تميز", "تقدم", "انطلاق", "تهيئه"];
+const TIERS = ["تميز", "تقدم", "انطلاق", "تهيئة"].map(tier => normalizeArabic(tier));
 const STAGES: { stem: string; label: string }[] = [
   { stem: "ابتداي", label: "الابتدائية" }, { stem: "متوسط", label: "المتوسطة" }, { stem: "ثانوي", label: "الثانوية" }, { stem: "رياض", label: "رياض الأطفال" },
 ];
 
 function schoolSearch(ctx: Ctx): AgentReply | null {
-  if (ctx.targetId || ctx.ambiguous) return null;
+  // «المدارس تصنيفها تهيئة» right after a member's card is still about the team's schools («ها» belongs to the schools).
+  const teamWide = ctx.fromFocus && ctx.tokens.some(token => ["المدارس", "المدراس"].includes(token.norm));
+  if ((ctx.targetId && !teamWide) || ctx.ambiguous) return null;
   const words = ctx.tokens.flatMap(token => token.variants);
   const all = ctx.details().flatMap(detail => detail.workspace.schools.map(school => ({ school, member: detail })));
   if (!all.length) return null;
@@ -427,11 +432,22 @@ function schoolSearch(ctx: Ctx): AgentReply | null {
   // A school named in full ("الابتدائية ١٢٠") — two words or more, so a lone "الثانوية" is not a name.
   const named = all.filter(({ school }) => {
     const parts = normalizeText(school.name).split(" ");
-    return parts.length >= 2 && parts.every(part => words.includes(part));
+    // «للابتدائية ١٢٠» / «بالابتدائية ١٢٠»: the attached preposition swallows «ال», so compare without it too.
+    return parts.length >= 2 && parts.every(part => words.includes(part) || words.includes(coreWord(part)));
   });
   if (named.length) {
     const [{ school, member }] = named;
-    return reply(`«${school.name}» في ملف ${mention(member)} — ${describeSchool(school)}.`, choices([{ label: `مدارس ${mention(member)}`, message: `مدارس ${member.name}` }, { label: `ملف ${mention(member)}`, message: `ملف ${member.name}` }]));
+    // Every value recorded for the school, so «كم عدد الفصول…» or «وش الرقم الوزاري…» is answered by the same card.
+    const values: [string, string | number | null | undefined][] = [
+      ["المرحلة", school.stage], ["الحي", school.area], ["الرقم الوزاري", school.ministryNo], ["الطالبات", school.students],
+      ["المعلمات", school.teachers], ["الفصول", school.classes], ["التصنيف", school.tier], ["نوع الدعم", school.support],
+      ["نافس", school.nafes], ["القدرات", school.qudrat], ["التحصيلي", school.tahsili], ["المديرة", school.principal],
+      ["غياب اليوم", school.absence ? "مرصود ✓" : ""],
+    ];
+    const rows = values.filter(([, value]) => value !== null && value !== undefined && value !== "" && value !== 0).map(([label, value]) => [label, typeof value === "number" ? value : String(value)]);
+    return reply(`«${school.name}» في ملف ${mention(member)} — ${describeSchool(school)}.`,
+      rows.length ? { type: "table", title: school.name, columns: ["البند", "القيمة"], rows } : null,
+      choices([{ label: `مدارس ${mention(member)}`, message: `مدارس ${member.name}` }, { label: `ملف ${mention(member)}`, message: `ملف ${member.name}` }]));
   }
 
   if (!metric(ctx, "schools")) return null;
@@ -457,6 +473,7 @@ function teamField(ctx: Ctx): AgentReply | null {
   const label = details[0]?.workspace.profile.find(field => field.id === fieldId)?.label ?? builtInField(fieldId)?.label ?? fieldId;
   const valueOf = (detail: MemberDetail) => String(profileField(detail, fieldId)?.value ?? "").trim();
   const filled = details.filter(detail => valueOf(detail)).length;
+  if (filled) markRead(ctx.team, details.map(detail => detail.id));
   const text = filled
     ? `«${label}» لكل المشرفات — مسجّل عند ${filled === details.length ? "الجميع" : `${countGen(filled, NOUNS.member)} من ${ar(details.length)}`}:`
     : `لم تعبّئ أي مشرفة «${label}» بعد.`;
@@ -524,7 +541,7 @@ function counts(ctx: Ctx): AgentReply | null {
     ?? (ctx.tokens.some(token => ["وحده", "وحدة", "عضوه", "مشرفه"].includes(token.norm)) ? "members" : null);
   if (!key) return null;
   if (key === "members") {
-    return reply(`عدد المشرفات في الفريق: **${ar(stats.members)}** — فعّلت ${ar(stats.activated)} منهن حساباتهن، و${ar(stats.notActivated)} لم يدخلن بعد.`, choices([{ label: "قائمة المشرفات", message: "اعرضي المشرفات" }]));
+    return reply(`عدد المشرفات في الفريق: **${ar(stats.members)}** — ${activatedText(stats.activated)}، و${ar(stats.notActivated)} لم يدخلن بعد.`, choices([{ label: "قائمة المشرفات", message: "اعرضي المشرفات" }]));
   }
   if (key === "completion") {
     return reply(`متوسط اكتمال ملفات الفريق: **${pct(stats.averageCompletion)}**${stats.completeProfiles ? ` — ${count(stats.completeProfiles, NOUNS.completeFile)} (٨٥٪ فأكثر)` : " — ولا يوجد ملف مكتمل بعد"}.`,
@@ -550,7 +567,7 @@ function counts(ctx: Ctx): AgentReply | null {
 
 // ---------- Fallback ----------
 function fallback(ctx: Ctx): AgentReply {
-  const hits = searchDocuments(ctx.head.id, ctx.raw, { limit: 5, requireAll: true });
+  const hits = searchDocuments(ctx.team, ctx.raw, { limit: 5, requireAll: true });
   if (hits.length) {
     return reply(
       "ما فهمت سؤالك بالضبط، لكن وجدت هذه الكلمات في الملفات المرفوعة:",
@@ -562,18 +579,19 @@ function fallback(ctx: Ctx): AgentReply {
 }
 
 // Order matters: actions first, then specific question types, then the broad ones.
-const HANDLERS: [intent: string, handler: (ctx: Ctx) => AgentReply | null][] = [
+type Handler = (ctx: Ctx) => AgentReply | null | Promise<AgentReply | null>;
+const HANDLERS: [intent: string, handler: Handler][] = [
   ["undo", undoLast], ["add_field", addCustomField], ["add_member", addMember], ["delete_member", deleteMemberHelp],
   ["edit", editCommand], ["edit", implicitEdit], ["messages", messages], ["report", report], ["compare", compare], ["search", search],
   ["missing", missing], ["filter", filters], ["schools", schoolSearch], ["documents", documents], ["ranking", rankings], ["count", counts],
   ["member", memberQuestion], ["team_field", teamField], ["overview", overview], ["list", listMembers], ["social", social],
 ];
 
-export function localRespond(input: EngineInput): AgentReply {
+export async function localRespond(input: EngineInput): Promise<AgentReply> {
   const ctx = buildContext(input);
   if (!words(ctx).length) return { ...greeting(ctx), intent: "social" };
   for (const [intent, handler] of HANDLERS) {
-    const result = handler(ctx);
+    const result = await handler(ctx);
     if (result) return { ...result, intent };
   }
   return { ...fallback(ctx), intent: "fallback" };

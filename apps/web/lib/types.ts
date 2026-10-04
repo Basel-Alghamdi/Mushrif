@@ -34,7 +34,10 @@ export type CustomSection = { id: string; label: string; updatedAt: string; fiel
 export type Workspace = {
   cluster: {
     id: string; label: string; memberId: string; memberName: string; memberEmail: string; memberPhone: string;
-    nafesCardFolderUrl: string; today: string; submittedToday: string | null; lastActivityAt: string;
+    nafesCardFolderUrl: string; today: string; submittedToday: string | null;
+    /** Her own latest audited action (null: none yet). */
+    lastActivityAt: string | null;
+    memberTitle: string; activated: boolean; lastSignInAt: string | null; documentCount: number;
   };
   profile: ProfileField[];
   schools: School[];
@@ -51,8 +54,12 @@ export type Submission = "submitted" | "late" | "missing";
 export type MemberSummary = {
   id: string; clusterId: string; name: string; email: string; clusterLabel: string; initials: string; completion: number;
   schoolCount: number; absence: number; discipline: number | null; visits: number; submission: Submission;
-  submittedAt: string | null; lastActivityAt: string;
+  submittedAt: string | null; lastActivityAt: string | null;
+  title: string; activated: boolean; lastSignInAt: string | null; documentCount: number;
 };
+
+/** GET /district/members/:id (the head's audited view of one member's file). */
+export type MemberDetail = { summary: MemberSummary; phone: string; workspace: Workspace };
 
 export type Invitation = {
   id: string; name: string; email: string; clusterLabel: string; status: "pending" | "expired";
@@ -63,4 +70,22 @@ export type TimelineEntry = {
   id: string; kind: string; title: string; body: string; at: string; source: string; sourceLabel: string; actorName: string; flagged: boolean;
 };
 
+/** GET /district/members/:id/visits */
+export type MemberVisit = {
+  id: string; schoolId: string; schoolName: string; type: string; text: string;
+  beneficiaries: number | null; sessions: number | null; blockers: string; source: string; createdAt: string;
+};
+
 export type Notification = { id: string; kind: string; text: string; level: "info" | "attention"; readAt: string | null; createdAt: string };
+
+/** GET /auth/me */
+export type Me = {
+  user: { id: string; name: string; email: string; phone: string; title: string; role: "head" | "member"; clusterLabel: string };
+  permissions: string[];
+};
+
+/** GET /cluster/me/visits (rows of visit_reports). */
+export type VisitReport = {
+  id: string; schoolId: string; clusterId: string; memberId: string; type: string; text: string;
+  beneficiaries: number | null; sessions: number | null; blockers: string; source: string; createdAt: string;
+};

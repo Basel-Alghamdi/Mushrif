@@ -22,7 +22,7 @@ async function districtAnswer(head: Actor) {
   const incomplete = members.filter(item => item.summary.completion < 85).map(item => `${item.summary.name} (${item.summary.completion}٪)`);
   const text = [
     report.summaryText,
-    missing.length ? `لم ترسل تحديث اليوم: ${missing.join("، ")}.` : "أرسلت جميع العضوات تحديث اليوم.",
+    missing.length ? `لم تحدّث ملفها اليوم: ${missing.join("، ")}.` : "حدّثت جميع العضوات ملفاتهن اليوم.",
     incomplete.length ? `ملفات دون ٨٥٪ اكتمال: ${incomplete.join("، ")}.` : "",
   ].filter(Boolean).join("\n");
   const citations = members.map(item => ({ entity: "cluster", id: item.summary.clusterId, date: today }));
@@ -38,7 +38,7 @@ async function clusterAnswer(actor: Actor) {
     `اكتمال ملفك ${workspace.completion}٪ ويضم ${workspace.schools.length} مدارس.`,
     missingAbsence.length ? `لم يُثبّت الغياب اليوم في: ${missingAbsence.join("، ")}.` : "ثُبّت الغياب في جميع المدارس اليوم.",
     missingPlans.length ? `خطط لم تُرفع: ${missingPlans.join("، ")}.` : "رُفعت جميع الخطط.",
-    workspace.cluster.submittedToday ? "أرسلتِ تحديث اليوم." : "لم ترسلي تحديث اليوم بعد.",
+    workspace.cluster.submittedToday ? "حدّثتِ ملفك اليوم." : "لم تحدّثي ملفك اليوم بعد.",
   ].join("\n");
   return { text, citations: [{ entity: "cluster", id: workspace.cluster.id, date: today }] };
 }
@@ -95,7 +95,7 @@ export function aiRoutes(app: Hono<AppEnv>) {
     const head = requireHead(c);
     const id = c.req.param("id");
     const result = await sql.begin(async tx => {
-      const [run] = isUuid(id) ? await tx`select * from agent_runs where id = ${id} and district_id = ${head.districtId} for update` : [];
+      const [run] = isUuid(id) ? await tx`select * from agent_runs where id = ${id} and district_id = ${head.districtId} and action in ('remind', 'report', 'gaps') for update` : [];
       if (!run) throw notFound("الإجراء غير موجود");
       if (run.status !== "proposed") throw new ApiError(409, "ALREADY_DECIDED", "تم البت في هذا الإجراء مسبقاً");
       const payload = run.payload as Record<string, any>;
@@ -121,7 +121,7 @@ export function aiRoutes(app: Hono<AppEnv>) {
   app.post("/ai/agent/:id/reject", async c => {
     const head = requireHead(c);
     const id = c.req.param("id");
-    const [run] = isUuid(id) ? await sql`update agent_runs set status = 'rejected', decided_at = now() where id = ${id} and district_id = ${head.districtId} and status = 'proposed' returning *` : [];
+    const [run] = isUuid(id) ? await sql`update agent_runs set status = 'rejected', decided_at = now() where id = ${id} and district_id = ${head.districtId} and status = 'proposed' and action in ('remind', 'report', 'gaps') returning *` : [];
     if (!run) throw notFound("الإجراء غير موجود");
     return c.json(ok(run));
   });

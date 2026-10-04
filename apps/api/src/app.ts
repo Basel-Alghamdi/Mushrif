@@ -7,7 +7,9 @@ import { env } from "./env.js";
 import { ApiError, fail, ok } from "./errors.js";
 import { accessRoutes } from "./routes/access.js";
 import { aiRoutes } from "./routes/ai.js";
+import { chatRoutes } from "./routes/chat.js";
 import { districtRoutes, notificationRoutes } from "./routes/district.js";
+import { documentRoutes } from "./routes/documents.js";
 import { memberRoutes } from "./routes/member.js";
 
 export const app = new Hono<AppEnv>();
@@ -31,8 +33,10 @@ memberRoutes(api);
 districtRoutes(api);
 notificationRoutes(api);
 aiRoutes(api);
+documentRoutes(api);
+chatRoutes(api);
 
-// Not built yet (Supabase Storage + OpenAI phases). They answer honestly instead of pretending to succeed.
+// Not built yet (smart import). They answer honestly instead of pretending to succeed.
 const notYet = (message: string) => () => { throw new ApiError(501, "NOT_IMPLEMENTED", message); };
 api.get("/ingest/jobs", async c => {
   const actor = requireMember(c);
@@ -40,8 +44,6 @@ api.get("/ingest/jobs", async c => {
 });
 api.post("/ingest/upload", notYet("الاستيراد الذكي قيد التطوير — لم يُرفع أي ملف"));
 api.post("/ingest/apply", notYet("الاستيراد الذكي قيد التطوير"));
-api.get("/attachments/:id/preview", notYet("المرفقات قيد التطوير"));
-api.get("/attachments/:id/download", notYet("المرفقات قيد التطوير"));
 
 app.route("/api/v1", api);
 

@@ -1,14 +1,15 @@
 // Local-engine handlers that do something: edit data, add members, prepare messages and reports, undo.
-import type { ChatBlock, MemberSummary, ProposalChange } from "@rasd/schemas";
-import type { Account } from "../accounts.js";
-import { findMessageWithProposal, getProposal, resolveProposal, updateMessageBlocks } from "../chat-store.js";
+import type { ChatBlock, ProposalChange } from "@rasd/schemas";
+import type { Actor } from "../auth.js";
+import { claimProposal, findMessageWithProposal, getProposal, releaseProposal, resolveProposal, updateMessageBlocks } from "../chat-store.js";
 import { builtInField, normalizeFieldValue, profileField, profileFieldByLabel } from "./data.js";
 import { askWhich, has, negated, reply, spanOf, words, type Ctx } from "./engine-context.js";
 import { phrases, W } from "./lexicon.js";
+import { approvalOnly, type MemberSummary } from "./model.js";
 import type { Mention } from "./names.js";
 import { EMAIL_PATTERN, westernDigits } from "./normalize.js";
-import { executePayload, executeProposal, type AgentReply } from "./proposals.js";
-import { appUrl, ar, choices, count, firstName, listText, NOUNS, pct, riyadhDateLabel, shortName, statsBlock } from "./render.js";
+import { executePayload, executeProposal, proposeChanges, UNDO_EXPIRED_MESSAGE, undoExpired, type AgentReply } from "./proposals.js";
+import { activatedText, appUrl, ar, choices, count, firstName, listText, NOUNS, pct, riyadhDateLabel, shortName, statsBlock } from "./render.js";
 
 const VALUE_MARKERS = new Set([":", "=", "الي", "يكون", "تكون", "يصير", "تصير", "صار", "صارت", "قيمته", "قيمتها", "بقيمه", "وقيمته", "وقيمتها", "الجديد", "الجديده"]);
 const WEAK_VERBS = new Set(["اكتبي", "خلي", "سجلي", "حطي", "حطيها", "ضعي", "عبي", "املي", "املئي", "set"]);
@@ -49,8 +50,18 @@ function singleEditText(name: string, label: string, before: string, after: stri
   return `تم ✅ صار «${label}» لـ ${shortName(name)}: **${after}**${was}.${loginNote}`;
 }
 
-function applyChanges(ctx: Ctx, changes: ProposalChange[]): AgentReply {
-  const result = executePayload(ctx.head, ctx.conversationId, { title: "", summary: "", changes });
+/**
+ * Her login email (and her cluster) written without an explicit «غيري/حدّثي …» — e.g. «بريد منال x@gmail.com» — is
+ * not applied at once: Khulood approves it on a card, since it moves the member's sign-in.
+ */
+async function proposeChange(ctx: Ctx, change: ProposalChange): Promise<AgentReply> {
+  const block = await proposeChanges(ctx.session, "profile_updates", { title: `${change.fieldLabel} — ${shortName(change.memberName)}`, summary: "اعتمدي التغيير ليُطبَّق", changes: [change] });
+  const login = change.fieldId === "email" ? " — يصير دخولها للمنصة بهذا البريد" : "";
+  return reply(`أغيّر «${change.fieldLabel}» لـ ${shortName(change.memberName)} إلى **${change.after}**${login}؟ اعتمدي البطاقة ليتغيّر.`, block);
+}
+
+async function applyChanges(ctx: Ctx, changes: ProposalChange[]): Promise<AgentReply> {
+  const result = await executePayload(ctx.session, { title: "", summary: "", changes });
   const applied = result.blocks.filter(block => block.type === "applied");
   if (changes.length === 1 && applied.length && !result.text.includes("ملاحظات")) {
     const [change] = changes;
@@ -62,7 +73,7 @@ function applyChanges(ctx: Ctx, changes: ProposalChange[]): AgentReply {
 }
 
 // ---------- Edit a profile field ----------
-export function editCommand(ctx: Ctx): AgentReply | null {
+export async function editCommand(ctx: Ctx): Promise<AgentReply | null> {
   const verb = spanOf(ctx, W.edit);
   const clear = spanOf(ctx, W.clear);
   const colon = ctx.tokens.findIndex(token => token.norm === ":" || token.norm === "=");
@@ -116,7 +127,9 @@ export function editCommand(ctx: Ctx): AgentReply | null {
   }
   const before = field?.value ?? "";
   if (before === value) return reply(`«${fieldLabel}» لـ ${shortName(detail.name)} مسجّل أصلاً بهذه القيمة: ${value || "فارغ"}.`);
-  return applyChanges(ctx, [{ memberId: detail.id, memberName: detail.name, fieldId: field?.id ?? fieldId, fieldLabel: field?.label ?? fieldLabel, before, after: value }]);
+  const change: ProposalChange = { memberId: detail.id, memberName: detail.name, fieldId: field?.id ?? fieldId, fieldLabel: field?.label ?? fieldLabel, before, after: value };
+  if (approvalOnly(change.fieldId) && !verbEarly && !clearEarly) return proposeChange(ctx, change); // «بريد منال: …» without a verb
+  return applyChanges(ctx, [change]);
 }
 
 // ---------- A statement without a verb: "مؤهل جوهرة بكالوريوس"، "جوالها 0551234567" ----------
@@ -129,7 +142,7 @@ const TEXT_FIELDS = new Set(["title", "rank", "qualification", "major", "supervi
 // Words that qualify the question rather than give a value ("تخصص رشا الإشرافي"، "رتبتها الحالية").
 const NOT_A_VALUE = new Set(["الاشرافي", "اشرافي", "الوزاري", "وزاري", "الوظيفي", "وظيفي", "المدني", "الحاليه", "حاليا", "الان", "الحين", "بالضبط", "كامل", "كامله"]);
 
-export function implicitEdit(ctx: Ctx): AgentReply | null {
+export async function implicitEdit(ctx: Ctx): Promise<AgentReply | null> {
   if (ctx.fields.length !== 1 || ctx.metrics.length || ctx.mentions.length > 1 || ctx.ambiguous || !ctx.targetId) return null;
   if (!(ctx.memberIds.length === 1 || ctx.focusBy === "pronoun") || /[؟?]\s*$/.test(ctx.raw)) return null;
   const [field] = ctx.fields;
@@ -149,14 +162,15 @@ export function implicitEdit(ctx: Ctx): AgentReply | null {
   const before = current?.value ?? "";
   if (before === after) return reply(`«${current?.label ?? field.key}» لـ ${shortName(detail.name)} مسجّل أصلاً بهذه القيمة: ${after}.`);
   const label = current?.label ?? builtInField(field.key)?.label ?? field.key;
-  return applyChanges(ctx, [{ memberId: detail.id, memberName: detail.name, fieldId: field.key, fieldLabel: label, before, after }]);
+  const change: ProposalChange = { memberId: detail.id, memberName: detail.name, fieldId: field.key, fieldLabel: label, before, after };
+  return approvalOnly(field.key) ? proposeChange(ctx, change) : applyChanges(ctx, [change]);
 }
 
 // ---------- Add a custom field ----------
 const LABEL_FILLER = new Set(["ل", "لها", "عند", "في", "ملف", "اسمه", "عنوانه", "جديد", "باسم", "اسم", "اسمها", "بعنوان"]);
 const EVERYONE = phrases(["لكل المشرفات", "لكل العضوات", "للجميع", "لكل الفريق", "لجميع المشرفات", "للكل", "لكلهن"]);
 
-export function addCustomField(ctx: Ctx): AgentReply | null {
+export async function addCustomField(ctx: Ctx): Promise<AgentReply | null> {
   const add = spanOf(ctx, W.add);
   const noun = spanOf(ctx, W.customFieldNoun);
   if (!add || add.start > 2 || !noun) return null;
@@ -186,7 +200,12 @@ export function addCustomField(ctx: Ctx): AgentReply | null {
     changes.push({ memberId: id, memberName: detail.name, fieldId: existing?.id ?? null, fieldLabel: existing?.label ?? label, before: existing?.value ?? "", after: value });
   }
   if (!changes.length) return null;
-  const result = executePayload(ctx.head, ctx.conversationId, { title: "", summary: "", changes });
+  if (changes.length === 1 && approvalOnly(changes[0].fieldId)) return proposeChange(ctx, changes[0]); // «حقل» = her login email or cluster
+  if (changes.some(change => approvalOnly(change.fieldId))) {
+    const block = await proposeChanges(ctx.session, "profile_updates", { title: `حقل «${label}»`, summary: `${count(changes.length, NOUNS.value)} للاعتماد`, changes });
+    return reply(`«${label}» يغيّر بيانات الدخول أو العنقود، فجهّزته لتعتمديه:`, block);
+  }
+  const result = await executePayload(ctx.session, { title: "", summary: "", changes });
   const who = everyone ? "لكل المشرفات" : `لـ ${shortName(changes[0].memberName)}`;
   const blocks = result.blocks.filter(block => block.type === "applied").map(block => ({ ...block, text: `حقل «${label}» ${who}` }));
   return { text: `تم ✅ أضفت حقل «${label}» ${who}${value ? ` بقيمة: ${value}` : " (فارغ — تعبّيه المشرفة)"}.`, blocks };
@@ -196,7 +215,7 @@ export function addCustomField(ctx: Ctx): AgentReply | null {
 const NAME_STOP = new Set(["و", "بريدها", "وبريدها", "ايميلها", "وايميلها", "بريد", "ايميل", "البريد", "الايميل", "جوالها", "وجوالها", "رقمها", "ورقمها", "صفتها", "وصفتها", "الصفه", "وظيفتها", "ووظيفتها", "جوال", ",", "،"]);
 const TITLE_KEYS = new Set(["صفتها", "وصفتها", "الصفه", "وظيفتها", "ووظيفتها", "وصفة", "صفة"]);
 
-export function addMember(ctx: Ctx): AgentReply | null {
+export async function addMember(ctx: Ctx): Promise<AgentReply | null> {
   const add = spanOf(ctx, W.add);
   const noun = spanOf(ctx, W.newMemberNoun);
   if (!add || add.start > 2 || !noun || has(ctx, W.customFieldNoun)) return null;
@@ -230,7 +249,7 @@ export function addMember(ctx: Ctx): AgentReply | null {
   const existing = ctx.team.members.find(member => member.email.toLowerCase() === email);
   if (existing) return reply(`هذا البريد مسجّل من قبل لـ ${existing.name}.`, choices([{ label: `ملف ${shortName(existing.name)}`, message: `ملف ${existing.name}` }]));
 
-  const result = executePayload(ctx.head, ctx.conversationId, { title: "", summary: "", newMembers: [{ name, email, title, phone }] });
+  const result = await executePayload(ctx.session, { title: "", summary: "", newMembers: [{ name, email, title, phone }] });
   if (!result.blocks.some(block => block.type === "applied")) return result;
   const applied = result.blocks.find(block => block.type === "applied")!;
   return reply(
@@ -247,20 +266,29 @@ export function deleteMemberHelp(ctx: Ctx): AgentReply | null {
 }
 
 // ---------- Undo ----------
-export function undoLast(ctx: Ctx): AgentReply | null {
+export async function undoLast(ctx: Ctx): Promise<AgentReply | null> {
   if (!has(ctx, W.undo) || words(ctx).length > 6) return null;
+  const { db } = ctx.session;
   for (let i = ctx.history.length - 1; i >= 0; i--) {
     const message = ctx.history[i];
     if (message.role !== "assistant") continue;
     for (const block of message.blocks) {
       if (block.type !== "applied" || !block.undoProposalId) continue;
-      const proposal = getProposal(block.undoProposalId);
+      const proposal = await getProposal(db, block.undoProposalId);
       if (!proposal || proposal.status !== "pending" || proposal.userId !== ctx.head.id) continue;
-      const result = executeProposal(ctx.head, proposal);
-      resolveProposal(proposal.id, "applied", result.text);
-      const original = findMessageWithProposal(proposal.id);
+      if (!(await claimProposal(db, proposal.id))) continue; // the تراجع button is applying it right now
+      if (undoExpired(proposal)) {
+        await resolveProposal(db, proposal.id, "rejected", UNDO_EXPIRED_MESSAGE);
+        await updateMessageBlocks(db, message.id, message.blocks.map(item => item.type === "applied" && item.undoProposalId === proposal.id ? { type: "applied", text: `${item.text} — انتهت مهلة التراجع` } : item));
+        return reply(UNDO_EXPIRED_MESSAGE);
+      }
+      let result: AgentReply;
+      try { result = await executeProposal(ctx.session, proposal); }
+      catch (error) { await releaseProposal(db, proposal.id); throw error; }
+      await resolveProposal(db, proposal.id, "applied", result.text);
+      const original = await findMessageWithProposal(db, proposal.id);
       if (original) {
-        updateMessageBlocks(original.id, original.blocks.map(item => item.type === "applied" && item.undoProposalId === proposal.id ? { type: "applied", text: `${item.text} — تم التراجع` } : item));
+        await updateMessageBlocks(db, original.id, original.blocks.map(item => item.type === "applied" && item.undoProposalId === proposal.id ? { type: "applied", text: `${item.text} — تم التراجع` } : item));
       }
       return result;
     }
@@ -269,7 +297,7 @@ export function undoLast(ctx: Ctx): AgentReply | null {
 }
 
 // ---------- Messages ----------
-export function loginText(head: Account, member: { name: string; email: string }) {
+export function loginText(head: Actor, member: { name: string; email: string }) {
   return [
     `السلام عليكم أ. ${firstName(member.name)}`,
     "",
@@ -282,7 +310,7 @@ export function loginText(head: Account, member: { name: string; email: string }
   ].join("\n");
 }
 
-export function reminderText(head: Account, member: MemberSummary) {
+export function reminderText(head: Actor, member: MemberSummary) {
   const missing = member.missing.slice(0, 6);
   const more = member.missing.length - missing.length;
   return [
@@ -296,7 +324,7 @@ export function reminderText(head: Account, member: MemberSummary) {
   ].filter((line, index, all) => line || all[index - 1]).join("\n");
 }
 
-function groupReminder(head: Account, members: MemberSummary[]) {
+function groupReminder(head: Actor, members: MemberSummary[]) {
   const tally = new Map<string, number>();
   for (const member of members) for (const item of member.missing) tally.set(item, (tally.get(item) ?? 0) + 1);
   const top = [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([item]) => item);
@@ -376,7 +404,7 @@ function teamReportText(ctx: Ctx) {
     `التاريخ: ${riyadhDateLabel()}`,
     "",
     "أولاً: الأرقام",
-    `- عدد المشرفات: ${ar(stats.members)} (فعّلت ${ar(stats.activated)} منهن حساباتهن، و${ar(stats.notActivated)} لم يدخلن بعد)`,
+    `- عدد المشرفات: ${ar(stats.members)} (${activatedText(stats.activated)}، و${ar(stats.notActivated)} لم يدخلن بعد)`,
     `- متوسط اكتمال الملفات: ${pct(stats.averageCompletion)} — المكتملة (٨٥٪ فأكثر): ${ar(stats.completeProfiles)}`,
     `- المدارس المسجّلة: ${ar(stats.schools)}، تضم ${count(stats.students, NOUNS.student)} و${count(stats.teachers, NOUNS.teacher)}`,
     `- الزيارات المسجّلة: ${ar(stats.visits)} — الملفات المرفوعة: ${ar(stats.documents)}`,
@@ -410,6 +438,6 @@ export function report(ctx: Ctx): AgentReply | null {
     return reply(`جهّزت تقريراً مختصراً عن ${shortName(detail.name)} — انسخيه كما هو:`, { type: "copy", title: `تقرير — ${shortName(detail.name)}`, text });
   }
   const { stats } = ctx.team;
-  const intro = `هذا تقرير الفريق حتى اليوم: ${count(stats.members, NOUNS.member)}، فعّلت ${ar(stats.activated)} منهن حساباتهن، ومتوسط اكتمال الملفات ${pct(stats.averageCompletion)}. النص الكامل جاهز للنسخ:`;
+  const intro = `هذا تقرير الفريق حتى اليوم: ${count(stats.members, NOUNS.member)}، ${activatedText(stats.activated)}، ومتوسط اكتمال الملفات ${pct(stats.averageCompletion)}. النص الكامل جاهز للنسخ:`;
   return reply(intro, statsBlock(stats), { type: "copy", title: "تقرير متابعة الفريق", text: teamReportText(ctx) });
 }

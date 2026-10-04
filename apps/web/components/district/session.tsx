@@ -1,11 +1,13 @@
 "use client";
 
-import type { PublicUser } from "@rasd/schemas";
-import { useRouter } from "next/navigation";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { api, ApiRequestError, getToken, goToLogin } from "../../lib/api";
+import { api, errorText, redirectIfSignedOut } from "../../lib/api";
+import { enforceSessionOnly } from "../../lib/supabase";
+import type { Me } from "../../lib/types";
 
-const SessionContext = createContext<PublicUser | null>(null);
+export type HeadUser = Me["user"];
+
+const SessionContext = createContext<HeadUser | null>(null);
 
 /** The signed-in head (خلود). Only available inside <HeadGuard>. */
 export function useHead() {
@@ -14,24 +16,26 @@ export function useHead() {
   return user;
 }
 
-/** Loads /auth/me and only renders children for the head; members go to /cluster, guests to /login. */
+/**
+ * Supabase session + /auth/me (main's pattern): only the head sees these pages; members go to /cluster, guests to /login.
+ * A session that ends later (expired, or signed out in another tab) is caught by the next API call (401 → /login).
+ */
 export function HeadGuard({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const [user, setUser] = useState<PublicUser | null>(null);
+  const [user, setUser] = useState<HeadUser | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!getToken()) { goToLogin(); return; }
     let cancelled = false;
-    api.get<{ user: PublicUser }>("/auth/me")
+    enforceSessionOnly()
+      .then(() => api.get<Me>("/auth/me"))
       .then(({ user }) => {
         if (cancelled) return;
-        if (user.role !== "head") router.replace("/cluster");
+        if (user.role !== "head") window.location.replace("/cluster");
         else setUser(user);
       })
-      .catch((reason: ApiRequestError) => { if (!cancelled && reason.status !== 401) setError(reason.message); });
+      .catch(reason => { if (!cancelled && !redirectIfSignedOut(reason)) setError(errorText(reason)); });
     return () => { cancelled = true; };
-  }, [router]);
+  }, []);
 
   if (error) {
     return (

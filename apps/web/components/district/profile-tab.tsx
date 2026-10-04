@@ -1,16 +1,18 @@
 "use client";
 
-import type { ProfileField, Workspace } from "@rasd/schemas";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
-import { newLocalId, toNumber } from "../../lib/chat/helpers";
 import { counted } from "../../lib/format";
+import type { ProfileField } from "../../lib/types";
 import { ConfirmDialog } from "./dialog";
+import { fieldInput, isDerived, isEssential, type MissingItem } from "./model";
+import { useToast } from "./toast";
+import type { MemberFile } from "./use-member-file";
 
-type GoTab = "schools" | "documents";
+type GoTab = "schools";
 type Props = {
-  workspace: Workspace;
-  update: (mutate: (current: Workspace) => Workspace) => void;
+  file: MemberFile;
+  missing: MissingItem[];
   /** «الفارغة فقط»: the fields that were empty when she opened the filter (frozen, so a field stays while she types in it). */
   onlyIds: string[] | null;
   onShowAll: () => void;
@@ -19,79 +21,44 @@ type Props = {
 
 const YEARS = { one: "سنة واحدة", two: "سنتان", few: "سنوات", many: "سنة" };
 
-function inputProps(field: ProfileField) {
-  switch (field.kind) {
-    case "email": return { type: "text", inputMode: "email" as const, dir: "ltr" };
-    case "phone": return { type: "tel", inputMode: "tel" as const, dir: "ltr" };
-    case "number": return { type: "text", inputMode: "numeric" as const };
-    // Dates stay plain text: Hijri or Gregorian, whatever she has.
-    default: return { type: "text" };
-  }
-}
-
-const isEssential = (field: ProfileField) => !field.optional && !field.custom && !field.derived;
-
-/** Ids of the essential fields that are empty right now. */
-export const emptyEssentialIds = (workspace: Workspace) =>
-  workspace.profile.filter(field => isEssential(field) && !field.value.trim()).map(field => field.id);
-
-/** Missing items that are not profile fields (schools, files) and the tab where they are filled. */
-function otherMissing(missing: string[], profile: ProfileField[]) {
-  const labels = new Set(profile.map(field => field.label));
-  return missing.filter(item => !labels.has(item)).map(item => ({ item, tab: (item.includes("مدارس") ? "schools" : "documents") as GoTab }));
-}
-
-/** Her profile: essentials first, then a collapsed «بيانات إضافية» (optional + custom fields). */
-export function ProfileTab({ workspace, update, onlyIds, onShowAll, onGo }: Props) {
+/** Her profile: essentials first, then a collapsed «بيانات إضافية» (the other built-ins and custom fields). */
+export function ProfileTab({ file, missing, onlyIds, onShowAll, onGo }: Props) {
+  const toast = useToast();
+  const { workspace, setField, addField, removeField } = file;
   const [removing, setRemoving] = useState<ProfileField | null>(null);
   const essentials = workspace.profile.filter(isEssential);
-  const extras = workspace.profile.filter(field => !isEssential(field) && !field.derived);
-  const derived = workspace.profile.filter(field => field.derived && field.value.trim());
-  const others = otherMissing(workspace.missing, workspace.profile);
+  const extras = workspace.profile.filter(field => !isEssential(field) && !isDerived(field));
+  const years = workspace.profile.find(field => field.key === "yearsOfExperience")?.value ?? "";
 
-  const setValue = (id: string, value: string) => update(current => ({
-    ...current,
-    profile: current.profile.map(field => field.id === id ? { ...field, value, updatedAt: new Date().toISOString() } : field),
-  }));
-
-  const addField = (label: string, value: string) => update(current => ({
-    ...current,
-    profile: [...current.profile, { id: newLocalId(), label, value, kind: "text", custom: true, updatedAt: new Date().toISOString() }],
-  }));
-
-  const removeField = (id: string) => update(current => ({ ...current, profile: current.profile.filter(field => field.id !== id) }));
-
-  // Derived numbers (years of experience) are one quiet line under the date they come from.
-  const noteFor = (field: ProfileField) => {
-    if (field.id !== "hire_date") return undefined;
-    const years = derived.find(item => item.id === "experience_years");
-    const n = years ? toNumber(years.value) : 0;
-    return n > 0 ? `≈ ${counted(n, YEARS)} خبرة` : undefined;
-  };
+  // Years of experience are one quiet line under the date they come from.
+  const noteFor = (field: ProfileField) => field.key === "hireDate" && Number(years) > 0 ? `≈ ${counted(Number(years), YEARS)} خبرة` : undefined;
 
   if (onlyIds) {
-    const emptyEssentials = essentials.filter(field => onlyIds.includes(field.id));
+    const empty = workspace.profile.filter(field => onlyIds.includes(field.id));
+    const others = missing.filter(item => item.tab !== "profile");
     return (
       <div className="mp-panel">
         <div className="mp-filter-bar">
           <span>الفارغة فقط</span>
           <button className="btn btn-ghost" onClick={onShowAll}>عرض كل البيانات</button>
         </div>
-        {emptyEssentials.length > 0 && (
+        {empty.length > 0 && (
           <div className="mp-fields">
-            {emptyEssentials.map(field => <FieldRow key={field.id} field={field} highlight onChange={value => setValue(field.id, value)} />)}
+            {empty.map(field => <FieldRow key={field.id} field={field} highlight onChange={value => setField(field.id, value)} />)}
           </div>
         )}
         {others.length > 0 && (
           <ul className="mp-goto-list">
-            {others.map(({ item, tab }) => (
-              <li key={item}>
-                <button onClick={() => onGo(tab)}><span>{item}</span><ChevronLeft aria-hidden /></button>
+            {others.map(item => (
+              <li key={item.label}>
+                {item.tab
+                  ? <button onClick={() => onGo(item.tab as GoTab)}><span>{item.label}</span><ChevronLeft aria-hidden /></button>
+                  : <div className="mp-goto-static"><span>{item.label}</span><small>تكمله هي من حسابها</small></div>}
               </li>
             ))}
           </ul>
         )}
-        {!emptyEssentials.length && !others.length && <p className="mp-note">لا ينقصها شيء الآن.</p>}
+        {!empty.length && !others.length && <p className="mp-note">لا ينقصها شيء الآن.</p>}
       </div>
     );
   }
@@ -99,18 +66,17 @@ export function ProfileTab({ workspace, update, onlyIds, onShowAll, onGo }: Prop
   return (
     <div className="mp-panel">
       <div className="mp-fields">
-        {essentials.map(field => <FieldRow key={field.id} field={field} highlight note={noteFor(field)} onChange={value => setValue(field.id, value)} />)}
-        {!essentials.some(field => field.id === "hire_date") && derived.map(field => <p key={field.id} className="mp-note">{field.label}: {field.value}</p>)}
+        {essentials.map(field => <FieldRow key={field.id} field={field} highlight note={noteFor(field)} onChange={value => setField(field.id, value)} />)}
       </div>
 
       <details className="mp-more-fields">
-        <summary>بيانات إضافية <span className="muted">(اختياري)</span></summary>
+        <summary>بيانات إضافية</summary>
         <div className="mp-fields">
           {extras.map(field => (
-            <FieldRow key={field.id} field={field} onChange={value => setValue(field.id, value)} onRemove={field.custom ? () => setRemoving(field) : undefined} />
+            <FieldRow key={field.id} field={field} onChange={value => setField(field.id, value)} onRemove={field.key ? undefined : () => setRemoving(field)} />
           ))}
         </div>
-        <AddFieldForm onAdd={addField} />
+        <AddFieldForm onAdd={(label, value) => addField(label, value).catch(reason => toast((reason as Error).message))} />
       </details>
 
       {removing && (
@@ -131,7 +97,8 @@ type FieldRowProps = { field: ProfileField; onChange: (value: string) => void; o
 
 function FieldRow({ field, onChange, onRemove, highlight, note }: FieldRowProps) {
   const empty = highlight && !field.value.trim();
-  const listId = field.options?.length ? `options-${field.id}` : undefined;
+  const { options, ...input } = fieldInput(field);
+  const listId = options?.length ? `options-${field.id}` : undefined;
   const id = `field-${field.id}`;
   return (
     <div className={`field mp-field ${empty ? "is-empty" : ""}`}>
@@ -139,8 +106,8 @@ function FieldRow({ field, onChange, onRemove, highlight, note }: FieldRowProps)
         <label className="field-label" htmlFor={id}>{field.label}</label>
         {onRemove && <button className="mp-field-remove" onClick={onRemove} aria-label={`حذف خانة ${field.label}`}><Trash2 /></button>}
       </div>
-      <input id={id} className="input" value={field.value} placeholder={field.hint ?? ""} list={listId} onChange={event => onChange(event.target.value)} {...inputProps(field)} />
-      {listId && <datalist id={listId}>{field.options!.map(option => <option key={option} value={option} />)}</datalist>}
+      <input id={id} className="input" value={field.value} list={listId} onChange={event => onChange(event.target.value)} {...input} />
+      {listId && <datalist id={listId}>{options!.map(option => <option key={option} value={option} />)}</datalist>}
       {note && <span className="field-hint">{note}</span>}
     </div>
   );
@@ -166,7 +133,7 @@ function AddFieldForm({ onAdd }: { onAdd: (label: string, value: string) => void
     <form className="mp-add-field" onSubmit={submit}>
       <label className="field">
         <span className="field-label">اسم الخانة</span>
-        <input className="input" value={label} onChange={event => setLabel(event.target.value)} placeholder="مثال: الدورات التدريبية" autoFocus />
+        <input className="input" value={label} onChange={event => setLabel(event.target.value)} placeholder="مثال: الدورات التدريبية" maxLength={200} autoFocus />
       </label>
       <label className="field">
         <span className="field-label">القيمة</span>

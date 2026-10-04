@@ -4,9 +4,8 @@ import { after, before, describe, test } from "node:test";
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaContentBlock, BetaMessage, BetaToolResultBlockParam, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { ChatMessage } from "@rasd/schemas";
-import { setupFixture } from "./fixture.js";
+import { setupFixture, type Fixture } from "./fixture.js";
 
-type Fixture = Awaited<ReturnType<typeof setupFixture>>;
 let f: Fixture;
 let claude: typeof import("../agent/claude.js");
 let tools: typeof import("../agent/claude-tools.js");
@@ -40,7 +39,7 @@ function fakeClient(responses: (BetaMessage | Error)[]) {
   return { client, requests };
 }
 
-const context = (history: ChatMessage[] = []) => ({ head: f.head, conversationId: f.chat.createConversation(f.head.id, "claude").id, history, attachments: [] });
+const context = async (history: ChatMessage[] = []) => ({ head: f.head, conversationId: (await f.chat.createConversation(f.sql, f.head.id, "claude")).id, history, attachments: [], audit: f.audit });
 
 describe("Claude brain", () => {
   before(async () => {
@@ -48,7 +47,7 @@ describe("Claude brain", () => {
     claude = await import("../agent/claude.js");
     tools = await import("../agent/claude-tools.js");
   });
-  after(() => { claude.useClaudeClient(null); });
+  after(async () => { claude.useClaudeClient(null); await f.stop(); });
 
   test("the request uses the documented shape and nothing that 400s on this model", () => {
     delete process.env.ANTHROPIC_MODEL;
@@ -97,8 +96,8 @@ describe("Claude brain", () => {
   });
 
   test("the user turn carries attachments (original PDF + text) and today's date", async () => {
-    const pdf = await f.documents.saveDocument({ ownerId: null, uploadedBy: f.head.id, name: "تقرير.pdf", mime: "application/pdf", buffer: Buffer.from("%PDF-1.4 not really a pdf") });
-    const turn = claude.userTurn("لخصي الملف", [pdf]);
+    const pdf = (await f.document(await f.upload("تقرير.pdf", Buffer.from("%PDF-1.4 not really a pdf"))))!;
+    const turn = await claude.userTurn("لخصي الملف", [pdf]);
     const content = turn.content as { type: string; text?: string; source?: { media_type: string } }[];
     assert.equal(content[0].type, "document");
     assert.equal(content[0].source?.media_type, "application/pdf");
@@ -113,7 +112,7 @@ describe("Claude brain", () => {
       message("tool_use", [toolUse("t3", "show_stats", { items: [{ label: "المشرفات", value: 18 }] }), toolUse("t4", "suggest_replies", { options: [{ label: "نواقص الفريق" }] })]),
       message("end_turn", [text("عندك **١٨ مشرفة**، وأعلى ملف لرشا القرني.")]),
     ]);
-    const reply = await claude.claudeRespond(context(), "وش وضع الفريق؟", client);
+    const reply = await claude.claudeRespond(await context(), "وش وضع الفريق؟", client);
     assert.equal(requests.length, 3);
     const second = requests[1].messages;
     assert.equal(second.at(-2)?.role, "assistant");
@@ -123,10 +122,14 @@ describe("Claude brain", () => {
     assert.ok(results.every(result => !result.is_error));
     const overview = JSON.parse(String(results[0].content));
     assert.equal(overview.stats.members, 18);
-    const rasha = JSON.parse(String(results[1].content));
+    const member = String(results[1].content);
+    assert.match(member, /^<untrusted_member_data member="[^"]+">\n/, "her file reaches the model marked as data, not instructions");
+    const rasha = JSON.parse(member.replace(/^<untrusted_member_data[^>]*>\n/, "").replace(/\n<\/untrusted_member_data>$/, ""));
     assert.equal(rasha.email, "rasha.member@example.com");
     assert.equal(reply.text, "عندك **١٨ مشرفة**، وأعلى ملف لرشا القرني.");
     assert.deepEqual(reply.blocks.map(block => block.type), ["stats", "choices"]);
+    const [reads] = await f.sql`select count(*)::int as n from audit_log where action = 'read_pii' and cluster_id = ${f.rasha.clusterId} and source = 'agent'`;
+    assert.ok(reads.n >= 1, "the files the tools read are audited (read_pii)");
   });
 
   test("invalid tool input, unknown tools and ambiguous names come back as is_error results", async () => {
@@ -134,7 +137,7 @@ describe("Claude brain", () => {
       message("tool_use", [toolUse("a", "get_member", {}), toolUse("b", "show_table", { columns: "x" }), toolUse("c", "no_such_tool", {}), toolUse("d", "get_member", { member: "فاطمة" })]),
       message("end_turn", [text("أي فاطمة تقصدين؟")]),
     ]);
-    await claude.claudeRespond(context(), "ملف فاطمة", client);
+    await claude.claudeRespond(await context(), "ملف فاطمة", client);
     const results = requests[1].messages.at(-1)!.content as BetaToolResultBlockParam[];
     assert.deepEqual(results.map(result => result.is_error), [true, true, true, true]);
     assert.match(String(results[0].content), /Invalid input/);
@@ -147,29 +150,36 @@ describe("Claude brain", () => {
       message("tool_use", [toolUse("u", "update_member_fields", { member: "منيرة الرويلي", fields: [{ field: "الرتبة", value: "متقدم" }] })]),
       message("end_turn", [text("تم تحديث رتبة منيرة.")]),
     ]);
-    const reply = await claude.claudeRespond(context(), "غيري رتبة منيرة إلى متقدم", client);
-    const rank = f.workspaces.getWorkspace(f.accounts.findAccountById(f.muneera.id)!).profile.find(field => field.id === "rank")?.value;
-    assert.equal(rank, "متقدم");
+    const reply = await claude.claudeRespond(await context(), "غيري رتبة منيرة إلى متقدم", client);
+    assert.equal(await f.valueOf(f.muneera.id, "rank"), "متقدم");
+    const [audit] = await f.sql`select actor_id, source from audit_log where cluster_id = ${f.muneera.clusterId} and entity = 'profile_field' order by at desc limit 1`;
+    assert.deepEqual([audit.actorId, audit.source], [f.head.id, "agent"]);
     const applied = reply.blocks.find(block => block.type === "applied");
     assert.ok(applied && applied.type === "applied" && applied.undoProposalId);
   });
 
   test("propose_profile_updates makes a pending proposal card", async () => {
-    const result = tools.runTool("propose_profile_updates", { changes: [{ member: "مها السبيعي", field: "phone", value: "0561234567" }] }, { head: f.head, conversationId: "c", attachments: [], blocks: [] });
-    assert.equal(result.isError, false);
+    const { conversationId } = await context();
+    const ctx = tools.toolContext({ db: f.sql, head: f.head, audit: f.audit, conversationId });
+    const result = await tools.runTool("propose_profile_updates", { changes: [{ member: "مها السبيعي", field: "phone", value: "0561234567" }] }, ctx);
+    assert.equal(result.isError, false, result.content);
     assert.equal(JSON.parse(result.content).created, true);
+    const card = ctx.blocks.find(block => block.type === "proposal");
+    assert.ok(card && card.type === "proposal");
+    assert.equal((await f.chat.getProposal(f.sql, card.proposalId))?.status, "pending");
+    assert.equal(await f.valueOf(f.maha.id, "phone"), "", "nothing changes before she approves");
   });
 
   test("pause_turn resends, max_tokens answers with what it has, refusal is polite", async () => {
     const paused = fakeClient([message("pause_turn", [text("…")]), message("end_turn", [text("انتهيت")])]);
-    assert.equal((await claude.claudeRespond(context(), "سؤال", paused.client)).text, "انتهيت");
+    assert.equal((await claude.claudeRespond(await context(), "سؤال", paused.client)).text, "انتهيت");
     assert.equal(paused.requests[1].messages.at(-1)!.role, "assistant", "the paused turn is sent back as-is");
 
     const truncated = fakeClient([message("max_tokens", [text("جواب جزئي")])]);
-    assert.equal((await claude.claudeRespond(context(), "سؤال", truncated.client)).text, "جواب جزئي");
+    assert.equal((await claude.claudeRespond(await context(), "سؤال", truncated.client)).text, "جواب جزئي");
 
     const refused = fakeClient([message("refusal", [])]);
-    assert.match((await claude.claudeRespond(context(), "سؤال", refused.client)).text, /لا أستطيع/);
+    assert.match((await claude.claudeRespond(await context(), "سؤال", refused.client)).text, /لا أستطيع/);
   });
 
   test("API errors fall back to the local engine with a one-line note; status reports claude", async () => {
@@ -185,7 +195,7 @@ describe("Claude brain", () => {
       ];
       for (const [error, note] of cases) {
         claude.useClaudeClient(fakeClient([error]).client);
-        const reply = await respond(context(), "الأرقام");
+        const reply = await respond(await context(), "الأرقام");
         assert.ok(reply.blocks.some(block => block.type === "stats"), "the local engine answered");
         assert.match(reply.text, note);
       }

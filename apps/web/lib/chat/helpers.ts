@@ -1,8 +1,5 @@
 import type { Conversation, DocumentKind } from "@rasd/schemas";
 
-/** Random id for new local items (crypto.randomUUID is missing on plain-http LAN addresses). */
-export const newLocalId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-
 /** Copies text to the clipboard (with a fallback for older mobile browsers). */
 export async function copyText(text: string) {
   try {

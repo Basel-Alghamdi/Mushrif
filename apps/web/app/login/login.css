@@ -51,3 +51,11 @@
   .lg-card{padding:36px 32px}
   .lg-card>.lg-brand{display:none}
 }
+
+/* Invitation and password-reset pages reuse the card, without the brand panel. */
+.lg-stack{display:flex;flex-direction:column;gap:16px}
+.lg-optional{font-weight:400;color:var(--text-3)}
+@media (min-width:900px){
+  .lg.lg-single{grid-template-columns:minmax(0,1fr)}
+  .lg-single .lg-card>.lg-brand{display:flex}
+}

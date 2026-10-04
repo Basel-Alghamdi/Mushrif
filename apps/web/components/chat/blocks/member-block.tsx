@@ -80,7 +80,7 @@ export function MemberBlock({ block }: { block: MemberBlockData }) {
           <ul className="blk-doc-chips">
             {block.documents.map(document => (
               <li key={document.id}>
-                <button className="file-chip" onClick={() => void downloadFile(`/documents/${document.id}/download`, document.name)} title={`تنزيل ${document.name}`}>
+                <button className="file-chip" onClick={() => void downloadFile(`/attachments/${document.id}/download`, document.name)} title={`تنزيل ${document.name}`}>
                   <KindIcon kind={document.kind} />
                   <bdi className="file-chip-name">{document.name}</bdi>
                   <small>{relativeTime(document.createdAt)}</small>

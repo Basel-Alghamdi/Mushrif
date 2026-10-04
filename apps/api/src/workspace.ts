@@ -1,4 +1,5 @@
 import { MADRASATI_METRICS, completionPct, riyadhDate, yearsSinceHijri } from "@rasd/schemas";
+import { PASSIVE_ACTIONS } from "./audit.js";
 import type { Row, Sql } from "./db.js";
 
 const groupBy = <T extends Row>(rows: T[], key: string) => {
@@ -15,14 +16,37 @@ const madrasatiValues = (row?: Row) => MADRASATI_METRICS.map(metric => Number(ro
 
 export type Workspace = Awaited<ReturnType<typeof loadWorkspaces>> extends Map<string, infer W> ? W : never;
 
+let signInsUnreadable = false;
+
+/**
+ * When each user last signed in (Supabase's auth.users.last_sign_in_at). A database role without access to the auth
+ * schema (42501) gets null — logged once — instead of failing every workspace endpoint with it.
+ */
+export async function lastSignIns(db: Sql, userIds: string[]): Promise<Map<string, Date | null> | null> {
+  if (!userIds.length) return new Map();
+  const read = (q: Sql) => q`select id, last_sign_in_at from auth.users where id = any(${q.array(userIds)}::uuid[])`;
+  try {
+    // Inside a transaction the read gets its own savepoint, so a refusal never aborts the caller's work.
+    const rows = await ("savepoint" in db ? db.savepoint(tx => read(tx)) : read(db));
+    return new Map(rows.map(row => [String(row.id), (row.lastSignInAt as Date | null) ?? null]));
+  } catch (error) {
+    if (!signInsUnreadable) {
+      signInsUnreadable = true;
+      console.error(`cannot read auth.users (${(error as { code?: string }).code ?? (error as Error).message}): last sign-in times stay empty`);
+    }
+    return null;
+  }
+}
+
 /** Loads complete cluster files for the given clusters in a fixed number of queries. */
 export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riyadhDate()) {
   const result = new Map<string, ReturnType<typeof buildWorkspace>>();
   if (!clusterIds.length) return result;
   const ids = db.array(clusterIds);
 
-  const [clusters, profileRows, schoolRows, overrideRows, planRows, programRows, sectionRows, supportRows, submissionRows, activityRows] = await Promise.all([
-    db`select c.*, p.name as member_name, p.email as member_email, p.phone as member_phone from clusters c join profiles p on p.id = c.member_id where c.id = any(${ids}::uuid[])`,
+  const [clusters, profileRows, schoolRows, overrideRows, planRows, programRows, sectionRows, supportRows, submissionRows, activityRows, documentRows] = await Promise.all([
+    db`select c.*, p.name as member_name, p.email as member_email, p.phone as member_phone, p.title as member_title, p.activated_at
+      from clusters c join profiles p on p.id = c.member_id where c.id = any(${ids}::uuid[])`,
     db`select * from profile_fields where cluster_id = any(${ids}::uuid[]) and deleted_at is null order by sort_order, created_at`,
     db`select * from schools where cluster_id = any(${ids}::uuid[]) and deleted_at is null order by sort_order, created_at`,
     db`select * from school_field_overrides where cluster_id = any(${ids}::uuid[]) and hidden`,
@@ -31,8 +55,12 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     db`select * from custom_sections where cluster_id = any(${ids}::uuid[]) and deleted_at is null order by sort_order, created_at`,
     db`select * from discipline_support_plans where cluster_id = any(${ids}::uuid[])`,
     db`select cluster_id, submitted_at from daily_submissions where cluster_id = any(${ids}::uuid[]) and date = ${today}::date`,
-    db`select cluster_id, max(at) as last_activity_at from audit_log where cluster_id = any(${ids}::uuid[]) group by cluster_id`,
+    // Her own work only (decision 6): what the head or the agent changed in her file does not count as her activity.
+    db`select a.cluster_id, max(a.at) as last_activity_at from audit_log a join clusters c on c.id = a.cluster_id
+      where a.cluster_id = any(${ids}::uuid[]) and a.actor_id = c.member_id and a.action <> all(${db.array(PASSIVE_ACTIONS)}::text[]) group by a.cluster_id`,
+    db`select cluster_id, count(*)::int as count from attachments where cluster_id = any(${ids}::uuid[]) and deleted_at is null group by cluster_id`,
   ]);
+  const signIns = await lastSignIns(db, clusters.map(row => String(row.memberId)));
 
   const schoolIds = db.array(schoolRows.map(row => row.id as string));
   const sectionIds = db.array(sectionRows.map(row => row.id as string));
@@ -63,6 +91,8 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     support: new Map(supportRows.map(row => [String(row.clusterId), row])),
     submissions: new Map(submissionRows.map(row => [String(row.clusterId), row.submittedAt as Date])),
     activity: new Map(activityRows.map(row => [String(row.clusterId), row.lastActivityAt as Date])),
+    documents: new Map(documentRows.map(row => [String(row.clusterId), Number(row.count)])),
+    signIns: signIns ?? new Map<string, Date | null>(),
     custom: groupBy(customRows, "schoolId"),
     tiles: groupBy(tileRows, "schoolId"),
     roles: groupBy(roleRows, "schoolId"),
@@ -81,7 +111,8 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
 type Lookup = {
   profile: Map<string, Row[]>; schools: Map<string, Row[]>; overrides: Map<string, Row[]>; plans: Map<string, Row[]>;
   programs: Map<string, Row[]>; sections: Map<string, Row[]>; sectionFields: Map<string, Row[]>; support: Map<string, Row>;
-  submissions: Map<string, Date>; activity: Map<string, Date>; custom: Map<string, Row[]>; tiles: Map<string, Row[]>;
+  submissions: Map<string, Date>; activity: Map<string, Date>; documents: Map<string, number>; signIns: Map<string, Date | null>;
+  custom: Map<string, Row[]>; tiles: Map<string, Row[]>;
   roles: Map<string, Row[]>; roleFields: Map<string, Row[]>; evaluation: Map<string, Row>; madrasati: Map<string, Row>;
   discipline: Map<string, Row>; absence: Map<string, boolean>; visits: Map<string, number>;
 };
@@ -140,8 +171,9 @@ function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
     cluster: {
       id: clusterId, label: cluster.label as string, memberId: cluster.memberId as string,
       memberName: cluster.memberName as string, memberEmail: cluster.memberEmail as string, memberPhone: cluster.memberPhone as string,
+      memberTitle: cluster.memberTitle as string, activated: Boolean(cluster.activatedAt), lastSignInAt: lookup.signIns.get(String(cluster.memberId)) ?? null,
       nafesCardFolderUrl: cluster.nafesCardFolderUrl as string, today, submittedToday: submittedAt,
-      lastActivityAt: lookup.activity.get(clusterId) ?? (cluster.updatedAt as Date),
+      lastActivityAt: lookup.activity.get(clusterId) ?? null, documentCount: lookup.documents.get(clusterId) ?? 0,
     },
     profile,
     schools,
@@ -166,6 +198,7 @@ export function memberSummary(workspace: Workspace, deadline: string | null) {
   const disciplineValues = schools.map(school => school.discipline.daily).filter(value => value > 0);
   return {
     id: cluster.memberId, clusterId: cluster.id, name: cluster.memberName, email: cluster.memberEmail, clusterLabel: cluster.label,
+    title: cluster.memberTitle, activated: cluster.activated, lastSignInAt: cluster.lastSignInAt, documentCount: cluster.documentCount,
     initials: initials(cluster.memberName), completion: workspace.completion, schoolCount: schools.length,
     absence: schools.filter(school => school.absenceToday).length,
     discipline: disciplineValues.length ? Math.round(disciplineValues.reduce((sum, value) => sum + value, 0) / disciplineValues.length) : null,

@@ -1,16 +1,13 @@
-// Test fixture: a throw-away database seeded with a fictional roster plus realistic profiles, schools, visits and files.
-// Call setupFixture() before importing anything that touches the database.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+// Test fixture for the agent: a throw-away local stack (embedded PostgreSQL + fake Supabase, see src/test/support) with
+// the FICTIONAL team (src/test/roster.fixture.ts — never the real roster), filled with realistic data the way the app
+// fills it: members sign in and edit their own files over HTTP, the head sets a cluster label.
+// Call setupFixture() before importing anything that touches the database, and stop() when done.
+import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
-import { testRoster } from "./roster.fixture.js";
+import { riyadhDate, type ChatAttachment } from "@rasd/schemas";
+import { HEAD_EMAIL, startApi, xlsxBuffer } from "./api/harness.js";
 
-export function xlsxBuffer(sheets: Record<string, (string | number)[][]>) {
-  const workbook = XLSX.utils.book_new();
-  for (const [name, rows] of Object.entries(sheets)) XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), name);
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as ArrayBuffer);
-}
+export { xlsxBuffer };
 
 type ZipWriter = {
   utils: { cfb_new: (options: { root: string }) => unknown; cfb_add: (zip: unknown, path: string, content: Buffer) => void };
@@ -35,98 +32,128 @@ export function docxBuffer(paragraphs: string[], table: string[][] = []) {
   return Buffer.from(zip.write(archive, { fileType: "zip", type: "buffer", compression: true }));
 }
 
-export async function setupFixture(options: { seedData?: boolean } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "rasd-test-"));
-  process.env.RASD_DATABASE_FILE = join(dir, "rasd.sqlite");
-  // Seed the fictional team, never the real roster file in apps/api/data.
-  process.env.RASD_ROSTER_FILE = join(dir, "roster.json");
-  writeFileSync(process.env.RASD_ROSTER_FILE, JSON.stringify(testRoster));
-  process.env.ANTHROPIC_API_KEY = ""; // the local engine, even when apps/api/.env has a key
-  process.env.APP_URL = "https://rasd.example";
+const filesForm = (name: string, content: Buffer | string) => {
+  const form = new FormData();
+  form.append("files", new Blob([typeof content === "string" ? content : new Uint8Array(content)]), name);
+  return form;
+};
 
-  const accounts = await import("../accounts.js");
-  const workspaces = await import("../workspaces.js");
-  const documents = await import("../documents.js");
+export type TeamMember = { id: string; name: string; email: string; title: string; clusterId: string };
+
+export async function setupFixture(options: { seedData?: boolean } = {}) {
+  const api = await startApi();
+  const { sql, call } = api;
+  const headToken = await api.signInHead();
+  const { loadActor } = await import("../auth.js");
   const agent = await import("../agent/index.js");
   const chat = await import("../chat-store.js");
-  accounts.seedAccounts();
-  const head = accounts.headAccount()!;
-  const members = accounts.membersOfHead(head.id);
-  const byEmail = (email: string) => members.find(member => member.email === email)!;
+  const documents = await import("../documents.js");
+  const { loadTeam } = await import("../agent/snapshot.js");
 
+  const [headRow] = await sql`select id from profiles where email = ${HEAD_EMAIL}`;
+  const head = (await loadActor(String(headRow.id)))!;
+  const audit = { actor: head, source: "agent" as const, ip: null };
+  const members: TeamMember[] = (await sql`
+    select p.id, p.name, p.email, p.title, c.id as cluster_id from profiles p join clusters c on c.member_id = p.id
+    where p.role = 'member' order by p.created_at`).map(row => ({ id: String(row.id), name: row.name, email: row.email, title: row.title, clusterId: String(row.clusterId) }));
+  const byEmail = (email: string) => members.find(member => member.email === email)!;
   const rasha = byEmail("rasha.member@example.com");
   const muneera = byEmail("munira.member@example.com");
   const maha = byEmail("maha.member@example.com");
   const manal = byEmail("manal.member@example.com");
   const fatimaDosari = byEmail("fatima3.member@example.com");
+  const tokens = new Map<string, string>();
+
+  /** A request that must succeed (seeding goes through the same endpoints the app uses). */
+  async function must<T = any>(method: string, path: string, body: unknown, token: string): Promise<T> {
+    const result = await call<T>(method, path, body, token);
+    assert.ok(result.status < 300, `${method} ${path} → ${result.status} ${JSON.stringify(result.error)}`);
+    return result.data;
+  }
 
   if (options.seedData !== false) {
-    accounts.activateAccount(rasha.email, "1234");
-    accounts.activateAccount(maha.email, "1234");
-    accounts.activateAccount(muneera.email, "1234");
+    for (const member of [rasha, maha, muneera]) tokens.set(member.id, await api.activate(member.email));
+    const as = (member: TeamMember) => <T = any>(method: string, path: string, body?: unknown) => must<T>(method, path, body, tokens.get(member.id)!);
 
-    workspaces.setProfileValues(rasha, [
-      { fieldId: "phone", fieldLabel: "رقم الجوال", value: "0551112233" },
-      { fieldId: "national_id", fieldLabel: "السجل المدني", value: "1012345678" },
-      { fieldId: "employee_no", fieldLabel: "الرقم الوظيفي", value: "445566" },
-      { fieldId: "moe_email", fieldLabel: "البريد الوزاري", value: "r.qarni@moe.gov.sa" },
-      { fieldId: "cluster", fieldLabel: "العنقود", value: "عنقود ٤" },
-      { fieldId: "rank", fieldLabel: "الرتبة", value: "متقدم" },
-      { fieldId: "qualification", fieldLabel: "المؤهل", value: "ماجستير" },
-      { fieldId: "major", fieldLabel: "التخصص", value: "رياضيات" },
-      { fieldId: "supervision_major", fieldLabel: "التخصص الإشرافي", value: "إشراف تربوي — رياضيات" },
-      { fieldId: "hire_date", fieldLabel: "تاريخ التعيين", value: "2010-09-01" },
-      { fieldId: "assignment_date", fieldLabel: "تاريخ التكليف بالإشراف", value: "2019-09-01" },
-      { fieldId: null, fieldLabel: "الدورات التدريبية", value: "٣ دورات" },
-    ]);
-    workspaces.setProfileValues(muneera, [
-      { fieldId: "phone", fieldLabel: "رقم الجوال", value: "0509998877" },
-      { fieldId: "rank", fieldLabel: "الرتبة", value: "خبير" },
-    ]);
-    workspaces.setProfileValues(maha, [{ fieldId: "qualification", fieldLabel: "المؤهل", value: "بكالوريوس" }]);
+    async function setFields(member: TeamMember, values: Record<string, string>) {
+      const workspace = await as(member)("GET", "/member/workspace");
+      for (const [key, value] of Object.entries(values)) {
+        const field = workspace.profile.find((item: { key: string | null }) => item.key === key);
+        await as(member)("PATCH", `/cluster/me/profile-fields/${field.id}`, { value });
+      }
+    }
+    async function addSchool(member: TeamMember, school: Record<string, unknown>, teachers: number, absenceToday = false) {
+      const created = await as(member)("POST", "/cluster/me/schools", school);
+      const tiles = await as(member)<{ id: string; label: string }[]>("GET", `/schools/${created.id}/staff-tiles`);
+      await as(member)("PATCH", `/schools/${created.id}/staff-tiles/${tiles.find(tile => tile.label === "الهيئة التعليمية")!.id}`, { value: teachers });
+      if (absenceToday) await as(member)("PUT", `/schools/${created.id}/absence`, { date: riyadhDate(), done: true });
+      return created.id as string;
+    }
+    const upload = (member: TeamMember, name: string, content: Buffer | string) => as(member)("POST", "/cluster/me/documents", filesForm(name, content));
 
-    const school = (name: string, stage: string, students: number, teachers: number, tier: string) => ({
-      ...emptySchoolLike(name), stage, students, teachers, tier,
+    // رشا: a complete file (every profile field, schools with their core data and today's absence, the five plans).
+    await setFields(rasha, {
+      nationalId: "1012345678", employeeNo: "445566", email: "r.qarni@moe.gov.sa", phone: "0551112233", rank: "متقدم", qualification: "ماجستير",
+      major: "رياضيات", supervisoryMajor: "إشراف تربوي — رياضيات", hireDate: "2010-09-01", supervisionStart: "2019-09-01",
     });
-    workspaces.saveWorkspace(rasha, { schools: [school("الابتدائية ١٢٠", "ابتدائي", 420, 31, "تميز"), school("المتوسطة ٣٣", "متوسط", 380, 28, "تقدم")] });
-    workspaces.saveWorkspace(maha, { schools: [school("الثانوية ٧", "ثانوي", 510, 40, "انطلاق")] });
+    await as(rasha)("POST", "/cluster/me/profile-fields", { label: "الدورات التدريبية", value: "٣ دورات" });
+    await must("PATCH", `/district/members/${rasha.id}/contact`, { clusterLabel: "عنقود ٤" }, headToken);
+    const school120 = await addSchool(rasha, { name: "الابتدائية ١٢٠", stage: "ابتدائي", area: "النزهة", ministryNo: "120120", classes: 14, students: 420, tier: "تميز" }, 31, true);
+    await addSchool(rasha, { name: "المتوسطة ٣٣", stage: "متوسط", area: "الروضة", ministryNo: "330033", classes: 12, students: 380, tier: "تقدم" }, 28, true);
+    for (const plan of await as(rasha)<{ id: string }[]>("GET", "/cluster/me/plans")) await as(rasha)("PATCH", `/plans/${plan.id}`, { url: "https://drive.example/plan" });
+    await as(rasha)("POST", "/visits", { schoolId: school120, type: "زيارة إشرافية", text: "متابعة خطة التحسين في الرياضيات وحضور حصتين" });
+    await upload(rasha, "خطة التحسين.txt", "خطة التحسين المدرسي للفصل الأول\nالهدف: رفع نتائج نافس في الرياضيات بنسبة ١٠٪\nالمسؤولة: رشا القرني");
 
-    workspaces.createVisit(rasha.id, { type: "زيارة إشرافية", text: "متابعة خطة التحسين في الرياضيات وحضور حصتين", schoolName: "الابتدائية ١٢٠" }, []);
-    workspaces.createVisit(maha.id, { type: "زيارة فنية", text: "مراجعة نتائج اختبارات نافس للصف الثالث", schoolName: "الثانوية ٧" }, []);
+    // مها: one school, a visit and a spreadsheet.
+    await setFields(maha, { qualification: "بكالوريوس" });
+    const school7 = await addSchool(maha, { name: "الثانوية ٧", stage: "ثانوي", students: 510, tier: "انطلاق" }, 40);
+    await as(maha)("POST", "/visits", { schoolId: school7, type: "زيارة فنية", text: "مراجعة نتائج اختبارات نافس للصف الثالث" });
+    await upload(maha, "حصر المدارس.xlsx", xlsxBuffer({ "المدارس": [["اسم المدرسة", "عدد الطالبات"], ["الثانوية ٧", 510], ["الثانوية ٩", 300]] }));
 
-    await documents.saveDocument({
-      ownerId: rasha.id, uploadedBy: rasha.id, name: "خطة التحسين.txt", mime: "text/plain",
-      buffer: Buffer.from("خطة التحسين المدرسي للفصل الأول\nالهدف: رفع نتائج نافس في الرياضيات بنسبة ١٠٪\nالمسؤولة: رشا القرني", "utf8"),
-    });
-    await documents.saveDocument({
-      ownerId: maha.id, uploadedBy: maha.id, name: "حصر المدارس.xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: xlsxBuffer({ "المدارس": [["اسم المدرسة", "عدد الطالبات"], ["الثانوية ٧", 510], ["الثانوية ٩", 300]] }),
-    });
-    await documents.saveDocument({
-      ownerId: muneera.id, uploadedBy: muneera.id, name: "تقرير الزيارات.csv", mime: "text/csv",
-      buffer: Buffer.from("المدرسة,الملاحظة\nالابتدائية ٥,تحتاج دعماً في القراءة\nالمتوسطة ٢,برنامج الموهوبات ممتاز", "utf8"),
-    });
+    // منيرة: two profile values and a CSV.
+    await setFields(muneera, { phone: "0509998877", rank: "خبير" });
+    await upload(muneera, "تقرير الزيارات.csv", "المدرسة,الملاحظة\nالابتدائية ٥,تحتاج دعماً في القراءة\nالمتوسطة ٢,برنامج الموهوبات ممتاز");
   }
 
-  let conversationId = chat.createConversation(head.id, "اختبار").id;
+  // ---------- the conversation, exactly as routes/chat.ts drives the agent ----------
+  let conversationId: string | null = null;
+  const conversation = async () => (conversationId ??= (await chat.createConversation(sql, head.id, "اختبار")).id);
+  const chatAttachment = (document: { id: string; name: string; kind: ChatAttachment["kind"]; size: number }): ChatAttachment =>
+    ({ id: document.id, name: document.name, kind: document.kind, size: document.size });
+
   /** Sends a message through the agent and stores both turns like the real route does. */
   async function ask(text: string, attachmentIds: string[] = []) {
-    const attachments = attachmentIds.map(id => documents.getDocument(id)!).filter(Boolean);
-    const history = chat.listMessages(conversationId);
-    chat.addMessage(conversationId, { role: "user", text, attachments: attachments.map(item => ({ id: item.id, name: item.name, kind: item.kind, size: item.size })) });
-    const reply = await agent.respond({ head, conversationId, history, attachments }, text);
-    chat.addMessage(conversationId, { role: "assistant", text: reply.text, blocks: reply.blocks });
+    const id = await conversation();
+    const attachments = (await Promise.all(attachmentIds.map(item => documents.getDocument(sql, item)))).filter(<T>(item: T | null): item is T => Boolean(item));
+    const history = await chat.listMessages(sql, id);
+    await chat.addMessage(sql, id, { role: "user", text, attachments: attachments.map(chatAttachment) });
+    const reply = await agent.respond({ head, conversationId: id, history, attachments, audit }, text);
+    await chat.addMessage(sql, id, { role: "assistant", text: reply.text, blocks: reply.blocks });
     return reply;
   }
-  const newConversation = () => { conversationId = chat.createConversation(head.id, "اختبار").id; };
+  /** The next ask() starts a fresh conversation. */
+  const newConversation = () => { conversationId = null; };
 
-  return { head, members, rasha, muneera, maha, manal, fatimaDosari, accounts, workspaces, documents, agent, chat, ask, newConversation };
-}
+  /** A file the head attaches in the chat (POST /chat/attachments). */
+  async function upload(name: string, content: Buffer | string) {
+    const [attachment] = await must<ChatAttachment[]>("POST", "/chat/attachments", filesForm(name, content), headToken);
+    return attachment.id;
+  }
 
-function emptySchoolLike(name: string) {
+  const approve = async (proposalId: string) => agent.applyProposal(head, (await chat.getProposal(sql, proposalId))!, audit);
+  const team = () => loadTeam(sql, head);
+  const detail = async (memberId: string) => (await team()).details.get(memberId)!;
+  const profile = async (memberId: string) => (await detail(memberId)).workspace.profile;
+  const valueOf = async (memberId: string, fieldId: string) => (await profile(memberId)).find(field => field.id === fieldId)?.value ?? "";
+  const account = async (memberId: string) => (await sql`select id, name, email, phone, title, activated_at from profiles where id = ${memberId}`)[0] ?? null;
+  const accountByEmail = async (email: string) => (await sql`select id, name, email, phone, title, activated_at from profiles where email = ${email}`)[0] ?? null;
+  const document = (id: string) => documents.getDocument(sql, id);
+
   return {
-    id: `school-${name}`, name, stage: "", area: "", ministryNo: "", email: "", educationType: "", specialEducation: "", hasGuard: "",
-    classes: 0, students: 0, giftedClasses: 0, giftedStudents: 0, teachesChinese: "", teachers: 0, admin: 0, deputies: 0, expert: 0, advanced: 0,
-    tier: "", support: "", nafes: "", qudrat: 0, tahsili: 0, madrasati: [0, 0, 0, 0, 0, 0], discipline: [0, 0, 0], absence: false, principal: "",
+    api, sql, head, headToken, audit, tokens, members, rasha, muneera, maha, manal, fatimaDosari, agent, chat, documents,
+    ask, newConversation, conversation, upload, approve, team, detail, profile, valueOf, account, accountByEmail, document,
+    stop: api.stop,
   };
 }
+
+export type Fixture = Awaited<ReturnType<typeof setupFixture>>;

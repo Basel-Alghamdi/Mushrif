@@ -14,7 +14,7 @@ export function DocumentsBlock({ block }: { block: DocumentsBlockData }) {
   const [error, setError] = useState("");
   const fetchFile = (id: string, name: string, open: boolean) => {
     setError("");
-    downloadFile(`/documents/${id}/download`, name, open).catch((reason: Error) => setError(reason.message));
+    downloadFile(`/attachments/${id}/download`, name, open).catch((reason: Error) => setError(reason.message));
   };
 
   return (

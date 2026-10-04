@@ -1,86 +1,17 @@
 // Reads files dropped into the chat and turns them into profile/school changes for the right members.
-import type { ChatBlock, MemberDetail, ProposalChange, School } from "@rasd/schemas";
-import type { Account } from "../accounts.js";
-import { cleanText, normalizeEmail } from "../db.js";
+import type { ChatBlock, ProposalChange } from "@rasd/schemas";
 import type { DocumentTable, StoredDocument } from "../documents.js";
+import { cleanText, normalizeEmail } from "../parse.js";
 import { detailOf, normalizeFieldValue, profileField, type TeamSnapshot } from "./data.js";
-import { findPhrase, phrase, PROFILE_FIELD_TABLE, type Phrase } from "./lexicon.js";
+import { classifyHeader, findHeaderRow, headerScore, isSequential, SCHOOL_NUMBERS, type Column } from "./headers.js";
+import type { MemberDetail, School, Session } from "./model.js";
 import { findMentions, matchFullName, resolvedIds } from "./names.js";
-import { comparable, EMAIL_PATTERN, normalizeText, tokenize, westernDigits } from "./normalize.js";
+import { comparable, EMAIL_PATTERN, tokenize, westernDigits } from "./normalize.js";
 import { executePayload, proposeChanges, type AgentReply, type DocumentAssignment, type NewMemberSuggestion, type ProposalPayload, type SchoolUpsert } from "./proposals.js";
 import { ar, choices, count, countAcc, countGen, NOUNS, shortName } from "./render.js";
 
 export const OWNER_PROMPT = "هذا الملف يخص من؟";
 const NEW_VALUE = { one: "قيمة جديدة واحدة", two: "قيمتان جديدتان", twoGen: "قيمتين جديدتين", few: "قيم جديدة", many: "قيمة جديدة" };
-
-// ---------- Header recognition ----------
-type SchoolKey = Exclude<keyof School, "id" | "madrasati" | "discipline" | "absence" | "absenceDate" | "customFields" | "staffTiles" | "leadership" | "updatedAt">;
-type Column =
-  | { kind: "profile"; fieldId: string; label: string }
-  | { kind: "school"; key: SchoolKey; label: string }
-  | { kind: "member"; label: string }
-  | { kind: "custom"; label: string }
-  | { kind: "ignore"; label: string };
-
-const SCHOOL_HEADERS: Partial<Record<SchoolKey, string[]>> = {
-  name: ["اسم المدرسة", "المدرسة", "school"],
-  stage: ["المرحلة", "المرحلة الدراسية", "stage"],
-  area: ["الحي", "المنطقة", "الموقع", "المكتب"],
-  ministryNo: ["الرقم الوزاري", "رقم المدرسة", "الرقم الإحصائي", "رمز المدرسة"],
-  email: ["بريد المدرسة", "ايميل المدرسة"],
-  educationType: ["نوع التعليم", "نوع المدرسة"],
-  specialEducation: ["التربية الخاصة"],
-  hasGuard: ["حارس", "يوجد حارس"],
-  classes: ["عدد الفصول", "الفصول"],
-  students: ["عدد الطالبات", "الطالبات", "عدد الطلاب", "الطلاب"],
-  teachers: ["عدد المعلمات", "المعلمات", "عدد المعلمين", "المعلمين"],
-  admin: ["عدد الإداريات", "الإداريات", "الإداريين"],
-  deputies: ["عدد الوكيلات", "الوكيلات"],
-  giftedStudents: ["عدد الموهوبات", "الموهوبات"],
-  tier: ["التصنيف", "تصنيف المدرسة", "مستوى المدرسة"],
-  principal: ["مديرة المدرسة", "المديرة", "اسم المديرة", "قائدة المدرسة", "القائدة", "اسم القائدة"],
-  notes: ["ملاحظات", "الملاحظات"],
-};
-const SCHOOL_NUMBERS = new Set<SchoolKey>(["classes", "students", "teachers", "admin", "deputies", "giftedStudents", "giftedClasses", "expert", "advanced", "qudrat", "tahsili"]);
-const MEMBER_COLUMN = ["اسم المشرفة", "المشرفة", "اسم العضوة", "العضوة", "المسؤولة", "المشرفة المسؤولة", "اسم المسؤولة"].map(phrase);
-const IGNORED_HEADERS = new Set(["م", "#", "ت", "ر", "no", "رقم", "الرقم", "التسلسل", "تسلسل", "الرقم التسلسلي", "طابع زمني", "الطابع الزمني", "timestamp"].map(item => normalizeText(item)));
-const SCHOOL_TABLE = (Object.entries(SCHOOL_HEADERS) as [SchoolKey, string[]][]).flatMap(([key, list]) => list.map(item => ({ key, phrase: phrase(item) })));
-
-/** Share of the header's words covered by the phrase (0 when absent). */
-function coverage(header: string, target: Phrase) {
-  const tokens = tokenize(header).filter(token => !token.punct);
-  if (!tokens.length) return 0;
-  const span = findPhrase(tokens, target);
-  return span ? (span.end - span.start + 1) / tokens.length : 0;
-}
-
-export function classifyHeader(header: string): Column {
-  const label = cleanText(header);
-  const normalized = normalizeText(label);
-  if (!normalized || IGNORED_HEADERS.has(normalized)) return { kind: "ignore", label };
-  let best: { column: Column; score: number } = { column: { kind: "custom", label }, score: 0 };
-  const consider = (column: Column, target: Phrase) => {
-    const score = coverage(label, target);
-    if (score > best.score || (score === best.score && score > 0 && target.words.length > 1)) best = { column, score };
-  };
-  for (const entry of SCHOOL_TABLE) consider({ kind: "school", key: entry.key, label }, entry.phrase);
-  for (const target of MEMBER_COLUMN) consider({ kind: "member", label }, target);
-  for (const entry of PROFILE_FIELD_TABLE) consider({ kind: "profile", fieldId: entry.key, label }, entry.phrase);
-  return best.score >= 0.5 ? best.column : { kind: "custom", label };
-}
-
-const headerScore = (row: string[]) => row.filter(cell => cell && cell.length <= 60 && classifyHeader(cell).kind !== "custom" && classifyHeader(cell).kind !== "ignore").length;
-
-function findHeaderRow(rows: string[][]) {
-  let best = { index: 0, score: 0 };
-  rows.slice(0, 10).forEach((row, index) => {
-    const score = headerScore(row);
-    if (score > best.score) best = { index, score };
-  });
-  return best;
-}
-
-const isSequential = (values: string[]) => values.length >= 2 && values.every((value, index) => Number(westernDigits(value)) === index + 1);
 
 // ---------- Value helpers ----------
 const cleanValue = normalizeFieldValue;
@@ -123,15 +54,8 @@ type FileAnalysis = {
   notes: string[];
 };
 
-type ImportContext = { head: Account; team: TeamSnapshot; text: string; forcedMemberId?: string };
-
-function detailCache(head: Account) {
-  const cache = new Map<string, MemberDetail | null>();
-  return (id: string) => {
-    if (!cache.has(id)) cache.set(id, detailOf(head.id, id));
-    return cache.get(id) ?? null;
-  };
-}
+/** `fileNow: false` (Claude's import_attachment): even a file that only needs filing waits on the card. */
+type ImportContext = { session: Session; team: TeamSnapshot; text: string; forcedMemberId?: string; fileNow?: boolean };
 
 function describeDocument(document: StoredDocument) {
   if (document.status === "failed") return `لم أستطع قراءة «${document.name}»`;
@@ -140,7 +64,7 @@ function describeDocument(document: StoredDocument) {
     return `قرأت «${document.name}» (${document.tables.length === 1 ? "ورقة واحدة" : `${ar(document.tables.length)} أوراق`}، ${count(rows, NOUNS.row)})`;
   }
   if (document.kind === "image" || document.kind === "audio") return `استلمت «${document.name}»`;
-  return `قرأت «${document.name}»${document.pages ? ` (${ar(document.pages)} صفحات)` : ""}`;
+  return `قرأت «${document.name}»${document.pages ? ` (${count(document.pages, NOUNS.page)})` : ""}`;
 }
 
 /** Member a document refers to: forced → Khulood's message → file name → name/email values → names in the text. */
@@ -209,7 +133,8 @@ function pairChanges(detail: MemberDetail, pairs: { label: string; value: string
   return [...changes.values()];
 }
 
-function analyzeTable(context: ImportContext, document: StoredDocument, table: DocumentTable, analysis: FileAnalysis, detail: (id: string) => MemberDetail | null): "roster" | "schools" | "generic" {
+function analyzeTable(context: ImportContext, document: StoredDocument, table: DocumentTable, analysis: FileAnalysis): "roster" | "schools" | "generic" {
+  const detail = (id: string) => detailOf(context.team, id);
   const { index: headerIndex } = findHeaderRow(table.rows);
   const header = table.rows[headerIndex] ?? [];
   const body = table.rows.slice(headerIndex + 1).filter(row => row.some(Boolean));
@@ -327,13 +252,14 @@ function looksLikeForm(table: DocumentTable) {
   return twoColumn.length >= 2 && twoColumn.filter(row => classifyHeader(row[0]).kind === "profile").length >= 2 && headerScore(table.rows[0] ?? []) < 2;
 }
 
-export function analyzeDocument(context: ImportContext, document: StoredDocument, detail = detailCache(context.head)): FileAnalysis {
+export function analyzeDocument(context: ImportContext, document: StoredDocument): FileAnalysis {
+  const detail = (id: string) => detailOf(context.team, id);
   const analysis: FileAnalysis = { document, description: describeDocument(document), changes: [], newMembers: [], unmatched: [], schools: [], owner: null, ownerCandidates: [], needsOwner: false, notes: [] };
   if (document.status === "failed") return analysis;
 
   if (document.kind === "spreadsheet") {
     // Rosters and school lists are handled row by row; any other sheet is treated as one member's document.
-    const structured = document.tables.filter(table => !looksLikeForm(table) && analyzeTable(context, document, table, analysis, detail) !== "generic");
+    const structured = document.tables.filter(table => !looksLikeForm(table) && analyzeTable(context, document, table, analysis) !== "generic");
     if (structured.length) return analysis;
   }
 
@@ -364,9 +290,8 @@ function ownerQuestion(context: ImportContext, document: StoredDocument, candida
 }
 
 /** Handles the files attached to Khulood's message (both brains use this). */
-export function importAttachments(context: ImportContext & { conversationId: string; documents: StoredDocument[] }): AgentReply {
-  const detail = detailCache(context.head);
-  const analyses = context.documents.map(document => analyzeDocument(context, document, detail));
+export async function importAttachments(context: ImportContext & { documents: StoredDocument[] }): Promise<AgentReply> {
+  const analyses = context.documents.map(document => analyzeDocument(context, document));
   const lines: string[] = analyses.map(analysis => `- ${analysis.description}`);
   const blocks: ChatBlock[] = [];
 
@@ -381,7 +306,7 @@ export function importAttachments(context: ImportContext & { conversationId: str
     if (owner && analysis.document.ownerId !== owner.id) {
       const assignment = { documentId: analysis.document.id, documentName: analysis.document.name, memberId: owner.id, memberName: owner.name };
       // A file that only needs filing is filed right away; one that also fills data waits for approval with its changes.
-      if (analysis.changes.length) payload.assignments!.push(assignment);
+      if (analysis.changes.length || context.fileNow === false) payload.assignments!.push(assignment);
       else immediate.push(assignment);
     }
   }
@@ -408,7 +333,7 @@ export function importAttachments(context: ImportContext & { conversationId: str
     payload.title = `تحديث البيانات من ${fileNames}`;
     payload.summary = summaryParts.join("، و") || "ربط الملف بملف المشرفة";
     const kind = schoolCount && !payload.changes!.length ? "school_updates" : payload.newMembers!.length && !payload.changes!.length ? "new_members" : "import";
-    blocks.push(proposeChanges(context.head, context.conversationId, kind, payload));
+    blocks.push(await proposeChanges(context.session, kind, payload));
     lines.push("", `${payload.summary}. راجعي التغييرات واعتمديها بضغطة واحدة، أو ألغيها إن لم تناسبك.`);
   } else if (analyses.some(analysis => analysis.document.kind === "spreadsheet" && !analysis.needsOwner && analysis.document.status === "ready")) {
     lines.push("", "قارنت الملف ببيانات المنصة — كل القيم فيه مطابقة لما هو مسجّل، فلا يوجد شيء جديد لإضافته.");
@@ -420,7 +345,7 @@ export function importAttachments(context: ImportContext & { conversationId: str
   }
 
   if (immediate.length) {
-    const filed = executePayload(context.head, context.conversationId, { title: "", summary: "", assignments: immediate });
+    const filed = await executePayload(context.session, { title: "", summary: "", assignments: immediate });
     lines.push("", immediate.map(item => `حفظت «${item.documentName}» في ملف ${shortName(item.memberName)} — صار يظهر في ملفاتها ويمكن البحث فيه.`).join("\n"));
     blocks.push(...filed.blocks.filter(block => block.type === "applied"));
   }
