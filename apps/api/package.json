@@ -5,25 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
     "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
-    "lint": "tsc --noEmit"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "bootstrap:head": "tsx scripts/bootstrap-head.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@hono/node-server": "^1.14.4",
     "@rasd/schemas": "workspace:*",
+    "@supabase/supabase-js": "^2.117.2",
     "hono": "^4.8.3",
+    "jose": "^6.2.12",
     "mammoth": "^1.13.0",
+    "postgres": "^3.4.9",
+    "tsx": "^4.20.3",
     "unpdf": "^1.8.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.15.32",
-    "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   }
 }

@@ -1,75 +1,84 @@
 "use client";
 
-import type { ApiError } from "@rasd/schemas";
+import { signOut, supabase } from "./supabase";
 
-const TOKEN_KEY = "rasd:token";
-const BASE = "/api/v1"; // same-origin; next.config.ts proxies to the API server
+// Empty = same origin: next.config.ts forwards /api/v1 to the API (works from phones on the network, no CORS).
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
-export const getToken = () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY));
-export const setToken = (token: string | null) => {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-};
-
-export class ApiRequestError extends Error {
-  constructor(message: string, public status: number, public code: string, public payload: ApiError | null) { super(message); }
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+    readonly fields?: Record<string, string>,
+    readonly details?: { current?: Record<string, unknown> },
+  ) {
+    super(message);
+  }
 }
 
-const AUTH_PATHS = ["/auth/check", "/auth/login", "/auth/activate"];
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+type Options = { method?: Method; body?: unknown; source?: "web" | "mobile"; auth?: boolean };
 
-/** Sends the session to /login (used when the API answers 401). */
-export function goToLogin() {
-  setToken(null);
-  if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) window.location.replace("/login");
+async function authHeader(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  return data.session ? { authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
+async function send<T>(path: string, init: RequestInit, auth: boolean): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, {
-      ...init,
-      headers: {
-        ...(init.body && !isForm ? { "content-type": "application/json" } : {}),
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(init.headers ?? {}),
-      },
-    });
+    response = await fetch(`${API_URL}/api/v1${path}`, { ...init, headers: { ...(init.headers ?? {}), ...(auth ? await authHeader() : {}) } });
   } catch {
-    throw new ApiRequestError("تعذّر الاتصال بالخادم — تأكدي من الإنترنت وأعيدي المحاولة", 0, "NETWORK", null);
+    throw new ApiError("تعذّر الاتصال بالخادم — تحققي من الشبكة", 0, "NETWORK");
   }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    if (response.status === 401 && !AUTH_PATHS.includes(path)) goToLogin();
-    const error = (payload as ApiError | null)?.error;
-    throw new ApiRequestError(error?.message ?? "حدث خطأ — أعيدي المحاولة", response.status, error?.code ?? "ERROR", payload as ApiError | null);
+    const error = payload?.error ?? {};
+    throw new ApiError(error.message ?? "تعذّر الحفظ — أعيدي المحاولة", response.status, error.code ?? "UNKNOWN", error.fields, error.details);
   }
-  return (payload as { data: T }).data;
+  return payload?.data as T;
 }
 
-export const api = {
+async function request<T = unknown>(path: string, { method = "GET", body, source = "web", auth = true }: Options = {}): Promise<T> {
+  const headers: Record<string, string> = { "x-rasd-source": source };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  return send<T>(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }, auth);
+}
+
+/** `api(path, options)` as in main, plus shorthands: api.get / post / put / patch / del / upload. */
+export const api = Object.assign(request, {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
-  put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  post: <T>(path: string, body: unknown = {}) => request<T>(path, { method: "POST", body }),
+  put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body }),
+  patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   /** Multipart upload; files are sent under the "files" field. */
   upload: <T>(path: string, files: File[] | FileList) => {
     const form = new FormData();
     for (const file of Array.from(files)) form.append("files", file, file.name);
-    return request<T>(path, { method: "POST", body: form });
+    return send<T>(path, { method: "POST", headers: { "x-rasd-source": "web" }, body: form }, true);
   },
-};
+});
+
+/** Sends the user to the login page when the session is gone. Returns true if it redirected. */
+export function redirectIfSignedOut(error: unknown) {
+  if (error instanceof ApiError && (error.status === 401 || error.code === "NO_PROFILE")) {
+    window.location.replace("/login");
+    return true;
+  }
+  return false;
+}
+
+export const errorText = (error: unknown) => (error instanceof Error ? error.message : "تعذّر الحفظ — أعيدي المحاولة");
 
 // Only these may be previewed in a tab; anything else (html, svg…) is downloaded so it can never run in our origin.
 const PREVIEWABLE = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/(plain|csv)|audio\/)/;
 
 /** Downloads (or opens, for safe types) an authenticated file, e.g. /documents/:id/download. */
 export async function downloadFile(path: string, filename: string, open = false) {
-  const token = getToken();
-  const response = await fetch(`${BASE}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (!response.ok) throw new ApiRequestError("تعذّر تنزيل الملف", response.status, "DOWNLOAD", null);
+  const response = await fetch(`${API_URL}/api/v1${path}`, { headers: await authHeader() });
+  if (!response.ok) throw new ApiError("تعذّر تنزيل الملف", response.status, "DOWNLOAD");
   const blob = await response.blob();
   const previewable = PREVIEWABLE.test(blob.type);
   const url = URL.createObjectURL(previewable ? blob : new Blob([blob], { type: "application/octet-stream" }));
@@ -83,8 +92,4 @@ export async function downloadFile(path: string, filename: string, open = false)
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export async function logout() {
-  try { await api.post("/auth/logout"); } catch { /* already signed out */ }
-  setToken(null);
-  window.location.replace("/login");
-}
+export const logout = signOut;

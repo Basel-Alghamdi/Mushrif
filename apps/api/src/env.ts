@@ -1,15 +1,23 @@
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import "./load-env.js";
 
-// Load apps/api/.env (if present) before anything reads process.env.
-// Values still holding a "PASTE_..." placeholder are treated as unset.
-const envFile = fileURLToPath(new URL("../.env", import.meta.url));
-if (existsSync(envFile)) {
-  try { process.loadEnvFile(envFile); } catch { /* malformed .env: keep process env as-is */ }
-}
-
-export function env(name: string): string | undefined {
+function required(name: string) {
   const value = process.env[name]?.trim();
-  if (!value || value.startsWith("PASTE_")) return undefined;
+  if (!value) throw new Error(`Missing required environment variable ${name} (see .env.example)`);
   return value;
 }
+
+const appUrl = process.env.APP_URL?.trim() || "http://localhost:3000";
+
+export const env = {
+  port: Number(process.env.PORT ?? 4000),
+  appUrl,
+  corsOrigins: (process.env.CORS_ORIGINS?.trim() || appUrl).split(",").map(origin => origin.trim()).filter(Boolean),
+  databaseUrl: required("DATABASE_URL"),
+  supabaseUrl: required("SUPABASE_URL").replace(/\/$/, ""),
+  // Supabase secret key (sb_secret_…): server-only, used for Auth admin calls.
+  supabaseSecretKey: required("SUPABASE_SECRET_KEY"),
+  // Only for projects still on the legacy shared JWT secret; otherwise tokens are verified against the project's JWKS.
+  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET?.trim() || null,
+  resendApiKey: process.env.RESEND_API_KEY?.trim() || null,
+  resendFrom: process.env.RESEND_FROM?.trim() || null,
+};

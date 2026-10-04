@@ -103,3 +103,6 @@ select.input{appearance:none;background-image:linear-gradient(45deg,transparent 
   .btn-sm{min-height:36px}
   .card{padding:16px}
 }
+
+/* Field the server rejected (kept from main) */
+input.invalid,select.invalid,textarea.invalid{border-color:var(--danger)!important}

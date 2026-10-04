@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "module": "ESNext" },
-  "include": ["src"]
+  "compilerOptions": { "module": "ESNext", "noEmit": true },
+  "include": ["src", "scripts"]
 }
