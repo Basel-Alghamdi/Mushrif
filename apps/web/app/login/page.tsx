@@ -219,7 +219,8 @@ export default function LoginPage() {
               <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
               <div className="lg-title">
                 <h1>{first ? `أهلاً ${first}` : "أهلاً بك"}</h1>
-                <p>{step === "password" ? "اكتبي كلمة المرور للدخول." : "أول مرة تدخلين — اختاري كلمة مرور لحسابك."}</p>
+                {/* A remembered name means she signed in here before: after a reset it is not her first time. */}
+                <p>{step === "password" ? "اكتبي كلمة المرور للدخول." : name ? "اختاري كلمة مرور جديدة لحسابك." : "أول مرة تدخلين — اختاري كلمة مرور لحسابك."}</p>
                 <p className="lg-who">
                   <bdi dir="ltr" className="lg-who-email">{email}</bdi>
                   <button type="button" className="lg-link" onClick={changeEmail}>{first ? `لستِ ${first}؟ غيّري البريد` : "غيّري البريد"}</button>

@@ -6,7 +6,7 @@ import {
 } from "./data.js";
 import { askWhich, buildContext, has, metric, negated, reply, smallNumber, spanOf, words, type Ctx, type EngineInput } from "./engine-context.js";
 import { METRIC_LABELS, phrases, TITLE_FILTERS, W, type MetricId } from "./lexicon.js";
-import type { MemberDetail, MemberSummary } from "./model.js";
+import type { MemberDetail, MemberSummary, School } from "./model.js";
 import { addCustomField, addMember, deleteMemberHelp, editCommand, implicitEdit, messages, report, undoLast } from "./local-actions.js";
 import { coreWord, normalizeArabic, normalizeText } from "./normalize.js";
 import { describeSchool, type AgentReply } from "./proposals.js";
@@ -148,12 +148,30 @@ function fieldAnswer(detail: MemberDetail, fieldId: string): string {
   return `${field.label} لـ ${who}: **${value}**`;
 }
 
+/** Every value recorded for a school, so «كم عدد الفصول…» or «وش الرقم الوزاري…» is answered by the same card. */
+function schoolCard(school: School): ChatBlock | null {
+  const values: [string, string | number | null | undefined][] = [
+    ["المرحلة", school.stage], ["الحي", school.area], ["الرقم الوزاري", school.ministryNo], ["الطالبات", school.students],
+    ["المعلمات", school.teachers], ["الفصول", school.classes], ["التصنيف", school.tier], ["نوع الدعم", school.support],
+    ["نافس", school.nafes], ["القدرات", school.qudrat], ["التحصيلي", school.tahsili], ["المديرة", school.principal],
+    ["غياب اليوم", school.absence ? "مرصود ✓" : ""],
+  ];
+  const rows = values.filter(([, value]) => value !== null && value !== undefined && value !== "" && value !== 0).map(([label, value]) => [label, typeof value === "number" ? value : String(value)]);
+  return rows.length ? { type: "table", title: school.name, columns: ["البند", "القيمة"], rows } : null;
+}
+
+/** «وش نافس مدرستها؟» / «نوع الدعم في مدارس جوهرة» ask for a value the schools list does not show. */
+const SCHOOL_DETAIL_WORDS = phrases(["نافس", "الدعم", "القدرات", "التحصيلي", "الوزاري", "الحي", "الفصول", "فصول", "التصنيف", "تصنيف*", "المديرة", "مديرة", "القائدة", "قائدة", "مؤشرات", "المؤشرات"]);
+
 function metricAnswer(ctx: Ctx, detail: MemberDetail, key: MetricId): AgentReply {
   const who = mention(detail);
   const schools = detail.workspace.schools;
   switch (key) {
     case "schools":
       if (!schools.length) return reply(`${who} لم تضف مدارسها بعد.`, memberChoices(detail));
+      if (has(ctx, SCHOOL_DETAIL_WORDS)) {
+        return reply(`${schools.length === 1 ? "مدرسة" : "مدارس"} ${who} — ${schools.map(school => `«${school.name}»: ${describeSchool(school)}`).join("، ")}.`, ...schools.slice(0, 8).map(schoolCard));
+      }
       return reply(`عند ${who} ${count(schools.length, NOUNS.school)}: ${listText(schools.map(school => school.name), 8)}${peopleText(detail.studentCount, detail.teacherCount) ? ` — فيها ${peopleText(detail.studentCount, detail.teacherCount)}` : ""}.`,
         { type: "table", title: `مدارس ${who}`, columns: ["المدرسة", "المرحلة", "الطالبات", "المعلمات", "التصنيف"], rows: schools.map(school => [school.name, school.stage || "—", Number(school.students) || 0, Number(school.teachers) || 0, school.tier || "—"]) });
     case "students":
@@ -215,7 +233,8 @@ function answerFor(ctx: Ctx, id: string): AgentReply | null {
     const value = String(custom.value ?? "").trim();
     return reply(value ? `${custom.label} لـ ${mention(detail)}: **${value}**` : `${mention(detail)} لم تعبّئ «${custom.label}» بعد.`);
   }
-  const key = ctx.metrics.find(item => item.key !== "members")?.key;
+  // «كم مدرسة رصدت فيها الغياب؟» is about absence, not the schools list.
+  const key = (metric(ctx, "absence") ? ("absence" as const) : undefined) ?? ctx.metrics.find(item => item.key !== "members")?.key;
   if (key) return metricAnswer(ctx, detail, key);
   return summaryOf(detail);
 }
@@ -442,16 +461,8 @@ function schoolSearch(ctx: Ctx): AgentReply | null {
   });
   if (named.length) {
     const [{ school, member }] = named;
-    // Every value recorded for the school, so «كم عدد الفصول…» or «وش الرقم الوزاري…» is answered by the same card.
-    const values: [string, string | number | null | undefined][] = [
-      ["المرحلة", school.stage], ["الحي", school.area], ["الرقم الوزاري", school.ministryNo], ["الطالبات", school.students],
-      ["المعلمات", school.teachers], ["الفصول", school.classes], ["التصنيف", school.tier], ["نوع الدعم", school.support],
-      ["نافس", school.nafes], ["القدرات", school.qudrat], ["التحصيلي", school.tahsili], ["المديرة", school.principal],
-      ["غياب اليوم", school.absence ? "مرصود ✓" : ""],
-    ];
-    const rows = values.filter(([, value]) => value !== null && value !== undefined && value !== "" && value !== 0).map(([label, value]) => [label, typeof value === "number" ? value : String(value)]);
     return reply(`«${school.name}» في ملف ${mention(member)} — ${describeSchool(school)}.`,
-      rows.length ? { type: "table", title: school.name, columns: ["البند", "القيمة"], rows } : null,
+      schoolCard(school),
       choices([{ label: `مدارس ${mention(member)}`, message: `مدارس ${member.name}` }, { label: `ملف ${mention(member)}`, message: `ملف ${member.name}` }]));
   }
 
@@ -541,7 +552,7 @@ const SUMMABLE: Partial<Record<MetricId, { noun: typeof NOUNS.school; field: key
 function counts(ctx: Ctx): AgentReply | null {
   if (!has(ctx, W.count) || ctx.targetId || ctx.ambiguous) return null;
   const { stats, members } = ctx.team;
-  const key = ctx.metrics[0]?.key
+  const key = (metric(ctx, "absence") ? ("absence" as const) : null) ?? ctx.metrics[0]?.key
     ?? (ctx.tokens.some(token => ["ملف", "ملفات"].includes(token.norm)) ? "documents" : null)
     ?? (ctx.tokens.some(token => ["وحده", "وحدة", "عضوه", "مشرفه"].includes(token.norm)) ? "members" : null);
   if (!key) return null;

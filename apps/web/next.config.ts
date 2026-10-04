@@ -10,6 +10,8 @@ const explicitEnvFile = process.env.RASD_ENV_FILE?.trim();
 const envFile = explicitEnvFile || resolve(process.cwd(), "../../.env");
 if (existsSync(envFile)) {
   for (const [key, value] of Object.entries(parseEnv(readFileSync(envFile, "utf8")))) {
+    // PORT in a shared env file is the API's port: `next dev` reads it when it restarts itself and would take the API's port.
+    if (key === "PORT") continue;
     const current = process.env[key];
     // A leftover "PASTE_…" placeholder (old apps/web/.env.local) never hides a real value from the root .env.
     if (explicitEnvFile || current === undefined || current.startsWith("PASTE_")) process.env[key] = value;
