@@ -309,10 +309,15 @@ function documentContent(ctx: Ctx): AgentReply | null {
   return reply(`هذا محتوى «${document.name}»${owner}. ${structure}أول ما فيه:\n\n${preview}${body.length > preview.length ? "\n…" : ""}`, documentsBlock([document]));
 }
 
+/** «وش رفعت جوهرة؟» asks for her files even without the word «ملفات» (not «ما رفعت», not «رفعت التحديث»). */
+const UPLOADED = phrases(["رفعت", "رفعن", "رفعته", "رفعتها", "رفعوا"]);
+const asksUploads = (ctx: Ctx) =>
+  has(ctx, UPLOADED) && !negated(ctx, spanOf(ctx, UPLOADED)) && !ctx.fields.length && ctx.metrics.every(item => item.key === "members");
+
 function documents(ctx: Ctx): AgentReply | null {
   const content = documentContent(ctx);
   if (content) return content;
-  if (!metric(ctx, "documents")) return null;
+  if (!metric(ctx, "documents") && !asksUploads(ctx)) return null;
   if (ctx.ambiguous && !ctx.targetId) return askWhich(ctx, ctx.ambiguous);
   if (ctx.targetId) {
     const detail = ctx.detail(ctx.targetId);
@@ -541,6 +546,13 @@ function counts(ctx: Ctx): AgentReply | null {
     ?? (ctx.tokens.some(token => ["وحده", "وحدة", "عضوه", "مشرفه"].includes(token.norm)) ? "members" : null);
   if (!key) return null;
   if (key === "members") {
+    // «كم مشرفة صفتها عضو نواتج تعلم؟» counts that title, not the whole team.
+    const title = TITLE_FILTERS.find(item => spanOf(ctx, [item.phrase]));
+    if (title) {
+      const matching = members.filter(member => normalizeArabic(member.title).includes(title.match));
+      if (!matching.length) return reply(`لا يوجد في الفريق أحد بصفة تحتوي «${title.match}».`);
+      return reply(`عدد ${title.label} في الفريق: **${ar(matching.length)}** من ${ar(stats.members)}.`, membersTable(matching));
+    }
     return reply(`عدد المشرفات في الفريق: **${ar(stats.members)}** — ${activatedText(stats.activated)}، و${ar(stats.notActivated)} لم يدخلن بعد.`, choices([{ label: "قائمة المشرفات", message: "اعرضي المشرفات" }]));
   }
   if (key === "completion") {
@@ -565,6 +577,18 @@ function counts(ctx: Ctx): AgentReply | null {
   );
 }
 
+// ---------- Absence today across the team («من ثبّتت الغياب اليوم؟») ----------
+function absenceToday(ctx: Ctx): AgentReply | null {
+  if (!metric(ctx, "absence") || ctx.targetId || ctx.ambiguous) return null;
+  const withSchools = ctx.team.members.filter(member => member.schoolCount > 0).sort((a, b) => b.absenceDoneToday - a.absenceDoneToday);
+  if (!withSchools.length) return reply("لم تُسجَّل أي مدرسة بعد، فلا يوجد غياب لرصده اليوم.");
+  const done = withSchools.reduce((sum, member) => sum + member.absenceDoneToday, 0);
+  return reply(
+    `رُصد الغياب اليوم في ${count(done, NOUNS.school)} من أصل ${ar(ctx.team.stats.schools)}.`,
+    { type: "table", title: "رصد الغياب اليوم", columns: ["الاسم", "رصدت", "مدارسها"], rows: withSchools.map(member => [member.name, member.absenceDoneToday, member.schoolCount]), memberIds: withSchools.map(member => member.id) },
+  );
+}
+
 // ---------- Fallback ----------
 function fallback(ctx: Ctx): AgentReply {
   const hits = searchDocuments(ctx.team, ctx.raw, { limit: 5, requireAll: true });
@@ -583,7 +607,7 @@ type Handler = (ctx: Ctx) => AgentReply | null | Promise<AgentReply | null>;
 const HANDLERS: [intent: string, handler: Handler][] = [
   ["undo", undoLast], ["add_field", addCustomField], ["add_member", addMember], ["delete_member", deleteMemberHelp],
   ["edit", editCommand], ["edit", implicitEdit], ["messages", messages], ["report", report], ["compare", compare], ["search", search],
-  ["missing", missing], ["filter", filters], ["schools", schoolSearch], ["documents", documents], ["ranking", rankings], ["count", counts],
+  ["missing", missing], ["filter", filters], ["schools", schoolSearch], ["documents", documents], ["ranking", rankings], ["count", counts], ["absence", absenceToday],
   ["member", memberQuestion], ["team_field", teamField], ["overview", overview], ["list", listMembers], ["social", social],
 ];
 
