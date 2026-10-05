@@ -4,6 +4,7 @@ import type { AuthCheckResult } from "@rasd/schemas";
 import { Eye, EyeOff, Info, LoaderCircle, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { BrandMark } from "../../components/brand/brand-mark";
 import { api, ApiError, errorText } from "../../lib/api";
 import { ar, firstName } from "../../lib/format";
 import { enforceSessionOnly, rememberDevice, supabase, supabaseConfigured } from "../../lib/supabase";
@@ -178,7 +179,7 @@ export default function LoginPage() {
       <aside className="lg-panel">
         <div className="lg-panel-inner">
           <div className="lg-brand lg-brand-light">
-            <span className="lg-mark">ر</span>
+            <BrandMark className="lg-mark" />
             <b>رَصد</b>
           </div>
           <h2>مساحة واحدة للفريق التنفيذي</h2>
@@ -189,7 +190,7 @@ export default function LoginPage() {
       <section className="lg-main">
         <div className="lg-card">
           <div className="lg-brand">
-            <span className="lg-mark">ر</span>
+            <BrandMark className="lg-mark" />
             <b>رَصد</b>
           </div>
 

@@ -4,6 +4,7 @@ import { ClipboardList, FolderOpen, House, School, UserRound, type LucideIcon } 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect } from "react";
+import { BrandMark } from "../brand/brand-mark";
 import { useMember } from "./context";
 import { displayName, initialsOf } from "./model";
 import { SaveIndicator } from "./ui";
@@ -37,7 +38,7 @@ export function MemberShell({ children }: { children: ReactNode }) {
     <div className="m-shell">
       <header className="m-top">
         <Link href="/cluster" className="m-brand" aria-label="رَصد — اليوم">
-          <span className="m-brand-mark" aria-hidden>ر</span>
+          <BrandMark className="m-brand-mark" />
           <span className="m-brand-name">رَصد</span>
         </Link>
         <SaveIndicator state={saveState} onRetry={retry} />

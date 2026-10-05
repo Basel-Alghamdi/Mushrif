@@ -8,7 +8,8 @@
 
 .lg-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
 .lg-brand b{display:block;font-size:17px;line-height:1.3}
-.lg-mark{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--primary);color:#fff;font-size:20px;font-weight:700;box-shadow:var(--shadow-primary)}
+.lg-mark{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;padding:5px;background:#fff;box-shadow:0 0 0 1px var(--border),0 2px 8px rgba(0,0,0,.06)}
+.lg-mark img{display:block;width:100%;height:100%}
 
 .lg-title h1{font-size:22px}
 .lg-title p{margin-top:2px;color:var(--text-2);font-size:14px}
@@ -46,7 +47,7 @@
   .lg-panel p{font-size:15px;color:#ffffffcc;line-height:1.9}
   .lg-brand-light{margin-bottom:24px}
   .lg-brand-light b{font-size:20px}
-  .lg-brand-light .lg-mark{background:#ffffff1f;box-shadow:inset 0 0 0 1px #ffffff33}
+  .lg-brand-light .lg-mark{box-shadow:0 2px 12px rgba(0,0,0,.18)}
   .lg-main{padding:48px 32px}
   .lg-card{padding:36px 32px}
   .lg-card>.lg-brand{display:none}

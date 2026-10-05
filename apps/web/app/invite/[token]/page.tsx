@@ -3,6 +3,7 @@
 import { Check, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { BrandMark } from "../../../components/brand/brand-mark";
 import { api, ApiError, errorText } from "../../../lib/api";
 import { ar } from "../../../lib/format";
 import { rememberDevice, supabase } from "../../../lib/supabase";
@@ -55,7 +56,7 @@ export default function AcceptInvitationPage() {
     <main className="lg lg-single">
       <section className="lg-main">
         <div className="lg-card">
-          <div className="lg-brand"><span className="lg-mark">ر</span><b>رَصد</b></div>
+          <div className="lg-brand"><BrandMark className="lg-mark" /><b>رَصد</b></div>
           {loading ? (
             <div className="lg-checking"><span className="spinner" aria-hidden />جارٍ التحقق من الدعوة…</div>
           ) : !invitation ? (

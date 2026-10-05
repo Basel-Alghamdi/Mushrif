@@ -2,6 +2,7 @@
 
 import { Check, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
+import { BrandMark } from "../../components/brand/brand-mark";
 import { ar } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import "../login/login.css";
@@ -47,7 +48,7 @@ export default function ResetPasswordPage() {
     <main className="lg lg-single">
       <section className="lg-main">
         <div className="lg-card">
-          <div className="lg-brand"><span className="lg-mark">ر</span><b>رَصد</b></div>
+          <div className="lg-brand"><BrandMark className="lg-mark" /><b>رَصد</b></div>
           {state === "checking" && <div className="lg-checking"><span className="spinner" aria-hidden />جارٍ التحقق من الرابط…</div>}
           {state === "invalid" && (
             <div className="lg-stack">

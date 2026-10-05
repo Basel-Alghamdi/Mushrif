@@ -35,8 +35,11 @@ export async function sendEmails(emails: Email[]) {
   return "sent" as const;
 }
 
+/** Every email: right-to-left, with the رَصد logo (a PNG served by the web app — email clients do not show SVG). */
 export const rtlEmail = (body: string) =>
-  `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;line-height:1.9;color:#001d1a">${body}</div>`;
+  `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;line-height:1.9;color:#001d1a">` +
+  `<img src="${escapeHtml(env.appUrl.replace(/\/$/, ""))}/logo-email.png" width="44" height="44" alt="رَصد" style="display:block;margin:0 0 16px;border:0">` +
+  `${body}</div>`;
 
 /** A message written as plain text (the same text the head sees) as an email: line breaks and links kept, plus a button. */
 export function messageEmail(text: string, button?: { url: string; label: string }) {

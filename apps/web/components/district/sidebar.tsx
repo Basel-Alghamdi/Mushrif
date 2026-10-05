@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { logout } from "../../lib/api";
+import { BrandMark } from "../brand/brand-mark";
 import { useChat } from "../../lib/chat/chat-context";
 import { groupConversations, initialsOf } from "../../lib/chat/helpers";
 import { ConfirmDialog } from "./dialog";
@@ -33,7 +34,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
     <div className="d-side">
       <div className="d-side-top">
         <div className="d-brand">
-          <span className="d-brand-tile" aria-hidden>ر</span>
+          <BrandMark className="d-brand-tile" />
           <b>رَصد</b>
         </div>
         <button className="btn btn-ghost btn-icon d-side-close" onClick={onClose} aria-label="إغلاق القائمة"><X /></button>
