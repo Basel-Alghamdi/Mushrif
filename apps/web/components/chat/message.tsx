@@ -6,7 +6,7 @@ import { Fragment, memo, useState } from "react";
 import { downloadFile } from "../../lib/api";
 import { copyText, kindLabel } from "../../lib/chat/helpers";
 import { BlockView } from "./blocks";
-import { type CopyBlockData, CopyRows } from "./blocks/copy-block";
+import { type CopyBlockData, CopyRows, SendAllBar } from "./blocks/copy-block";
 import { KindIcon } from "./blocks/shared";
 import { Markdown } from "./markdown";
 
@@ -94,6 +94,7 @@ export const MessageItem = memo(function MessageItem({ message, onSend, busy, fr
           if (folded.includes(block as CopyBlockData)) return null;
           return (
             <Fragment key={index}>
+              {block === copies[0] && <SendAllBar blocks={copies} />}
               <BlockView block={block} conversationId={message.conversationId} messageId={message.id} messageText={message.text} onSend={onSend} busy={busy} />
               {block === copies[0] && folded.length > 0 && <CopyRows blocks={folded} label={foldedLabel} />}
             </Fragment>

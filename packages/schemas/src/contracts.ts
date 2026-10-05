@@ -44,13 +44,20 @@ export type ChatBlock =
   // quick replies — clicking an option sends `message` as Khulood's next message
   | { type: "choices"; prompt?: string; options: { label: string; message: string }[] }
   | { type: "proposal"; proposalId: string; title: string; summary: string; changes: ProposalChange[]; newMembers?: MemberCreateInput[]; unmatched?: string[]; status: ProposalStatus; resultText?: string }
-  // copyable text — reminders, WhatsApp messages, report paragraphs
-  | { type: "copy"; title: string; text: string }
+  // copyable text — reminders, login messages, report paragraphs. With memberId it can be emailed to her
+  // (POST /district/reminders); kind "group" is the one message for everyone.
+  | { type: "copy"; title: string; text: string; memberId?: string; kind?: MessageKind }
   | { type: "documents"; title?: string; items: { id: string; name: string; kind: DocumentKind; ownerName: string | null; createdAt: string; snippet?: string }[] }
   // a change the agent already applied — offers an undo
   | { type: "applied"; text: string; undoProposalId?: string };
 
 export type ProposalStatus = "pending" | "applied" | "rejected";
+
+// ---------- Messages to the team (POST /district/reminders) ----------
+export type MessageKind = "login" | "reminder" | "group";
+/** One personal message per member; each goes to her email (when Resend is set up) and her notifications in the app. */
+export type ReminderSendInput = { kind?: "login" | "reminder"; messages: { memberId: string; body: string }[] };
+export type ReminderSendResult = { sent: number; emailed: number; emailConfigured: boolean; failed: string[] };
 export type ProposalChange = {
   memberId: string;
   memberName: string;

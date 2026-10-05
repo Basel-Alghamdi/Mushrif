@@ -7,7 +7,8 @@ const RESET_WINDOW_DAYS = 3;
 import { audit, auditContext } from "../audit.js";
 import { requireHead, supabaseAdmin, type Actor, type AppEnv } from "../auth.js";
 import { sql, type Row, type Sql } from "../db.js";
-import { emailConfigured, escapeHtml, rtlEmail, sendEmail } from "../email.js";
+import { emailConfigured, messageEmail, sendEmails } from "../email.js";
+import { env } from "../env.js";
 import { ApiError, invalid, ok } from "../errors.js";
 import { memberInDistrict } from "../ownership.js";
 import { cleanText, isUuid, normalizeEmail, parseDate, readBody } from "../parse.js";
@@ -92,26 +93,50 @@ function timelineEntry(row: Row) {
   };
 }
 
-export async function sendReminders(c: Context<AppEnv>, db: Sql, head: Actor, memberIds: string[], message: string, agentRunId: string | null = null) {
+const MESSAGE_SUBJECTS = { reminder: "تذكير من رئيسة النطاق — رَصد", login: "حسابك في منصة رَصد جاهز" };
+
+/**
+ * Sends each member her own message: to her email in one Resend batch (when Resend is set up; replies go to the head),
+ * and always as a notification in the app. Every message is recorded in reminders and audited.
+ */
+export async function sendReminders(
+  c: Context<AppEnv>, db: Sql, head: Actor, messages: { memberId: string; body: string }[],
+  options: { kind?: "login" | "reminder"; agentRunId?: string | null } = {},
+) {
+  const ids = [...new Set(messages.map(message => message.memberId))];
   const members = await db`
     select p.id, p.name, p.email, c.id as cluster_id from profiles p join clusters c on c.member_id = p.id
-    where p.id = any(${db.array(memberIds)}::uuid[]) and p.district_id = ${head.districtId}`;
-  if (members.length !== new Set(memberIds).size) throw invalid({ memberIds: "إحدى العضوات غير موجودة في نطاقك" });
-  const sent: Row[] = [];
-  for (const member of members) {
-    let channel: "app" | "email" = "app";
-    if (emailConfigured()) {
-      try {
-        await sendEmail({ to: member.email, subject: "تذكير من رئيسة النطاق — رَصد", html: rtlEmail(`<p>مرحباً ${escapeHtml(member.name)}</p><p>${escapeHtml(message)}</p>`) });
-        channel = "email";
-      } catch (error) { console.error("reminder email failed", error); }
+    where p.id = any(${db.array(ids)}::uuid[]) and p.district_id = ${head.districtId}`;
+  if (members.length !== ids.length) throw invalid({ memberIds: "إحدى العضوات غير موجودة في نطاقك" });
+  const byId = new Map(members.map(member => [String(member.id), member]));
+  const kind = options.kind ?? "reminder";
+
+  let channel: "app" | "email" = "app";
+  const failed: string[] = [];
+  if (emailConfigured()) {
+    try {
+      await sendEmails(messages.map(message => ({
+        to: String(byId.get(message.memberId)!.email),
+        subject: MESSAGE_SUBJECTS[kind],
+        html: messageEmail(message.body, { url: `${env.appUrl.replace(/\/$/, "")}/login`, label: "الدخول إلى رَصد" }),
+        replyTo: head.email,
+      })));
+      channel = "email";
+    } catch (error) {
+      console.error("reminder emails failed", error instanceof Error ? error.message : error);
+      failed.push(...messages.map(message => String(byId.get(message.memberId)!.name)));
     }
-    const [reminder] = await db`insert into reminders ${db({ districtId: head.districtId, fromUserId: head.id, toUserId: member.id, channel, body: message, agentRunId })} returning *`;
-    await db`insert into notifications ${db({ userId: member.id, kind: "reminder", text: message, level: "attention" })}`;
-    await audit(c, db, { action: "send", entity: "reminder", entityId: String(reminder.id), clusterId: String(member.clusterId), after: { body: message, channel }, source: agentRunId ? "agent" : "web" });
-    sent.push(reminder);
   }
-  return sent;
+
+  const reminders: Row[] = [];
+  for (const message of messages) {
+    const member = byId.get(message.memberId)!;
+    const [reminder] = await db`insert into reminders ${db({ districtId: head.districtId, fromUserId: head.id, toUserId: member.id, channel, body: message.body, agentRunId: options.agentRunId ?? null })} returning *`;
+    await db`insert into notifications ${db({ userId: member.id, kind: "reminder", text: message.body, level: "attention" })}`;
+    await audit(c, db, { action: "send", entity: "reminder", entityId: String(reminder.id), clusterId: String(member.clusterId), after: { body: message.body, channel, kind }, source: options.agentRunId ? "agent" : "web" });
+    reminders.push(reminder);
+  }
+  return { reminders, emailed: channel === "email" ? reminders.length : 0, failed };
 }
 export function districtRoutes(app: Hono<AppEnv>) {
   app.get("/district/team", async c => {
@@ -271,14 +296,26 @@ export function districtRoutes(app: Hono<AppEnv>) {
     }));
   });
 
+  // { messages: [{ memberId, body }], kind } — each member gets her own text; { memberIds, body } sends one text to all.
   app.post("/district/reminders", async c => {
     const head = requireHead(c);
     const body = await readBody(c);
-    const memberIds = body.memberIds;
-    if (!Array.isArray(memberIds) || !memberIds.length || !memberIds.every(isUuid)) throw invalid({ memberIds: "اختاري عضوة واحدة على الأقل" });
-    const message = typeof body.body === "string" && body.body.trim() ? body.body.trim().slice(0, 1000) : "يرجى استكمال تحديث اليوم.";
-    const sent = await sql.begin(tx => sendReminders(c, tx, head, memberIds as string[], message));
-    return c.json(ok({ sent: sent.length, reminders: sent }), 201);
+    const kind = body.kind === "login" ? "login" : "reminder";
+    let messages: { memberId: string; body: string }[];
+    if (Array.isArray(body.messages)) {
+      messages = body.messages.map(item => {
+        const entry = (item ?? {}) as Record<string, unknown>;
+        return { memberId: String(entry.memberId ?? ""), body: typeof entry.body === "string" ? entry.body.trim().slice(0, 4000) : "" };
+      });
+      if (!messages.length || messages.length > 200 || !messages.every(item => isUuid(item.memberId) && item.body)) throw invalid({ messages: "اختاري عضوة واحدة على الأقل، ولكل واحدة رسالة" });
+    } else {
+      const memberIds = body.memberIds;
+      if (!Array.isArray(memberIds) || !memberIds.length || !memberIds.every(isUuid)) throw invalid({ memberIds: "اختاري عضوة واحدة على الأقل" });
+      const text = typeof body.body === "string" && body.body.trim() ? body.body.trim().slice(0, 4000) : "يرجى استكمال تحديث اليوم.";
+      messages = (memberIds as string[]).map(memberId => ({ memberId, body: text }));
+    }
+    const result = await sql.begin(tx => sendReminders(c, tx, head, messages, { kind }));
+    return c.json(ok({ sent: result.reminders.length, emailed: result.emailed, emailConfigured: emailConfigured(), failed: result.failed, reminders: result.reminders }), 201);
   });
 
   app.post("/district/imports/:kind", c => {

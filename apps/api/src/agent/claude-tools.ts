@@ -375,7 +375,7 @@ export const TOOLS: ToolDefinition[] = [
   }),
   defineTool({
     name: "draft_messages",
-    description: "Ready-to-send WhatsApp texts as copy cards: 'login' (site address, her email, choose a password the first time) or 'reminder' (what is missing in her file). Without members: login → everyone not activated; reminder → everyone incomplete.",
+    description: "Ready-to-send messages as cards the head sends to each member's email with one click (or all at once) — nothing is sent until she clicks: 'login' (site address, her email, choose a password the first time) or 'reminder' (what is missing in her file). Without members: login → everyone not activated; reminder → everyone incomplete.",
     schema: z.object({ kind: z.enum(["login", "reminder"]), members: z.array(z.string()).optional() }),
     run: async (input, ctx) => {
       const snapshot = await ctx.team();
@@ -383,7 +383,10 @@ export const TOOLS: ToolDefinition[] = [
         ? (await Promise.all(input.members.map(query => requireMember(ctx, query)))).map(detail => snapshot.members.find(member => member.id === detail.id)!)
         : snapshot.members.filter(member => (input.kind === "login" ? !member.activated : member.completion < 100));
       for (const member of targets) {
-        ctx.blocks.push({ type: "copy", title: `${input.kind === "login" ? "رسالة دخول" : "تذكير"} — ${shortName(member.name)}`, text: input.kind === "login" ? loginText(ctx.session.head, member) : reminderText(ctx.session.head, member) });
+        ctx.blocks.push({
+          type: "copy", title: `${input.kind === "login" ? "رسالة دخول" : "تذكير"} — ${shortName(member.name)}`,
+          text: input.kind === "login" ? loginText(ctx.session.head, member) : reminderText(ctx.session.head, member), memberId: member.id, kind: input.kind,
+        });
       }
       return { drafted: targets.length, members: targets.map(member => member.name) };
     },

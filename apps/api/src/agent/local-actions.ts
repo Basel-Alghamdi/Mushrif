@@ -252,10 +252,11 @@ export async function addMember(ctx: Ctx): Promise<AgentReply | null> {
   const result = await executePayload(ctx.session, { title: "", summary: "", newMembers: [{ name, email, title, phone }] });
   if (!result.blocks.some(block => block.type === "applied")) return result;
   const applied = result.blocks.find(block => block.type === "applied")!;
+  const [created] = await ctx.session.db`select id from profiles where email = ${email} and district_id = ${ctx.head.districtId}`;
   return reply(
-    `تم ✅ أضفت ${name} للفريق${title ? ` (${title})` : ""}. تدخل ببريدها ${email} وتختار كلمة المرور أول مرة. هذه رسالة جاهزة ترسلينها لها:`,
+    `تم ✅ أضفت ${name} للفريق${title ? ` (${title})` : ""}. تدخل ببريدها ${email} وتختار كلمة المرور أول مرة. هذه رسالة جاهزة — أرسليها لبريدها بضغطة:`,
     applied.type === "applied" ? { ...applied, text: `إضافة ${shortName(name)} للفريق` } : applied,
-    { type: "copy", title: `رسالة دخول — ${shortName(name)}`, text: loginText(ctx.head, { name, email }) },
+    { type: "copy", title: `رسالة دخول — ${shortName(name)}`, text: loginText(ctx.head, { name, email }), ...(created ? { memberId: String(created.id), kind: "login" as const } : {}) },
   );
 }
 
@@ -363,20 +364,24 @@ export function messages(ctx: Ctx): AgentReply | null {
       return reply(`${fromList ? "كلهن" : "كل المشرفات"} فعّلن حساباتهن 🎉 لا أحد يحتاج رسالة دخول.`, choices([{ label: "جهّزي رسالة تذكير للناقصات", message: "جهّزي رسالة تذكير للي ملفها ناقص" }]));
     }
     const intro = named.length
-      ? `هذه رسالة الدخول جاهزة — انسخيها وأرسليها على واتساب:`
-      : `جهّزت ${count(targets.length, { one: "رسالة واحدة", two: "رسالتين", few: "رسائل", many: "رسالة" })} دخول لمن لم تفعّل حسابها${fromList}. انسخي كل رسالة وأرسليها لصاحبتها:`;
-    return reply(intro, ...targets.map(member => ({ type: "copy" as const, title: `رسالة دخول — ${shortName(member.name)}`, text: loginText(ctx.head, member) })));
+      ? `هذه رسالة الدخول جاهزة — أرسليها لبريدها بضغطة:`
+      : `جهّزت ${count(targets.length, { one: "رسالة واحدة", two: "رسالتين", few: "رسائل", many: "رسالة" })} دخول لمن لم تفعّل حسابها${fromList}. أرسلي كل رسالة لبريد صاحبتها، أو كلها مرة واحدة:`;
+    return reply(intro, ...targets.map(member => ({
+      type: "copy" as const, title: `رسالة دخول — ${shortName(member.name)}`, text: loginText(ctx.head, member), memberId: member.id, kind: "login" as const,
+    })));
   }
 
   const pool = chosen.length ? chosen : ctx.team.members;
   const targets = (named.length ? pool : pool.filter(member => member.completion < 100)).sort((a, b) => a.completion - b.completion);
   if (!targets.length) return reply(`${fromList ? "ملفاتهن" : "كل الملفات"} مكتملة ١٠٠٪ — لا أحد يحتاج تذكيراً 👏`);
   const blocks: ChatBlock[] = [];
-  if (!named.length && targets.length > 1) blocks.push({ type: "copy", title: "رسالة للمجموعة", text: groupReminder(ctx.head, targets) });
-  blocks.push(...targets.map(member => ({ type: "copy" as const, title: `تذكير — ${shortName(member.name)} (${pct(member.completion)})`, text: reminderText(ctx.head, member) })));
+  if (!named.length && targets.length > 1) blocks.push({ type: "copy", title: "رسالة للمجموعة", text: groupReminder(ctx.head, targets), kind: "group" });
+  blocks.push(...targets.map(member => ({
+    type: "copy" as const, title: `تذكير — ${shortName(member.name)} (${pct(member.completion)})`, text: reminderText(ctx.head, member), memberId: member.id, kind: "reminder" as const,
+  })));
   const intro = targets.length === 1
-    ? `هذه رسالة تذكير لـ ${shortName(targets[0].name)} فيها ما ينقص ملفها بالضبط:`
-    : `جهّزت رسالة للمجموعة، ورسالة خاصة لكل واحدة من ${count(targets.length, NOUNS.member)} ملفاتهن ناقصة${fromList} (مرتبة من الأقل اكتمالاً):`;
+    ? `هذه رسالة تذكير لـ ${shortName(targets[0].name)} فيها ما ينقص ملفها بالضبط — أرسليها لبريدها بضغطة:`
+    : `جهّزت لكل واحدة من ${count(targets.length, NOUNS.member)} ملفاتهن ناقصة${fromList} رسالة خاصة بما ينقصها (مرتبة من الأقل اكتمالاً). أرسليها لبريد كل واحدة، أو كلها مرة واحدة:`;
   return { text: intro, blocks };
 }
 

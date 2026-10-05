@@ -102,7 +102,8 @@ export function aiRoutes(app: Hono<AppEnv>) {
       let summary: string;
       if (run.action === "remind") {
         const ids = (payload.targets as { memberId: string }[]).map(target => target.memberId);
-        const sent = ids.length ? await sendReminders(c, tx, head, ids, String(payload.message), String(run.id)) : [];
+        const message = String(payload.message);
+        const sent = ids.length ? (await sendReminders(c, tx, head, ids.map(memberId => ({ memberId, body: message })), { agentRunId: String(run.id) })).reminders : [];
         summary = `أُرسل ${sent.length} تذكيرات`;
       } else if (run.action === "report") {
         const [report] = await tx`insert into consolidated_reports ${tx({ districtId: head.districtId, date: riyadhDate(), summaryText: String(payload.summaryText), stats: tx.json(payload.stats), generatedBy: head.id })} returning id`;

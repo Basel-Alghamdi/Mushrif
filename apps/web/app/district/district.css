@@ -593,3 +593,10 @@ body:has(.d-app) .toast button{min-height:44px;padding:0 6px}
   .mp-tab{gap:4px;padding:0 4px;font-size:13.5px}
   .mp-tab-count{min-width:18px;padding:0 5px}
 }
+
+/* Messages to the team: sent to each member's email (chat cards, send-all bar) */
+.blk-send-all{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px;border:1px solid #00968833;border-radius:14px;background:var(--primary-soft)}
+.blk-send-note{font-size:12.5px;color:var(--text-3)}
+.blk-send-note.is-sent{color:var(--success)}
+.blk-send-note.is-warn,.blk-send-note.is-error{color:var(--warning)}
+.blk-copy-row-name .blk-send-note{display:block;white-space:normal}

@@ -1,11 +1,12 @@
 "use client";
 
 import type { MemberCreateInput } from "@rasd/schemas";
-import { Check, Copy, MessageCircle, UserPlus } from "lucide-react";
+import { Check, Copy, Mail, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { api, ApiError, errorText } from "../../lib/api";
-import { copyText, loginMessage, whatsappLink } from "../../lib/chat/helpers";
+import { copyText, loginMessage } from "../../lib/chat/helpers";
+import { useSendMessages } from "../../lib/send-messages";
 import type { MemberSummary } from "../../lib/types";
 import { Dialog } from "./dialog";
 import { TITLE_SUGGESTIONS } from "./model";
@@ -84,6 +85,7 @@ export function AddMemberDialog({ onClose, onCreated, clusters }: Props) {
 
 function CreatedStep({ member, onClose }: { member: MemberSummary; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const email = useSendMessages();
   const message = loginMessage(member.name, member.email);
 
   const copy = async () => {
@@ -93,14 +95,18 @@ function CreatedStep({ member, onClose }: { member: MemberSummary; onClose: () =
   return (
     <Dialog
       title={`تمت إضافة ${member.name}`}
-      description="أرسلي لها هذه الرسالة لتدخل حسابها:"
+      description={`أرسلي لها هذه الرسالة على بريدها (${member.email}) لتدخل حسابها:`}
       onClose={onClose}
       footer={<>
         <button className="btn btn-secondary" onClick={copy}>{copied ? <><Check /> تم النسخ</> : <><Copy /> نسخ</>}</button>
-        <a className="btn btn-primary" href={whatsappLink(message)} target="_blank" rel="noopener noreferrer"><MessageCircle /> إرسال واتساب</a>
+        <button className="btn btn-primary" onClick={() => void email.send({ kind: "login", messages: [{ memberId: member.id, body: message }] })} disabled={email.busy || email.status === "sent"}>
+          {email.busy ? <span className="spinner spinner-light" /> : email.status === "sent" ? <Check /> : <Mail />}
+          {email.status === "sent" ? " أُرسلت" : " إرسال لبريدها"}
+        </button>
       </>}
     >
       <div className="blk-copy-text">{message}</div>
+      {email.note && <p className={`blk-send-note is-${email.status}`} role="status">{email.note}</p>}
       <Link href={`/district/team/${member.id}`} className="d-dialog-link" onClick={onClose}>فتح ملفها</Link>
     </Dialog>
   );

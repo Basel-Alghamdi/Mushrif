@@ -19,18 +19,6 @@ export async function copyText(text: string) {
   }
 }
 
-/** Normalises a Saudi mobile number for wa.me ("0551234567" → "966551234567"). Empty when unknown. */
-export function whatsappNumber(phone: string) {
-  const digits = phone.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/\D/g, "");
-  if (digits.startsWith("00")) return digits.slice(2);
-  if (digits.startsWith("966")) return digits;
-  if (digits.startsWith("05") && digits.length === 10) return `966${digits.slice(1)}`;
-  if (digits.startsWith("5") && digits.length === 9) return `966${digits}`;
-  return "";
-}
-
-export const whatsappLink = (text: string, phone = "") => `https://wa.me/${whatsappNumber(phone)}?text=${encodeURIComponent(text)}`;
-
 /** Western digits for numeric inputs typed with Arabic-Indic digits. */
 export const toNumber = (value: string) => {
   const western = value.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[٬,\s]/g, "");

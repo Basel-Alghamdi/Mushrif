@@ -1,11 +1,12 @@
 "use client";
 
 import type { DocumentInfo } from "@rasd/schemas";
-import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, MessageCircle, Phone, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, Phone, RefreshCw, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, errorText, redirectIfSignedOut } from "../../lib/api";
-import { copyText, initialsOf, loginMessage, whatsappLink } from "../../lib/chat/helpers";
+import { copyText, initialsOf, loginMessage } from "../../lib/chat/helpers";
+import { useSendMessages } from "../../lib/send-messages";
 import { ar, counted, firstName, pct } from "../../lib/format";
 import type { MemberDetail, MemberSummary } from "../../lib/types";
 import { ConfirmDialog, Dialog } from "./dialog";
@@ -154,7 +155,7 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
       <SaveIndicator state={file.saveState} onRetry={file.retry} />
 
       {dialog === "reminder" && (
-        <ReminderDialog target={{ name, email: summary.email, activated: summary.activated, missing: missing.map(item => item.label) }} phone={phone} onClose={() => setDialog(null)} />
+        <ReminderDialog memberId={memberId} target={{ name, email: summary.email, activated: summary.activated, missing: missing.map(item => item.label) }} onClose={() => setDialog(null)} />
       )}
       {dialog === "reset" && (
         <ConfirmDialog
@@ -290,24 +291,30 @@ function reminderText({ name, email, activated, missing }: ReminderTarget) {
   ].join("\n");
 }
 
-function ReminderDialog({ target, phone, onClose }: { target: ReminderTarget; phone: string; onClose: () => void }) {
+function ReminderDialog({ memberId, target, onClose }: { memberId: string; target: ReminderTarget; onClose: () => void }) {
   const { name, activated, missing } = target;
   const [copied, setCopied] = useState(false);
+  const email = useSendMessages();
   const text = reminderText(target);
   const copy = async () => {
     if (await copyText(text)) { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }
   };
+  const send = () => void email.send({ kind: activated ? "reminder" : "login", messages: [{ memberId, body: text }] });
   return (
     <Dialog
       title="رسالة تذكير"
-      description={!activated ? `رسالة جاهزة: كيف تدخل ${firstName(name)} أول مرة وما ينقص ملفها.` : missing.length ? `رسالة جاهزة بما ينقص ملف ${firstName(name)}.` : "ملفها مكتمل — هذه رسالة شكر."}
+      description={!activated ? `رسالة جاهزة: كيف تدخل ${firstName(name)} أول مرة وما ينقص ملفها. تصلها على ${target.email}.` : missing.length ? `رسالة جاهزة بما ينقص ملف ${firstName(name)}، تصلها على ${target.email}.` : "ملفها مكتمل — هذه رسالة شكر."}
       onClose={onClose}
       footer={<>
         <button className="btn btn-secondary" onClick={copy}>{copied ? <><Check /> تم النسخ</> : <><Copy /> نسخ</>}</button>
-        <a className="btn btn-primary" href={whatsappLink(text, phone)} target="_blank" rel="noopener noreferrer"><MessageCircle /> إرسال واتساب</a>
+        <button className="btn btn-primary" onClick={send} disabled={email.busy || email.status === "sent"}>
+          {email.busy ? <span className="spinner spinner-light" /> : email.status === "sent" ? <Check /> : <Mail />}
+          {email.status === "sent" ? " أُرسلت" : " إرسال لبريدها"}
+        </button>
       </>}
     >
       <div className="blk-copy-text">{text}</div>
+      {email.note && <p className={`blk-send-note is-${email.status}`} role="status">{email.note}</p>}
     </Dialog>
   );
 }
