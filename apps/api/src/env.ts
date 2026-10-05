@@ -22,6 +22,6 @@ export const env = {
   resendFrom: process.env.RESEND_FROM?.trim() || null,
   // Private Storage bucket for uploaded files (created on first use).
   storageBucket: process.env.SUPABASE_STORAGE_BUCKET?.trim() || "attachments",
-  // The head's agent reads OPENAI_API_KEY / OPENAI_CHAT_MODEL first, then ANTHROPIC_* when it runs:
+  // The head's agent reads ANTHROPIC_API_KEY / ANTHROPIC_MODEL first, then OPENAI_* when it runs:
   // without a key it answers with the built-in Arabic engine.
 };

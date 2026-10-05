@@ -1,5 +1,6 @@
 // The head's agent: answers from the team's data, edits it on request (with undo), and imports files into members' files.
-// Uses Claude when ANTHROPIC_API_KEY is set, otherwise (and whenever Claude fails) the built-in Arabic engine.
+// Uses Claude when ANTHROPIC_API_KEY is set, else OpenAI when OPENAI_API_KEY is set; otherwise (and whenever the model
+// fails) the built-in Arabic engine.
 import type { ChatMessage, ChatStatus } from "@rasd/schemas";
 import type { AuditContext } from "../audit.js";
 import type { Actor } from "../auth.js";
@@ -64,17 +65,8 @@ async function localAnswer(context: AgentContext, session: Session, team: TeamSn
   return localRespond({ session, team, history: context.history, text });
 }
 
-/** Produces the assistant's reply to Khulood's new message. Must never throw for ordinary input. */
+/** Produces the assistant's reply to Khulood's new message: Claude when its key is set, else OpenAI, else the built-in engine. */
 export async function respond(context: AgentContext, text: string): Promise<AgentReply> {
-  if (openaiEnabled()) {
-    try {
-      return await openaiRespond(context, text);
-    } catch (error) {
-      console.error("OpenAI brain failed, using the local engine:", error instanceof Error ? error.name : "unknown error");
-      const local = await localReply(context, text);
-      return { ...local, text: `${local.text}\n\n${openaiFallbackNote(error)}` };
-    }
-  }
   if (claudeEnabled()) {
     try {
       return await claudeRespond(context, text);
@@ -82,6 +74,15 @@ export async function respond(context: AgentContext, text: string): Promise<Agen
       console.error("claude brain failed, using the local engine:", error instanceof Error ? `${error.name}: ${error.message}` : error);
       const local = await localReply(context, text);
       return { ...local, text: `${local.text}\n\n${fallbackNote(error)}` };
+    }
+  }
+  if (openaiEnabled()) {
+    try {
+      return await openaiRespond(context, text);
+    } catch (error) {
+      console.error("OpenAI brain failed, using the local engine:", error instanceof Error ? error.name : "unknown error");
+      const local = await localReply(context, text);
+      return { ...local, text: `${local.text}\n\n${openaiFallbackNote(error)}` };
     }
   }
   return localReply(context, text);
@@ -93,6 +94,6 @@ export async function applyProposal(head: Actor, proposal: Proposal, audit: Audi
 }
 
 export function agentStatus(): ChatStatus {
-  if (openaiEnabled()) return { mode: "openai", model: openaiModel() };
-  return claudeEnabled() ? { mode: "claude", model: claudeModel() } : { mode: "local", model: null };
+  if (claudeEnabled()) return { mode: "claude", model: claudeModel() };
+  return openaiEnabled() ? { mode: "openai", model: openaiModel() } : { mode: "local", model: null };
 }

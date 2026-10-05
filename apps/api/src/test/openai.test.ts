@@ -52,11 +52,14 @@ describe("GPT-5 assistant without network access", () => {
     assert.match(String(outputs[2].output), /expected JSON/);
   });
 
-  test("OpenAI has priority and API failure uses the local engine", async () => {
+  test("OpenAI answers when no Claude key is set (Claude wins when both are); API failure uses the local engine", async () => {
     const saved = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-key";
     try {
       const { agentStatus, respond } = await import("../agent/index.js");
+      process.env.ANTHROPIC_API_KEY = "test-key";
+      assert.equal(agentStatus().mode, "claude");
+      process.env.ANTHROPIC_API_KEY = "";
       assert.deepEqual(agentStatus(), { mode: "openai", model: "gpt-5" });
       brain.useOpenAIClient(fakeClient([new OpenAI.AuthenticationError(401, {}, "bad key", new Headers())]).client);
       const reply = await respond(await context(), "الأرقام");

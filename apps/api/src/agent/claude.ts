@@ -11,7 +11,7 @@ import type { AgentContext, AgentReply } from "./index.js";
 import { blocksAsText, riyadhDateLabel } from "./render.js";
 import { auditFileReads } from "./snapshot.js";
 
-export const DEFAULT_MODEL = "claude-opus-5-5";
+export const DEFAULT_MODEL = "claude-haiku-4-5";
 const MAX_ROUNDS = 8;
 const HISTORY_LIMIT = 24;
 const ATTACHMENT_TEXT_LIMIT = 60_000;
@@ -32,6 +32,9 @@ function effort(): (typeof EFFORTS)[number] {
   const value = setting("ANTHROPIC_EFFORT") as (typeof EFFORTS)[number] | undefined;
   return value && EFFORTS.includes(value) ? value : "medium";
 }
+
+/** Haiku 4.5 rejects `effort` (400) and has no refusal fallbacks; the newer models (Opus, Sonnet, Fable) take both. */
+const isHaiku = (model: string) => /haiku/i.test(model);
 
 let sharedClient: ClaudeClient | null = null;
 
@@ -135,12 +138,16 @@ export async function userTurn(text: string, attachments: StoredDocument[]): Pro
 }
 
 export function buildRequest(messages: BetaMessageParam[]): MessageCreateParamsNonStreaming {
-  return {
-    model: claudeModel(),
-    max_tokens: 16000,
+  const model = claudeModel();
+  const newerModel: Partial<MessageCreateParamsNonStreaming> = isHaiku(model) ? {} : {
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     output_config: { effort: effort() },
+  };
+  return {
+    model,
+    max_tokens: 16000,
+    ...newerModel,
     cache_control: { type: "ephemeral" },
     system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     tools: TOOL_PARAMS,
