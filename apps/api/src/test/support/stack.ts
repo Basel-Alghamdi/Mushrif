@@ -95,6 +95,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       RESEND_API_KEY: "",
       RESEND_FROM: "",
       ANTHROPIC_API_KEY: "",
+      OPENAI_API_KEY: "",
+      OPENAI_CHAT_MODEL: "gpt-5",
       RASD_ADMIN_EMAIL: "khulood@example.com",
       RASD_ADMIN_NAME: "خلود",
       RASD_ADMIN_PASSWORD: LOCAL_HEAD_PASSWORD,

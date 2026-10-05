@@ -73,7 +73,7 @@ export type Conversation = { id: string; title: string; createdAt: string; updat
 export type ChatSendInput = { conversationId?: string | null; text: string; attachmentIds?: string[] };
 export type ChatSendResult = { conversation: Conversation; userMessage: ChatMessage; assistantMessage: ChatMessage };
 export type ProposalResolveResult = { proposalId: string; status: ProposalStatus; assistantMessage: ChatMessage };
-export type ChatStatus = { mode: "claude" | "local"; model: string | null };
+export type ChatStatus = { mode: "openai" | "claude" | "local"; model: string | null };
 
 // ---------- Envelope ----------
 export type ApiOk<T> = { data: T; meta?: unknown };

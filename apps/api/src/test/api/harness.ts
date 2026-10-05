@@ -36,7 +36,7 @@ export async function startApi() {
   const [pgPort, supabasePort, apiPort, webPort] = [await freePort(), await freePort(), await freePort(), await freePort()];
   const stack = await startStack({ dir, pgPort, supabasePort, apiPort, webPort, persistent: false });
   // The stack's values win over anything in the shell (and the repo-root .env is never read).
-  Object.assign(process.env, stack.env, { ANTHROPIC_API_KEY: "", RESEND_API_KEY: "" });
+  Object.assign(process.env, stack.env, { OPENAI_API_KEY: "", OPENAI_CHAT_MODEL: "gpt-5", ANTHROPIC_API_KEY: "", RESEND_API_KEY: "" });
   const { app } = await import("../../app.js");
   const { sql } = await import("../../db.js");
 

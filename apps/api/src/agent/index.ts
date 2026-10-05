@@ -7,6 +7,7 @@ import type { Proposal } from "../chat-store.js";
 import { sql } from "../db.js";
 import { getDocument, type StoredDocument } from "../documents.js";
 import { claudeEnabled, claudeModel, claudeRespond, fallbackNote } from "./claude.js";
+import { openaiEnabled, openaiModel, openaiRespond, openaiFallbackNote } from "./openai.js";
 import { importAttachments, OWNER_PROMPT, pendingOwnerQuestion } from "./importer.js";
 import { localRespond } from "./local-engine.js";
 import type { Session } from "./model.js";
@@ -65,6 +66,15 @@ async function localAnswer(context: AgentContext, session: Session, team: TeamSn
 
 /** Produces the assistant's reply to Khulood's new message. Must never throw for ordinary input. */
 export async function respond(context: AgentContext, text: string): Promise<AgentReply> {
+  if (openaiEnabled()) {
+    try {
+      return await openaiRespond(context, text);
+    } catch (error) {
+      console.error("OpenAI brain failed, using the local engine:", error instanceof Error ? error.name : "unknown error");
+      const local = await localReply(context, text);
+      return { ...local, text: `${local.text}\n\n${openaiFallbackNote(error)}` };
+    }
+  }
   if (claudeEnabled()) {
     try {
       return await claudeRespond(context, text);
@@ -83,5 +93,6 @@ export async function applyProposal(head: Actor, proposal: Proposal, audit: Audi
 }
 
 export function agentStatus(): ChatStatus {
+  if (openaiEnabled()) return { mode: "openai", model: openaiModel() };
   return claudeEnabled() ? { mode: "claude", model: claudeModel() } : { mode: "local", model: null };
 }
