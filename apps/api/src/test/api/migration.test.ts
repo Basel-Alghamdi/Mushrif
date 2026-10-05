@@ -13,13 +13,26 @@ const AGENT = readFileSync(`${migrations}20261004120000_agent_chat_documents.sql
 
 let api: TestApi;
 
-describe("migration 20261004120000_agent_chat_documents", () => {
+describe("migrations 20261004120000_agent_chat_documents and 20261006120000_document_folders", () => {
   before(async () => { api = await startApi(); });
   after(async () => { await api.stop(); });
 
-  test("main's runner applied both migrations", async () => {
+  test("main's runner applied every migration", async () => {
     const rows = await api.sql`select version from supabase_migrations.schema_migrations order by version`;
-    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000"]);
+    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000", "20261006120000"]);
+  });
+
+  test("files carry a folder key and, for a school's folder, the school", async () => {
+    const [cluster] = await api.sql`select id, district_id from clusters limit 1`;
+    const [school] = await api.sql`insert into schools ${api.sql({ clusterId: cluster.id, name: "مدرسة المجلدات" })} returning id`;
+    const file = (extra: Record<string, unknown>) =>
+      api.sql({ clusterId: cluster.id, districtId: cluster.districtId, ownerType: "document", name: "a.pdf", storagePath: `t/${crypto.randomUUID()}.pdf`, ...extra });
+    await assert.rejects(api.sql`insert into attachments ${file({ folder: "ليس مفتاحاً" })}`, "a folder is a key, not a label");
+    await assert.rejects(api.sql`insert into attachments ${file({ schoolId: school.id })}`, "a school needs a folder");
+    const [filed] = await api.sql`insert into attachments ${file({ folder: "discipline", schoolId: school.id })} returning id`;
+    await api.sql`delete from schools where id = ${school.id}`;
+    const [after] = await api.sql`select folder, school_id from attachments where id = ${filed.id}`;
+    assert.deepEqual([after.folder, after.schoolId], ["discipline", null], "removing a school keeps its files");
   });
 
   test("new tables and columns exist, with RLS enabled", async () => {

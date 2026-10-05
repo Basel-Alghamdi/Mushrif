@@ -106,3 +106,48 @@ select.input{appearance:none;background-image:linear-gradient(45deg,transparent 
 
 /* Field the server rejected (kept from main) */
 input.invalid,select.invalid,textarea.invalid{border-color:var(--danger)!important}
+
+/* ============ ملف الإنجاز (folder browser: member files page, school page, head's member profile) ============ */
+.fb{display:flex;flex-direction:column;gap:14px;min-width:0}
+.fb-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:13.5px;color:var(--text-3)}
+.fb-crumb{display:inline-flex;align-items:center;gap:4px;min-width:0}
+.fb-crumb svg{font-size:14px;color:var(--text-3)}
+.fb-crumb button{border:0;background:none;padding:4px 2px;color:var(--primary-dark);font-weight:600;border-radius:var(--radius-xs)}
+.fb-crumb button:hover{text-decoration:underline}
+.fb-crumb b{color:var(--text);font-weight:600;padding:4px 2px}
+.fb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.fb-skeleton{height:64px;border-radius:var(--radius)}
+.fb-tile{display:flex;align-items:center;gap:12px;min-height:64px;padding:12px 14px;text-align:start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);transition:border-color .15s,background .15s}
+.fb-tile:hover{border-color:#00968840;background:var(--primary-soft)}
+.fb-tile-icon{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:var(--radius-sm);background:var(--primary-tint);color:var(--primary-dark);font-size:19px}
+.fb-tile.is-warn .fb-tile-icon{background:var(--warning-bg);color:var(--warning)}
+.fb-tile-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.fb-tile-text b{font-weight:600;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.fb-tile-text small{font-size:12px;color:var(--text-3)}
+.fb-tile-go{color:var(--text-3);font-size:16px}
+.fb-note{color:var(--text-3);font-size:13.5px}
+.fb-folder{display:flex;flex-direction:column;gap:12px;min-width:0;border-radius:var(--radius);transition:background .15s,box-shadow .15s}
+.fb-folder.is-dragging{background:var(--primary-soft);box-shadow:0 0 0 2px var(--primary) inset}
+.fb-upload{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.fb-hint{font-size:12px;color:var(--text-3)}
+.fb-spin{animation:spin .8s linear infinite}
+.fb-files{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.fb-file+.fb-file{border-top:1px solid var(--border)}
+.fb-file-row{display:flex;align-items:center;gap:2px;padding:6px 8px 6px 6px}
+.fb-file-open{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:6px;border:0;background:none;text-align:start;border-radius:var(--radius-sm)}
+.fb-file-open:hover{background:var(--surface-alt)}
+.fb-file-icon{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:var(--radius-xs);background:var(--surface-alt);color:var(--text-2);font-size:17px}
+.fb-file-icon.is-spreadsheet{background:#ecfdf3;color:#067647}
+.fb-file-icon.is-pdf{background:#fef2f2;color:#b42318}
+.fb-file-icon.is-word{background:#eff4ff;color:#1d4ed8}
+.fb-file-icon.is-image{background:#f5f3ff;color:#6d28d9}
+.fb-file-text{display:flex;flex-direction:column;min-width:0}
+.fb-file-text bdi{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-file-text small{font-size:12px;color:var(--text-3)}
+.fb-danger{color:var(--danger)}
+.fb-danger:hover:not(:disabled){background:var(--danger-bg)}
+.fb-inline{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0 14px 12px;font-size:13px}
+.fb-inline bdi{font-weight:600}
+.fb-select{flex:1;min-width:200px;min-height:36px}
+.fb-school-folders{display:flex;flex-direction:column;gap:10px}
+.fb-school-folders h2{font-size:16px}

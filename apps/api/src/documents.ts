@@ -1,12 +1,13 @@
 // Stored files (decision 7): rows in attachments (+ attachment_contents for the text and tables read out of them),
 // bytes in a private Supabase Storage bucket. A member's files have owner_type "document"; the head's chat uploads
 // start without a cluster and are filed into a member's cluster later (assignDocument).
+// Inside a cluster, each file sits in one of the fixed ملف الإنجاز folders (folder, + school_id for a school's folder).
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import type postgres from "postgres";
-import type { DocumentInfo, DocumentKind } from "@rasd/schemas";
+import { isFileFolder, type DocumentInfo, type DocumentKind, type DocumentPlacement } from "@rasd/schemas";
 import { auditWith, type AuditContext } from "./audit.js";
 import { supabaseAdmin } from "./auth.js";
 import { atomically, type Row, type Sql } from "./db.js";
@@ -168,6 +169,9 @@ function documentRow(row: Row, sheets: string[]): DocumentRow {
     ...(row.pages == null ? {} : { pages: Number(row.pages) }),
     ...(sheets.length ? { sheets } : {}),
     createdAt: iso(row.uploadedAt),
+    folder: row.folder ? String(row.folder) : null,
+    schoolId: row.schoolId ? String(row.schoolId) : null,
+    schoolName: row.schoolId ? String(row.schoolName ?? "") : null,
     clusterId: row.clusterId ? String(row.clusterId) : null,
     districtId: String(row.districtId),
     conversationId: row.conversationId ? String(row.conversationId) : null,
@@ -190,9 +194,10 @@ export const toDocumentInfo = ({
 const selectDocuments = (db: Sql, where: postgres.Fragment, content: boolean) => db`
   select a.*, ac.pages, coalesce(ac.status, 'ready') as status,
     ${content ? db`ac.text, ac.tables::text as tables_json` : db`left(ac.text, 2000) as text, jsonb_path_query_array(ac.tables, '$[*].sheet')::text as sheets_json`},
-    c.member_id as owner_id, owner.name as owner_name, uploader.name as uploader_name
+    c.member_id as owner_id, owner.name as owner_name, uploader.name as uploader_name, s.name as school_name
   from attachments a
     left join attachment_contents ac on ac.attachment_id = a.id
+    left join schools s on s.id = a.school_id
     left join clusters c on c.id = a.cluster_id
     left join profiles owner on owner.id = c.member_id
     left join profiles uploader on uploader.id = a.uploaded_by
@@ -235,7 +240,7 @@ export async function documentContentsForDistrict(db: Sql, districtId: string) {
  */
 export async function saveDocument(db: Sql, input: {
   districtId: string; clusterId: string | null; uploadedBy: string; conversationId?: string | null; ownerType?: string;
-  name: string; buffer: Buffer;
+  placement?: DocumentPlacement | null; name: string; buffer: Buffer;
 }, context?: AuditContext) {
   await ensureBucket();
   const id = randomUUID();
@@ -257,7 +262,7 @@ export async function saveDocument(db: Sql, input: {
       await tx`insert into attachments ${tx({
         id, districtId: input.districtId, clusterId: input.clusterId, conversationId: input.conversationId ?? null,
         ownerType: input.ownerType ?? "document", name, kind, mimeType: safeContentType(name), sizeBytes: input.buffer.length,
-        storagePath, uploadedBy: input.uploadedBy,
+        storagePath, uploadedBy: input.uploadedBy, folder: input.placement?.folder ?? null, schoolId: input.placement?.schoolId ?? null,
       })}`;
       await tx`
         insert into attachment_contents (attachment_id, text, tables, pages, status, error)
@@ -282,8 +287,44 @@ export async function assignDocument(db: Sql, id: string, memberId: string | nul
       if (!cluster) throw notFound("العضوة غير موجودة");
       clusterId = String(cluster.id);
     }
-    await tx`update attachments set cluster_id = ${clusterId}, owner_type = 'document' where id = ${id}`;
+    // Her folders (and her schools) do not exist in another cluster: a file filed elsewhere starts out of the folders.
+    const keepFolder = clusterId !== null && clusterId === before.clusterId;
+    await tx`
+      update attachments set cluster_id = ${clusterId}, owner_type = 'document',
+        folder = ${keepFolder ? before.folder : null}, school_id = ${keepFolder ? before.schoolId : null}
+      where id = ${id}`;
     if (context) await auditWith(tx, context, { action: "assign", entity: "document", entityId: id, clusterId: clusterId ?? before.clusterId, before: before.ownerId, after: memberId });
+    return findDocument(tx, id);
+  });
+}
+
+/**
+ * Where a file may go in a cluster: one of her folders (not «مدارس المشرفة» itself) or a folder of one of her schools.
+ * Anything else is refused, so a file can never land in another member's school.
+ */
+export async function checkPlacement(db: Sql, clusterId: string, placement: DocumentPlacement): Promise<DocumentPlacement> {
+  const schoolId = placement.schoolId || null;
+  if (!isFileFolder(placement.folder, schoolId !== null)) throw new ApiError(422, "INVALID_FOLDER", "اختاري مجلداً من مجلدات ملف الإنجاز");
+  if (schoolId) {
+    const [school] = isUuid(schoolId) ? await db`select id from schools where id = ${schoolId} and cluster_id = ${clusterId} and deleted_at is null` : [];
+    if (!school) throw notFound("المدرسة غير موجودة");
+  }
+  return { folder: placement.folder, schoolId };
+}
+
+/** Moves a file to another folder of its cluster (null = out of the folders). Null when the file has no cluster. */
+export async function placeDocument(db: Sql, id: string, placement: DocumentPlacement | null, context?: AuditContext) {
+  return atomically(db, async tx => {
+    const before = await findDocument(tx, id);
+    if (!before?.clusterId) return null;
+    const target = placement ? await checkPlacement(tx, before.clusterId, placement) : { folder: null, schoolId: null };
+    await tx`update attachments set folder = ${target.folder}, school_id = ${target.schoolId} where id = ${id}`;
+    if (context) {
+      await auditWith(tx, context, {
+        action: "move", entity: "document", entityId: id, clusterId: before.clusterId,
+        before: { folder: before.folder, schoolId: before.schoolId }, after: target,
+      });
+    }
     return findDocument(tx, id);
   });
 }

@@ -117,6 +117,44 @@ export const MADRASATI_METRICS = [
 
 export const VISIT_TYPES = ["زيارة صفية", "زيارة إشرافية", "متابعة خطة", "ورشة عمل"];
 
+// ───────────── ملف الإنجاز: every member has the same folders, and every school of hers the same seven ─────────────
+// Keys are stored with each file (attachments.folder); labels can be renamed here without touching stored files.
+/** Her own folders. «مدارس المشرفة» holds no files itself: it opens her schools, each with SCHOOL_FOLDERS. */
+export const MEMBER_FOLDERS = [
+  { key: "professional_development", label: "التطوير المهني" },
+  { key: "schools_analysis", label: "تحليل وتصنيف مدارس المشرفة" },
+  { key: "initiatives", label: "مبادرات المشرفة" },
+  { key: "schools", label: "مدارس المشرفة" },
+  { key: "performance_charter", label: "ميثاق الأداء الوظيفي" },
+  { key: "visit_plan", label: "خطة الزيارات" },
+] as const;
+export const SCHOOLS_FOLDER = "schools";
+
+export const SCHOOL_FOLDERS = [
+  { key: "discipline", label: "الانضباط التعليمي" },
+  { key: "supervisory_model", label: "النموذج الإشرافي" },
+  { key: "visit_reports", label: "تقارير الزيارات" },
+  { key: "support_plan", label: "خطة دعم المدرسة" },
+  { key: "database", label: "قاعدة بيانات المدرسة" },
+  { key: "initiatives", label: "مبادرات المدرسة" },
+  { key: "commitment_project", label: "مشروع الالتزام التعليمي" },
+] as const;
+
+/** Where a file may be stored: one of her folders (not «مدارس المشرفة» itself), or a folder of one of her schools. */
+export const isFileFolder = (folder: string, inSchool: boolean) =>
+  inSchool ? SCHOOL_FOLDERS.some(item => item.key === folder) : MEMBER_FOLDERS.some(item => item.key === folder && item.key !== SCHOOLS_FOLDER);
+
+export const folderLabel = (folder: string, inSchool: boolean) =>
+  (inSchool ? SCHOOL_FOLDERS : MEMBER_FOLDERS).find(item => item.key === folder)?.label ?? "";
+
+/** «التطوير المهني», «مدارس المشرفة › الثانوية التاسعة › الانضباط التعليمي», or «غير مصنّف» for a file not in a folder yet. */
+export function folderPath(file: { folder: string | null; schoolId: string | null; schoolName: string | null }) {
+  if (!file.folder) return "غير مصنّف";
+  const label = folderLabel(file.folder, Boolean(file.schoolId));
+  if (!file.schoolId) return label || "غير مصنّف";
+  return [folderLabel(SCHOOLS_FOLDER, false), file.schoolName || "مدرسة", label].join(" › ");
+}
+
 // ───────────── derived values (EDITABILITY Part 4) ─────────────
 const hijriParts = (at: Date) => {
   const parts = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura-nu-latn", { timeZone: "Asia/Riyadh", year: "numeric", month: "numeric", day: "numeric" }).formatToParts(at);

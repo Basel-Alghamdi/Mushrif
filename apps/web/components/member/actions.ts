@@ -1,6 +1,6 @@
 "use client";
 
-import { riyadhDate, type DocumentInfo } from "@rasd/schemas";
+import { riyadhDate, type DocumentInfo, type DocumentPlacement } from "@rasd/schemas";
 import { api } from "../../lib/api";
 import type { LabelValue, LeadershipRole, Plan, ProfileField, Program, School, StaffTile, VisitReport } from "../../lib/types";
 import { useMember, type Row, type SaveJob } from "./context";
@@ -282,11 +282,17 @@ export function useActions() {
     return visit;
   };
 
-  const uploadDocument = async (file: File) => {
-    const saved = await api.upload<DocumentInfo[]>("/cluster/me/documents", [file]);
+  const uploadDocument = async (file: File, placement?: DocumentPlacement) => {
+    const saved = await api.upload<DocumentInfo[]>("/cluster/me/documents", [file], placement ? { folder: placement.folder, schoolId: placement.schoolId ?? "" } : {});
     setDocuments(list => [...saved, ...list]);
     update(ws => ({ ...ws, cluster: { ...ws.cluster, documentCount: ws.cluster.documentCount + saved.length } }));
     return saved;
+  };
+
+  const moveDocument = async (document: DocumentInfo, placement: DocumentPlacement) => {
+    const moved = await api.patch<DocumentInfo>(`/attachments/${document.id}`, placement);
+    setDocuments(list => list.map(item => (item.id === moved.id ? moved : item)));
+    notify("نُقل الملف");
   };
 
   const removeDocument = async (document: DocumentInfo) => {
@@ -342,7 +348,7 @@ export function useActions() {
     setProfileValue, addCustomField, removeCustomField,
     addSchool, removeSchool, setSchool, setTile, setNotes, setCustom, addCustom, removeCustom,
     setRoleField, setRoleName, addRole, removeRole, setMadrasati, setDiscipline, setReportUrl, toggleAbsence,
-    setPlanUrl, setNafesFolder, addVisit, uploadDocument, removeDocument,
+    setPlanUrl, setNafesFolder, addVisit, uploadDocument, moveDocument, removeDocument,
     addProgram, setProgram, removeProgram,
   };
 }

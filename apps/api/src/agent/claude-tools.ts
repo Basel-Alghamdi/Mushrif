@@ -1,6 +1,6 @@
 // Tools the Claude brain can call. Every input is validated with zod before anything runs.
 import type { BetaTool } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import type { ChatBlock, ProposalChange } from "@rasd/schemas";
+import { folderPath, type ChatBlock, type ProposalChange } from "@rasd/schemas";
 import { z } from "zod/v4";
 import { findDocument, getDocument, type StoredDocument } from "../documents.js";
 import {
@@ -134,7 +134,7 @@ function memberDetailForModel(detail: MemberDetail) {
     sections: detail.workspace.sections,
     visits: detail.visits.slice(0, 40),
     // Names only: a document's text is read with get_document / search_documents.
-    documents: detail.documents.map(document => ({ id: document.id, name: document.name, kind: document.kind, createdAt: document.createdAt })),
+    documents: detail.documents.map(document => ({ id: document.id, name: document.name, kind: document.kind, folder: folderPath(document), createdAt: document.createdAt })),
     lastChangedAt: detail.workspace.updatedAt,
   };
 }
@@ -222,7 +222,7 @@ export const TOOLS: ToolDefinition[] = [
       const memberId = input.member ? (await requireMember(ctx, input.member)).id : undefined;
       return {
         hits: searchDocuments(await ctx.team(), input.query, { memberId, limit: input.limit ?? 8 }).map(hit => ({
-          documentId: hit.document.id, name: hit.document.name, owner: hit.document.ownerName, kind: hit.document.kind, where: hit.where,
+          documentId: hit.document.id, name: hit.document.name, owner: hit.document.ownerName, folder: folderPath(hit.document), kind: hit.document.kind, where: hit.where,
           snippets: untrusted("document", { name: hit.document.name, document_id: hit.document.id }, hit.snippets.join("\n")),
         })),
       };
@@ -230,7 +230,7 @@ export const TOOLS: ToolDefinition[] = [
   }),
   defineTool({
     name: "list_documents",
-    description: "Uploaded documents (all team documents, or one member's), newest first, each with the start of its text (inside <untrusted_document>).",
+    description: "Uploaded documents (all team documents, or one member's), newest first, each with its folder in her ملف الإنجاز (e.g. «التطوير المهني» or «مدارس المشرفة › school › الانضباط التعليمي») and the start of its text (inside <untrusted_document>).",
     schema: z.object({ member: z.string().optional() }),
     effect: "reads_documents",
     run: async (input, ctx) => {
@@ -238,7 +238,7 @@ export const TOOLS: ToolDefinition[] = [
       const documents = (await ctx.team()).documents.filter(document => !memberId || document.ownerId === memberId);
       return {
         documents: documents.slice(0, 60).map(document => ({
-          id: document.id, name: document.name, owner: document.ownerName, kind: document.kind, createdAt: document.createdAt,
+          id: document.id, name: document.name, owner: document.ownerName, folder: folderPath(document), kind: document.kind, createdAt: document.createdAt,
           excerpt: untrusted("document", { name: document.name, document_id: document.id }, document.excerpt),
         })),
       };

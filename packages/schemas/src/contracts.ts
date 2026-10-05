@@ -26,7 +26,12 @@ export type DocumentInfo = {
   pages?: number;
   sheets?: string[];
   createdAt: string;
+  // ملف الإنجاز: a MEMBER_FOLDERS key, or a SCHOOL_FOLDERS key with schoolId; null = not in a folder yet
+  folder: string | null;
+  schoolId: string | null;
+  schoolName: string | null;
 };
+export type DocumentPlacement = { folder: string; schoolId: string | null };
 
 // ---------- Chat (head's agent) ----------
 export type ChatTone = "ok" | "warn" | "bad" | "neutral";

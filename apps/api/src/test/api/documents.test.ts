@@ -111,6 +111,59 @@ describe("documents", () => {
     assert.equal(many.status, 413);
   });
 
+  test("ملف الإنجاز: files go into her folders and her schools' folders, move, and never land in another member's school", async () => {
+    const school = await api.call<{ id: string }>("POST", "/cluster/me/schools", { name: "الثانوية التاسعة بعد المائة" }, rasha);
+    const otherSchool = await api.call<{ id: string }>("POST", "/cluster/me/schools", { name: "مدرسة مها" }, maha);
+    assert.ok(school.data?.id && otherSchool.data?.id, JSON.stringify(school.error ?? otherSchool.error));
+    const into = (folder: string, schoolId = "") => {
+      const form = filesForm([{ name: "خطة.txt", type: "text/plain", content: "خطة" }]);
+      form.append("folder", folder);
+      if (schoolId) form.append("schoolId", schoolId);
+      return form;
+    };
+
+    const own = await api.call<DocumentInfo[]>("POST", "/cluster/me/documents", into("professional_development"), rasha);
+    assert.equal(own.status, 201, JSON.stringify(own.error));
+    assert.deepEqual([own.data[0].folder, own.data[0].schoolId, own.data[0].schoolName], ["professional_development", null, null]);
+    const inSchool = await api.call<DocumentInfo[]>("POST", "/cluster/me/documents", into("discipline", school.data.id), rasha);
+    assert.equal(inSchool.status, 201, JSON.stringify(inSchool.error));
+    assert.deepEqual([inSchool.data[0].folder, inSchool.data[0].schoolId, inSchool.data[0].schoolName], ["discipline", school.data.id, "الثانوية التاسعة بعد المائة"]);
+    const byHead = await api.call<DocumentInfo[]>("POST", `/district/members/${rashaId}/documents`, into("visit_reports", school.data.id), head);
+    assert.equal(byHead.status, 201, JSON.stringify(byHead.error));
+    assert.equal(byHead.data[0].folder, "visit_reports");
+
+    // Refused before anything is stored: unknown folders, «مدارس المشرفة» itself, a school folder without its school,
+    // her own folder inside a school, a school without a folder, and another member's school.
+    const before = (await api.call<DocumentInfo[]>("GET", "/cluster/me/documents", undefined, rasha)).data.length;
+    const refusals: [string, string, number][] = [
+      ["random", "", 422], ["schools", "", 422], ["discipline", "", 422], ["professional_development", school.data.id, 422],
+      ["", school.data.id, 422], ["discipline", otherSchool.data.id, 404], ["discipline", "not-a-uuid", 404],
+    ];
+    for (const [folder, schoolId, status] of refusals) {
+      assert.equal((await api.call("POST", "/cluster/me/documents", into(folder, schoolId), rasha)).status, status, `${folder} ${schoolId}`);
+    }
+    assert.equal((await api.call<DocumentInfo[]>("GET", "/cluster/me/documents", undefined, rasha)).data.length, before);
+
+    // Moving: within her tree only; the head can move her files too; every move is audited.
+    const id = own.data[0].id;
+    const moved = await api.call<DocumentInfo>("PATCH", `/attachments/${id}`, { folder: "support_plan", schoolId: school.data.id }, rasha);
+    assert.equal(moved.status, 200, JSON.stringify(moved.error));
+    assert.deepEqual([moved.data.folder, moved.data.schoolId], ["support_plan", school.data.id]);
+    assert.equal((await api.call("PATCH", `/attachments/${id}`, { folder: "discipline", schoolId: otherSchool.data.id }, rasha)).status, 404);
+    assert.equal((await api.call("PATCH", `/attachments/${id}`, { folder: "initiatives" }, maha)).status, 404, "not her file");
+    assert.equal((await api.call("PATCH", `/attachments/${id}`, {}, rasha)).status, 422);
+    const back = await api.call<DocumentInfo>("PATCH", `/attachments/${id}`, { folder: "performance_charter" }, head);
+    assert.deepEqual([back.data.folder, back.data.schoolId], ["performance_charter", null]);
+    const [audit] = await api.sql`select after from audit_log where entity = 'document' and action = 'move' and entity_id = ${id} order by at desc limit 1`;
+    assert.deepEqual(audit.after, { folder: "performance_charter", schoolId: null });
+
+    // Files from before the folders stay listed (folder null) until they are moved; a removed school takes no new files.
+    const list = await api.call<DocumentInfo[]>("GET", "/cluster/me/documents", undefined, rasha);
+    assert.ok(list.data.some(item => item.folder === null && item.schoolId === null));
+    await api.sql`update schools set deleted_at = now() where id = ${school.data.id}`;
+    assert.equal((await api.call("POST", "/cluster/me/documents", into("discipline", school.data.id), rasha)).status, 404);
+  });
+
   test("delete is a soft delete", async () => {
     const target = uploaded.find(item => item.name === "page.html")!;
     const deleted = await api.call("DELETE", `/attachments/${target.id}`, undefined, rasha);

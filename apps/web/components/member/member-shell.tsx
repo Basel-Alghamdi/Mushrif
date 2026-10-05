@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, House, School, UserRound, type LucideIcon } from "lucide-react";
+import { ClipboardList, FolderOpen, House, School, UserRound, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect } from "react";
@@ -13,6 +13,7 @@ type NavItem = { href: string; label: string; icon: LucideIcon };
 const NAV: NavItem[] = [
   { href: "/cluster", label: "اليوم", icon: House },
   { href: "/cluster/schools", label: "مدارسي", icon: School },
+  { href: "/cluster/files", label: "ملفاتي", icon: FolderOpen },
   { href: "/cluster/reports", label: "تقاريري", icon: ClipboardList },
   { href: "/cluster/profile", label: "بياناتي", icon: UserRound },
 ];

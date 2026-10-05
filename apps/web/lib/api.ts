@@ -53,9 +53,10 @@ export const api = Object.assign(request, {
   put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-  /** Multipart upload; files are sent under the "files" field. */
-  upload: <T>(path: string, files: File[] | FileList) => {
+  /** Multipart upload; files are sent under the "files" field, with optional text fields (e.g. the folder). */
+  upload: <T>(path: string, files: File[] | FileList, fields: Record<string, string> = {}) => {
     const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) if (value) form.append(key, value);
     for (const file of Array.from(files)) form.append("files", file, file.name);
     return send<T>(path, { method: "POST", headers: { "x-rasd-source": "web" }, body: form }, true);
   },

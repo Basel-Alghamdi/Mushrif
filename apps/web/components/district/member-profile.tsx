@@ -98,7 +98,7 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "profile", label: "البيانات" },
     { id: "schools", label: "المدارس", count: workspace.schools.length },
-    { id: "documents", label: "الملفات", count: documents?.length ?? summary.documentCount },
+    { id: "documents", label: "ملف الإنجاز", count: documents?.length ?? summary.documentCount },
     { id: "visits", label: "الزيارات", count: workspace.schools.reduce((sum, school) => sum + school.visitCount, 0) },
   ];
 
@@ -147,7 +147,7 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
       <div id="mp-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "profile" && <ProfileTab file={file} missing={missing} onlyIds={onlyIds} onShowAll={() => setOnlyIds(null)} onGo={setTab} />}
         {tab === "schools" && <SchoolsTab file={file} />}
-        {tab === "documents" && <DocumentsTab memberId={memberId} documents={documents} error={documentsError} onChanged={() => void loadDocuments()} />}
+        {tab === "documents" && <DocumentsTab memberId={memberId} documents={documents} schools={workspace.schools} error={documentsError} onChanged={() => void loadDocuments()} />}
         {tab === "visits" && <VisitsTab memberId={memberId} workspace={workspace} />}
       </div>
 
