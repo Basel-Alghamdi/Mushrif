@@ -57,6 +57,9 @@ pnpm --filter @rasd/api seed:roster     # حسابات المشرفات من app
 
 - **Railway**: ثلاث خدمات من المستودع نفسه، ومتغيرات البيئة أعلاه لكل خدمة. متغيرات `NEXT_PUBLIC_*` و`API_PROXY_TARGET` تُدمج في الواجهة وقت البناء، لذا يجب ضبطها قبل بناء خدمة الويب. في **Settings** لكل خدمة:
   - **Root Directory**: فارغ (جذر المستودع) — البناء يحتاج الحزم المشتركة في `packages/` وملف `pnpm-lock.yaml`، فتحديد `apps/…` هنا يُفشل البناء.
-  - **Railway Config File**: `/apps/api/railway.json` أو `/apps/web/railway.json` أو `/apps/worker/railway.json` — يحدد أوامر البناء والتشغيل ومسارات المراقبة وفحص الصحة.
+  - **Build / Start**: `pnpm --filter @rasd/<الخدمة> build` و`pnpm --filter @rasd/<الخدمة> start`.
+  - **Watch Paths**: مجلد الخدمة (`/apps/<الخدمة>/**`) والحزم التي تستخدمها من `/packages/**`، مع `/package.json` و`/pnpm-lock.yaml` و`/pnpm-workspace.yaml` و`/tsconfig.base.json` — وإلا لا يُعاد نشر الخدمة عند تحديث الحزم المشتركة.
+  - **Healthcheck Path**: `/health` للـ API و`/login` للواجهة.
   - إصدار Node يُحدَّد من `engines` في `package.json` بالجذر.
+  - يرفض Railway النشر (لكل الخدمات) إذا كان في `pnpm-lock.yaml` إصدار من Next.js فيه ثغرة أمنية معروفة؛ حدّث `next` في `apps/web/package.json` عندها.
 - المساعد يستخدم GPT-5 عند ضبط `OPENAI_API_KEY` و`OPENAI_CHAT_MODEL=gpt-5` في `.env` بجذر المستودع، وله الأولوية على Claude. متغيرا `OPENAI_EXTRACT_MODEL` و`OPENAI_EMBED_MODEL` محجوزان ولا يقرؤهما الكود بعد.
