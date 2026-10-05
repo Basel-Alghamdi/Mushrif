@@ -60,6 +60,7 @@ pnpm --filter @rasd/api seed:roster     # حسابات المشرفات من app
   - **Build / Start**: `pnpm --filter @rasd/<الخدمة> build` و`pnpm --filter @rasd/<الخدمة> start`.
   - **Watch Paths**: مجلد الخدمة (`/apps/<الخدمة>/**`) والحزم التي تستخدمها من `/packages/**`، مع `/package.json` و`/pnpm-lock.yaml` و`/pnpm-workspace.yaml` و`/tsconfig.base.json` — وإلا لا يُعاد نشر الخدمة عند تحديث الحزم المشتركة.
   - **Healthcheck Path**: `/health` للـ API و`/login` للواجهة.
+  - **Pre-deploy Command** (الـ API فقط): `pnpm --filter @rasd/api db:migrate` — يطبّق ما لم يُطبَّق من `supabase/migrations/` قبل تشغيل كل نسخة جديدة، فلا يعمل كود جديد على مخطط قديم.
   - إصدار Node يُحدَّد من `engines` في `package.json` بالجذر.
   - يرفض Railway النشر (لكل الخدمات) إذا كان في `pnpm-lock.yaml` إصدار من Next.js فيه ثغرة أمنية معروفة؛ حدّث `next` في `apps/web/package.json` عندها.
 - المساعد يستخدم Claude Haiku 4.5 (`claude-haiku-4-5`) عند ضبط `ANTHROPIC_API_KEY` — في `.env` بجذر المستودع محلياً، وفي متغيرات خدمة `@rasd/api` على Railway. لنموذج آخر اضبطي `ANTHROPIC_MODEL`. يُستخدم GPT-5 (`OPENAI_API_KEY`) فقط إذا لم يُضبط مفتاح Claude. متغيرا `OPENAI_EXTRACT_MODEL` و`OPENAI_EMBED_MODEL` محجوزان ولا يقرؤهما الكود بعد.
