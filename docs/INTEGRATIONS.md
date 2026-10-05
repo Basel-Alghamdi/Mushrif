@@ -55,5 +55,8 @@ pnpm --filter @rasd/api seed:roster     # حسابات المشرفات من app
 
 ## المراحل القادمة
 
-- **Railway**: ثلاث خدمات من المستودع نفسه، ومتغيرات البيئة أعلاه لكل خدمة. متغيرات `NEXT_PUBLIC_*` تُدمج في الواجهة وقت البناء، لذا يجب ضبطها قبل بناء خدمة الويب.
+- **Railway**: ثلاث خدمات من المستودع نفسه، ومتغيرات البيئة أعلاه لكل خدمة. متغيرات `NEXT_PUBLIC_*` و`API_PROXY_TARGET` تُدمج في الواجهة وقت البناء، لذا يجب ضبطها قبل بناء خدمة الويب. في **Settings** لكل خدمة:
+  - **Root Directory**: فارغ (جذر المستودع) — البناء يحتاج الحزم المشتركة في `packages/` وملف `pnpm-lock.yaml`، فتحديد `apps/…` هنا يُفشل البناء.
+  - **Railway Config File**: `/apps/api/railway.json` أو `/apps/web/railway.json` أو `/apps/worker/railway.json` — يحدد أوامر البناء والتشغيل ومسارات المراقبة وفحص الصحة.
+  - إصدار Node يُحدَّد من `engines` في `package.json` بالجذر.
 - المساعد يستخدم GPT-5 عند ضبط `OPENAI_API_KEY` و`OPENAI_CHAT_MODEL=gpt-5` في `.env` بجذر المستودع، وله الأولوية على Claude. متغيرا `OPENAI_EXTRACT_MODEL` و`OPENAI_EMBED_MODEL` محجوزان ولا يقرؤهما الكود بعد.
