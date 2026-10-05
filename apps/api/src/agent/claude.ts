@@ -11,7 +11,7 @@ import type { AgentContext, AgentReply } from "./index.js";
 import { blocksAsText, riyadhDateLabel } from "./render.js";
 import { auditFileReads } from "./snapshot.js";
 
-export const DEFAULT_MODEL = "claude-haiku-4-5";
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
 const MAX_ROUNDS = 8;
 const HISTORY_LIMIT = 24;
 const ATTACHMENT_TEXT_LIMIT = 60_000;

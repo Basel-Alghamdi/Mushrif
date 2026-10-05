@@ -53,10 +53,11 @@ describe("Claude brain", () => {
     delete process.env.ANTHROPIC_MODEL;
     delete process.env.ANTHROPIC_EFFORT;
     const request = claude.buildRequest([{ role: "user", content: "مرحبا" }]) as unknown as Record<string, unknown>;
-    // Haiku 4.5 by default: no effort (400 on Haiku) and no refusal fallbacks.
-    assert.equal(request.model, "claude-haiku-4-5");
+    assert.equal(request.model, "claude-sonnet-5-5");
     assert.equal(request.max_tokens, 16000);
-    for (const unsupported of ["output_config", "fallbacks", "betas"]) assert.equal(unsupported in request, false, unsupported);
+    assert.deepEqual(request.betas, ["server-side-fallback-2026-07-01"]);
+    assert.equal(request.fallbacks, "default");
+    assert.deepEqual(request.output_config, { effort: "medium" });
     const system = request.system as { type: string; text: string; cache_control: unknown }[];
     assert.deepEqual(system[0].cache_control, { type: "ephemeral" });
     assert.match(system[0].text, /خلود/);
@@ -67,17 +68,16 @@ describe("Claude brain", () => {
     for (const tool of toolParams) assert.equal(tool.input_schema.type, "object", tool.name);
   });
 
-  test("model and effort come from the environment; newer models get effort and refusal fallbacks", () => {
-    process.env.ANTHROPIC_MODEL = "claude-opus-5-5";
+  test("model and effort come from the environment; Haiku gets neither effort nor refusal fallbacks", () => {
+    process.env.ANTHROPIC_MODEL = "claude-haiku-4-5";
     let request = claude.buildRequest([]) as unknown as Record<string, unknown>;
-    assert.equal(request.model, "claude-opus-5-5");
-    assert.deepEqual(request.betas, ["server-side-fallback-2026-07-01"]);
-    assert.equal(request.fallbacks, "default");
-    assert.deepEqual(request.output_config, { effort: "medium" });
-    process.env.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+    assert.equal(request.model, "claude-haiku-4-5");
+    for (const unsupported of ["output_config", "fallbacks", "betas"]) assert.equal(unsupported in request, false, unsupported);
+    process.env.ANTHROPIC_MODEL = "claude-opus-5-5";
     process.env.ANTHROPIC_EFFORT = "high";
     request = claude.buildRequest([]) as unknown as Record<string, unknown>;
-    assert.equal(request.model, "claude-sonnet-5-5");
+    assert.equal(request.model, "claude-opus-5-5");
+    assert.equal(request.fallbacks, "default");
     assert.deepEqual(request.output_config, { effort: "high" });
     process.env.ANTHROPIC_EFFORT = "extreme";
     request = claude.buildRequest([]) as unknown as Record<string, unknown>;
@@ -191,7 +191,7 @@ describe("Claude brain", () => {
     const { respond, agentStatus } = await import("../agent/index.js");
     process.env.ANTHROPIC_API_KEY = "test-key";
     try {
-      assert.deepEqual(agentStatus(), { mode: "claude", model: "claude-haiku-4-5" });
+      assert.deepEqual(agentStatus(), { mode: "claude", model: "claude-sonnet-5-5" });
       const cases: [Error, RegExp][] = [
         [new Anthropic.RateLimitError(429, { type: "error" }, "rate limited", new Headers()), /مشغول/],
         [new Anthropic.AuthenticationError(401, { type: "error" }, "bad key", new Headers()), /غير صالح/],

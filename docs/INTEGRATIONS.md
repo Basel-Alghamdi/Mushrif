@@ -7,7 +7,7 @@
 | **Supabase** | قاعدة Postgres، تسجيل الدخول (Auth)، وتخزين الملفات المرفوعة (Storage) |
 | **Railway** | استضافة الواجهة (`apps/web`) والـ API (`apps/api`) والعامل (`apps/worker`) |
 | **Resend** | إرسال الدعوات والتذكيرات ورسائل استعادة كلمة المرور (اختياري) |
-| **Claude Haiku 4.5** (اختياري) | فهم حر لأسئلة رئيسة النطاق وقراءة الملفات الممسوحة ضوئياً (`ANTHROPIC_API_KEY`). بدون مفتاح يعمل المساعد بمحرك عربي مدمج |
+| **Claude Sonnet 5.5** (اختياري) | فهم حر لأسئلة رئيسة النطاق وقراءة الملفات الممسوحة ضوئياً (`ANTHROPIC_API_KEY`). بدون مفتاح يعمل المساعد بمحرك عربي مدمج |
 | **OpenAI / GPT-5** (اختياري) | بديل لـ Claude: يُستخدم عند ضبط `OPENAI_API_KEY` فقط إذا لم يُضبط مفتاح Claude |
 
 ## إعداد Supabase
@@ -63,4 +63,4 @@ pnpm --filter @rasd/api seed:roster     # حسابات المشرفات من app
   - **Pre-deploy Command** (الـ API فقط): `pnpm --filter @rasd/api db:migrate` — يطبّق ما لم يُطبَّق من `supabase/migrations/` قبل تشغيل كل نسخة جديدة، فلا يعمل كود جديد على مخطط قديم.
   - إصدار Node يُحدَّد من `engines` في `package.json` بالجذر.
   - يرفض Railway النشر (لكل الخدمات) إذا كان في `pnpm-lock.yaml` إصدار من Next.js فيه ثغرة أمنية معروفة؛ حدّث `next` في `apps/web/package.json` عندها.
-- المساعد يستخدم Claude Haiku 4.5 (`claude-haiku-4-5`) عند ضبط `ANTHROPIC_API_KEY` — في `.env` بجذر المستودع محلياً، وفي متغيرات خدمة `@rasd/api` على Railway. لنموذج آخر اضبطي `ANTHROPIC_MODEL`. يُستخدم GPT-5 (`OPENAI_API_KEY`) فقط إذا لم يُضبط مفتاح Claude. متغيرا `OPENAI_EXTRACT_MODEL` و`OPENAI_EMBED_MODEL` محجوزان ولا يقرؤهما الكود بعد.
+- المساعد يستخدم Claude Sonnet 5.5 (`claude-sonnet-5-5`) عند ضبط `ANTHROPIC_API_KEY` — في `.env` بجذر المستودع محلياً، وفي متغيرات خدمة `@rasd/api` على Railway. لنموذج آخر اضبطي `ANTHROPIC_MODEL` (مثلاً `claude-haiku-4-5` الأرخص). يُستخدم GPT-5 (`OPENAI_API_KEY`) فقط إذا لم يُضبط مفتاح Claude. متغيرا `OPENAI_EXTRACT_MODEL` و`OPENAI_EMBED_MODEL` محجوزان ولا يقرؤهما الكود بعد.
