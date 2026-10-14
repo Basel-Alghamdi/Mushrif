@@ -13,13 +13,13 @@ const AGENT = readFileSync(`${migrations}20261004120000_agent_chat_documents.sql
 
 let api: TestApi;
 
-describe("migrations 20261004120000_agent_chat_documents, 20261006120000_document_folders and 20261014120000_supervisor_feedback", () => {
+describe("migrations since the core schema", () => {
   before(async () => { api = await startApi(); });
   after(async () => { await api.stop(); });
 
   test("main's runner applied every migration", async () => {
     const rows = await api.sql`select version from supabase_migrations.schema_migrations order by version`;
-    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000", "20261006120000", "20261014120000"]);
+    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000", "20261006120000", "20261014120000", "20261015120000"]);
   });
 
   test("sub-folder keys, full attendance and the members' evaluation columns", async () => {

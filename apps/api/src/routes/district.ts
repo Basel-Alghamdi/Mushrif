@@ -16,7 +16,7 @@ import { loadWorkspaces, memberSummary, type Workspace } from "../workspace.js";
 
 export async function loadDistrict(db: Sql, districtId: string, date = riyadhDate()) {
   const [district] = await db`select id, name, submission_deadline::text as deadline from districts where id = ${districtId}`;
-  const clusters = await db`select c.id from clusters c where c.district_id = ${districtId}`;
+  const clusters = await db`select c.id from clusters c join profiles p on p.id = c.member_id where c.district_id = ${districtId} and p.deleted_at is null`;
   const workspaces = await loadWorkspaces(db, clusters.map(row => String(row.id)), date);
   const deadline = (district?.deadline as string | null) ?? null;
   const members = [...workspaces.values()]
@@ -106,7 +106,7 @@ export async function sendReminders(
   const ids = [...new Set(messages.map(message => message.memberId))];
   const members = await db`
     select p.id, p.name, p.email, c.id as cluster_id from profiles p join clusters c on c.member_id = p.id
-    where p.id = any(${db.array(ids)}::uuid[]) and p.district_id = ${head.districtId}`;
+    where p.id = any(${db.array(ids)}::uuid[]) and p.district_id = ${head.districtId} and p.deleted_at is null`;
   if (members.length !== ids.length) throw invalid({ memberIds: "إحدى العضوات غير موجودة في نطاقك" });
   const byId = new Map(members.map(member => [String(member.id), member]));
   const kind = options.kind ?? "reminder";
@@ -155,8 +155,9 @@ export function districtRoutes(app: Hono<AppEnv>) {
     const schools = members.flatMap(item => item.workspace.schools);
     const weekStart = new Date(Date.now() - 6 * 86_400_000);
     const week = await sql`
-      select date::text as date, count(*)::int as count from daily_submissions ds join clusters c on c.id = ds.cluster_id
-      where c.district_id = ${head.districtId} and ds.date >= ${riyadhDate(weekStart)}::date group by date order by date`;
+      select date::text as date, count(*)::int as count from daily_submissions ds
+        join clusters c on c.id = ds.cluster_id join profiles p on p.id = c.member_id
+      where c.district_id = ${head.districtId} and p.deleted_at is null and ds.date >= ${riyadhDate(weekStart)}::date group by date order by date`;
     const disciplineValues = members.map(item => item.summary.discipline).filter((value): value is number => value !== null);
     return c.json(ok({
       kpis: {
@@ -238,6 +239,31 @@ export function districtRoutes(app: Hono<AppEnv>) {
       await audit(c, tx, { action: "reset_password", entity: "account", entityId: memberId, clusterId });
     });
     return c.json(ok({ reset: true }));
+  });
+
+  // Removes a مشرفة (soft delete): her login stops working at once — a new address and a password nobody knows, banned —
+  // then her profile is marked removed, her sessions end and pending invitations to her address are revoked. Her file
+  // stays in the database for the platform owner only; nothing in the platform shows or reminds her any more, and her
+  // address is free to be added again.
+  app.delete("/district/members/:id", async c => {
+    const head = requireHead(c);
+    const memberId = c.req.param("id");
+    const clusterId = await memberInDistrict(sql, head, memberId);
+    const [member] = await sql`select name, email from profiles where id = ${memberId}`;
+    const placeholder = `deleted-${memberId}@deleted.rasd.online`;
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(memberId, {
+      email: placeholder, email_confirm: true, password: randomPassword(), ban_duration: "876000h", app_metadata: { rasd: true, rasdDeleted: true },
+    });
+    if (error) throw new ApiError(502, "AUTH_PROVIDER_ERROR", "تعذّر إيقاف حساب الدخول — أعيدي المحاولة");
+    await sql.begin(async tx => {
+      await tx`
+        update profiles set deleted_at = now(), deleted_by = ${head.id}, deleted_email = email, email = ${placeholder}
+        where id = ${memberId} and deleted_at is null`;
+      await revokeSessions(tx, memberId);
+      await tx`update invitations set status = 'revoked' where district_id = ${head.districtId} and email = ${member.email} and status = 'pending'`;
+      await audit(c, tx, { action: "delete", entity: "member", entityId: memberId, clusterId, before: { name: member.name, email: member.email } });
+    });
+    return c.json(ok({ deleted: true }));
   });
 
   // Account details the head may change. An email change also moves the login email; name and الصفة stay in sync

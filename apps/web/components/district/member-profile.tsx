@@ -1,8 +1,9 @@
 "use client";
 
 import type { DocumentInfo } from "@rasd/schemas";
-import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, Phone, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, Phone, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, errorText, redirectIfSignedOut } from "../../lib/api";
 import { copyText, initialsOf, loginMessage } from "../../lib/chat/helpers";
@@ -71,8 +72,9 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
   const [tab, setTab] = useState<Tab>("profile");
   const [onlyIds, setOnlyIds] = useState<string[] | null>(null);
   const [editingEmail, setEditingEmail] = useState(false);
-  const [dialog, setDialog] = useState<"reminder" | "reset" | null>(null);
+  const [dialog, setDialog] = useState<"reminder" | "reset" | "delete" | null>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -117,7 +119,7 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
               ? <LoginEmailForm memberId={memberId} email={summary.email} onDone={() => setEditingEmail(false)} onSaved={email => setSummary(current => ({ ...current, email }))} />
               : <span className="mp-email" dir="ltr">{summary.email}</span>}
           </div>
-          <MoreMenu phone={phone} onEmail={() => setEditingEmail(true)} onReset={() => setDialog("reset")} />
+          <MoreMenu phone={phone} onEmail={() => setEditingEmail(true)} onReset={() => setDialog("reset")} onDelete={() => setDialog("delete")} />
         </div>
 
         <p className="mp-status">
@@ -170,14 +172,31 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === "delete" && (
+        <ConfirmDialog
+          title={`حذف حساب ${firstName(name)}؟`}
+          description={<>
+            لن تستطيع الدخول إلى رَصد بعد الآن، ولن تصلها رسائل أو تذكيرات، وتختفي من فريقك ومن التقارير والمساعد.
+            {" "}بياناتها وملفاتها لا تُمسح، بل تُحفظ في قاعدة البيانات ولا تظهر في المنصة. لا يمكنكِ التراجع عن الحذف من هنا.
+          </>}
+          confirmLabel="حذف الحساب"
+          danger
+          onConfirm={async () => {
+            await api.del(`/district/members/${memberId}`);
+            toast(`حُذف حساب ${firstName(name)}`);
+            router.replace("/district/team");
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }
 
-type MoreMenuProps = { phone: string; onEmail: () => void; onReset: () => void };
+type MoreMenuProps = { phone: string; onEmail: () => void; onReset: () => void; onDelete: () => void };
 
-/** The rare actions live behind «⋯»: call, change the login email, reset the password. */
-function MoreMenu({ phone, onEmail, onReset }: MoreMenuProps) {
+/** The rare actions live behind «⋯»: call, change the login email, reset the password, delete the account. */
+function MoreMenu({ phone, onEmail, onReset, onDelete }: MoreMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -202,6 +221,7 @@ function MoreMenu({ phone, onEmail, onReset }: MoreMenuProps) {
           {phone && <a role="menuitem" href={`tel:${phone}`} onClick={() => setOpen(false)}><Phone /> اتصال <span dir="ltr" className="muted">{phone}</span></a>}
           <button role="menuitem" onClick={pick(onEmail)}><Mail /> تغيير بريد الدخول</button>
           <button role="menuitem" onClick={pick(onReset)}><KeyRound /> إعادة تعيين كلمة المرور</button>
+          <button role="menuitem" className="is-danger" onClick={pick(onDelete)}><Trash2 /> حذف الحساب</button>
         </div>
       )}
     </div>

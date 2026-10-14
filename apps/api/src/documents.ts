@@ -201,7 +201,7 @@ const selectDocuments = (db: Sql, where: postgres.Fragment, content: boolean) =>
     left join clusters c on c.id = a.cluster_id
     left join profiles owner on owner.id = c.member_id
     left join profiles uploader on uploader.id = a.uploaded_by
-  where a.deleted_at is null and ${where}
+  where a.deleted_at is null and owner.deleted_at is null and ${where}
   order by a.uploaded_at desc`;
 
 const listed = (rows: Row[]) => rows.map(row => documentRow(row, parseJson<unknown[]>(row.sheetsJson, []).map(String)));
@@ -283,7 +283,9 @@ export async function assignDocument(db: Sql, id: string, memberId: string | nul
     if (!before) return null;
     let clusterId: string | null = null;
     if (memberId) {
-      const [cluster] = await tx`select id from clusters where member_id = ${memberId} and district_id = ${before.districtId}`;
+      const [cluster] = await tx`
+        select c.id from clusters c join profiles p on p.id = c.member_id
+        where c.member_id = ${memberId} and c.district_id = ${before.districtId} and p.deleted_at is null`;
       if (!cluster) throw notFound("العضوة غير موجودة");
       clusterId = String(cluster.id);
     }

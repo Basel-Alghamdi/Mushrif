@@ -7,10 +7,12 @@ import { isUuid } from "./parse.js";
 // in her district. Rows outside that cluster answer 404, not 403, so ids from other clusters are indistinguishable
 // from ids that do not exist.
 
-/** The cluster of a member in the head's district. */
+/** The cluster of a member in the head's district. A removed member is not found (her file stays only in the database). */
 export async function memberInDistrict(db: Sql, head: Actor, memberId: string) {
   if (!isUuid(memberId)) throw notFound("العضوة غير موجودة");
-  const [row] = await db`select c.id as cluster_id from clusters c where c.member_id = ${memberId} and c.district_id = ${head.districtId}`;
+  const [row] = await db`
+    select c.id as cluster_id from clusters c join profiles p on p.id = c.member_id
+    where c.member_id = ${memberId} and c.district_id = ${head.districtId} and p.deleted_at is null`;
   if (!row) throw notFound("العضوة غير موجودة");
   return String(row.clusterId);
 }

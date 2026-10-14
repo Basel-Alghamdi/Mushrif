@@ -21,7 +21,7 @@ export async function findMember(db: Sql, session: Session, memberId: string): P
   if (!isUuid(memberId)) return null;
   const [row] = await db`
     select p.id, p.name, p.email, p.activated_at, c.id as cluster_id from profiles p join clusters c on c.member_id = p.id
-    where p.id = ${memberId} and p.role = 'member' and p.district_id = ${session.head.districtId}`;
+    where p.id = ${memberId} and p.role = 'member' and p.district_id = ${session.head.districtId} and p.deleted_at is null`;
   return row ? { id: String(row.id), name: String(row.name), email: String(row.email), clusterId: String(row.clusterId), activated: Boolean(row.activatedAt) } : null;
 }
 
@@ -409,7 +409,9 @@ async function rowInCluster(tx: Sql, table: RowTable, id: string, clusterId: str
 
 async function clusterInDistrict(db: Sql, session: Session, clusterId: string) {
   if (!isUuid(clusterId)) return false;
-  return (await db`select id from clusters where id = ${clusterId} and district_id = ${session.head.districtId}`).length > 0;
+  return (await db`
+    select c.id from clusters c join profiles p on p.id = c.member_id
+    where c.id = ${clusterId} and c.district_id = ${session.head.districtId} and p.deleted_at is null`).length > 0;
 }
 
 /** Puts back what a change did, newest step first. Steps that can no longer be undone are reported as notes. */
