@@ -1,31 +1,21 @@
 "use client";
 
-import { Check, ClipboardList, FolderOpen, Plus } from "lucide-react";
+import { ClipboardList, FolderOpen, Plus } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useActions } from "../../../components/member/actions";
+import { useState } from "react";
 import { useMember } from "../../../components/member/context";
 import { SEP } from "../../../components/member/model";
 import { useSchoolName } from "../../../components/member/today";
-import { Expander } from "../../../components/member/ui";
 import { VisitSheet } from "../../../components/member/visits";
 import { ar, relativeTime } from "../../../lib/format";
 import type { VisitReport } from "../../../lib/types";
 
-/** Her visits and plan links. Files live in ملفاتي (ملف الإنجاز folders). */
+/** Her visits. Files (the plans among them) live in ملفاتي, each in its ملف الإنجاز folder. */
 export default function ReportsPage() {
   const { visits } = useMember();
   const schoolName = useSchoolName();
   const [logging, setLogging] = useState(false);
   const [openVisit, setOpenVisit] = useState<string | null>(null);
-
-  // #plans (from «جهّزي ملفك») opens the plans and brings them into view.
-  useEffect(() => {
-    if (window.location.hash !== "#plans") return;
-    const section = document.getElementById("plans");
-    if (section instanceof HTMLDetailsElement) section.open = true;
-    section?.scrollIntoView({ block: "start" });
-  }, []);
 
   const items = [...visits].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -38,8 +28,6 @@ export default function ReportsPage() {
         <Link href="/cluster/files" className="btn btn-secondary btn-lg"><FolderOpen aria-hidden />ملفاتي</Link>
       </div>
       <p className="m-hint">الملفات صارت في «ملفاتي»، كل ملف في مجلده من ملف الإنجاز.</p>
-
-      <Plans />
 
       {items.length === 0 ? (
         <p className="m-lead">زياراتك تظهر هنا.</p>
@@ -66,34 +54,7 @@ export default function ReportsPage() {
   );
 }
 
-/** main's five plans as link rows (a link marks the plan as uploaded), plus the Nafes card folder. */
-function Plans() {
-  const { ws } = useMember();
-  const { setPlanUrl, setNafesFolder } = useActions();
-  const uploaded = ws.plans.filter(plan => plan.status === "uploaded").length;
-  return (
-    <div className="m-exp-group">
-      <Expander id="plans" title={<>روابط الخطط <span className="m-count">({ar(uploaded)} من {ar(ws.plans.length)})</span></>}>
-        {ws.plans.map(plan => (
-          <div className="field" key={plan.id}>
-            <label className="field-label m-plan-label" htmlFor={`plan-${plan.id}`}>
-              {plan.label}
-              {plan.status === "uploaded" && <span className="m-plan-done"><Check aria-hidden />مرفوعة</span>}
-            </label>
-            <input id={`plan-${plan.id}`} className="input" type="url" inputMode="url" dir="ltr" value={plan.url} placeholder="الصقي رابط الملف"
-              onChange={event => setPlanUrl(plan, event.target.value)} />
-          </div>
-        ))}
-        <div className="field">
-          <label className="field-label" htmlFor="nafes-folder">مجلد بطاقة نافس <span className="m-optional">(اختياري)</span></label>
-          <input id="nafes-folder" className="input" type="url" inputMode="url" dir="ltr" value={ws.cluster.nafesCardFolderUrl} placeholder="الصقي رابط المجلد"
-            onChange={event => setNafesFolder(event.target.value)} />
-        </div>
-      </Expander>
-    </div>
-  );
-}
-
+/** Older visits may also carry counts and blockers (the sheet no longer asks for them). */
 function VisitDetails({ visit }: { visit: VisitReport }) {
   const counts = [
     visit.beneficiaries ? `المستفيدات: ${ar(visit.beneficiaries)}` : "",
@@ -101,7 +62,7 @@ function VisitDetails({ visit }: { visit: VisitReport }) {
   ].filter(Boolean).join(SEP);
   return (
     <div className="m-item-details">
-      {visit.text ? <p>{visit.text}</p> : <p className="m-muted">لا يوجد وصف.</p>}
+      {visit.text ? <p><span className="m-muted">الهدف: </span>{visit.text}</p> : <p className="m-muted">لم يُكتب الهدف.</p>}
       {counts && <p className="m-muted">{counts}</p>}
       {visit.blockers && <p className="m-muted">المعوقات: {visit.blockers}</p>}
     </div>

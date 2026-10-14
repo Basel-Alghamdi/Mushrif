@@ -69,6 +69,7 @@ export function validateProfileValue(key: string | null, type: ProfileFieldType,
   return null;
 }
 
+/** Seeded for every new member. No longer shown or counted: these files now live in each school's «النموذج الإشرافي». */
 export const DEFAULT_PLANS = [
   { kind: "realityAnalysis", label: "تقرير تحليل الواقع" },
   { kind: "improvement", label: "خطة التحسين" },
@@ -97,8 +98,8 @@ export const SCHOOL_BASE_FIELDS: { key: string; label: string; kind: SchoolField
   { key: "hasGuard", label: "الحارس", kind: "boolean", yes: "يوجد", no: "لا يوجد" },
   { key: "classes", label: "عدد الفصول", kind: "count" },
   { key: "students", label: "عدد الطالبات", kind: "count" },
-  { key: "giftedClasses", label: "عدد فصول الموهبة", kind: "count" },
-  { key: "giftedStudents", label: "طالبات الموهبة", kind: "count" },
+  { key: "giftedClasses", label: "عدد فصول موهبة", kind: "count" },
+  { key: "giftedStudents", label: "عدد طالبات موهبة", kind: "count" },
   { key: "teachesChinese", label: "تطبيق اللغة الصينية", kind: "boolean", yes: "نعم", no: "لا" },
 ];
 
@@ -115,42 +116,99 @@ export const MADRASATI_METRICS = [
   { key: "completion", label: "نسبة الإنجاز" },
 ] as const;
 
-export const VISIT_TYPES = ["زيارة صفية", "زيارة إشرافية", "متابعة خطة", "ورشة عمل"];
+// ───────────── مؤشرات التقويم المدرسي ─────────────
+export const SUPPORT_TYPES = ["وفق الاحتياج", "عند الطلب", "الأولى بالتحسين"];
 
-// ───────────── ملف الإنجاز: every member has the same folders, and every school of hers the same seven ─────────────
+/** The four domains of التقويم المدرسي; each gets a level (TIERS) and its percentage. Keys are stored in evaluation_indicators.domains. */
+export const EVALUATION_DOMAINS = [
+  { key: "management", label: "الإدارة المدرسية" },
+  { key: "teaching", label: "التعليم والتعلم" },
+  { key: "outcomes", label: "نواتج التعلم" },
+  { key: "environment", label: "البيئة المدرسية" },
+] as const;
+export type EvaluationDomainKey = (typeof EVALUATION_DOMAINS)[number]["key"];
+export type EvaluationDomain = { level: string; percent: number | null };
+
+/** نافس per tested grade: the evaluation column and its label. */
+export const NAFES_GRADES = [
+  { key: "nafesGrade3", label: "الثالث الابتدائي" },
+  { key: "nafesGrade6", label: "السادس الابتدائي" },
+  { key: "nafesGrade9", label: "الثالث المتوسط" },
+] as const;
+export type NafesGradeKey = (typeof NAFES_GRADES)[number]["key"];
+
+/** The visit types offered as chips; «أخرى» on the visit sheet lets her type any other. */
+export const VISIT_TYPES = ["زيارة صفية", "زيارة إشرافية", "متابعة خطة", "ورشة عمل", "تحقق"];
+
+// ───────────── ملف الإنجاز: every member has the same folders, and every school of hers the same ones ─────────────
 // Keys are stored with each file (attachments.folder); labels can be renamed here without touching stored files.
+// A folder with a `parent` is a sub-folder: it opens from its parent, which may still hold files of its own.
+export type FolderDef = { key: string; label: string; parent?: string };
+
 /** Her own folders. «مدارس المشرفة» holds no files itself: it opens her schools, each with SCHOOL_FOLDERS. */
-export const MEMBER_FOLDERS = [
+export const MEMBER_FOLDERS: readonly FolderDef[] = [
   { key: "professional_development", label: "التطوير المهني" },
+  { key: "pd_presenter", label: "منفذ", parent: "professional_development" },
+  { key: "pd_attendee", label: "مستفيد", parent: "professional_development" },
   { key: "schools_analysis", label: "تحليل وتصنيف مدارس المشرفة" },
   { key: "initiatives", label: "مبادرات المشرفة" },
   { key: "schools", label: "مدارس المشرفة" },
   { key: "performance_charter", label: "ميثاق الأداء الوظيفي" },
   { key: "visit_plan", label: "خطة الزيارات" },
-] as const;
+];
 export const SCHOOLS_FOLDER = "schools";
 
-export const SCHOOL_FOLDERS = [
+export const SCHOOL_FOLDERS: readonly FolderDef[] = [
   { key: "discipline", label: "الانضباط التعليمي" },
+  { key: "discipline_accountability", label: "المساءلة", parent: "discipline" },
+  { key: "discipline_thanks", label: "الشكر", parent: "discipline" },
+  { key: "discipline_plan", label: "خطة الانضباط", parent: "discipline" },
+  { key: "discipline_reports", label: "تقارير الانضباط", parent: "discipline" },
   { key: "supervisory_model", label: "النموذج الإشرافي" },
+  { key: "supervisory_reality_analysis", label: "تقرير تحليل الواقع", parent: "supervisory_model" },
+  { key: "supervisory_improvement_plan", label: "خطة التحسين", parent: "supervisory_model" },
+  { key: "supervisory_execution_1", label: "استمارة تنفيذ الخطة ١", parent: "supervisory_model" },
+  { key: "supervisory_execution_2", label: "استمارة تنفيذ الخطة ٢", parent: "supervisory_model" },
+  { key: "supervisory_execution_3", label: "استمارة تنفيذ الخطة ٣", parent: "supervisory_model" },
+  { key: "supervisory_nafes_card", label: "استمارة بطاقة نافس", parent: "supervisory_model" },
   { key: "visit_reports", label: "تقارير الزيارات" },
   { key: "support_plan", label: "خطة دعم المدرسة" },
   { key: "database", label: "قاعدة بيانات المدرسة" },
   { key: "initiatives", label: "مبادرات المدرسة" },
   { key: "commitment_project", label: "مشروع الالتزام التعليمي" },
-] as const;
+  { key: "forms", label: "الاستمارات" },
+];
+
+const foldersOf = (inSchool: boolean) => (inSchool ? SCHOOL_FOLDERS : MEMBER_FOLDERS);
+
+/** The folders shown first (no parent): hers, or a school's. */
+export const topFolders = (inSchool: boolean) => foldersOf(inSchool).filter(item => !item.parent);
+
+/** The sub-folders that open from this folder (none for most). */
+export const subfoldersOf = (folder: string, inSchool: boolean) => foldersOf(inSchool).filter(item => item.parent === folder);
+
+/** This folder and its sub-folders: what the folder's file count covers. */
+export const folderFamily = (folder: string, inSchool: boolean) => [folder, ...subfoldersOf(folder, inSchool).map(item => item.key)];
+
+export const folderParent = (folder: string, inSchool: boolean) => foldersOf(inSchool).find(item => item.key === folder)?.parent ?? null;
 
 /** Where a file may be stored: one of her folders (not «مدارس المشرفة» itself), or a folder of one of her schools. */
 export const isFileFolder = (folder: string, inSchool: boolean) =>
-  inSchool ? SCHOOL_FOLDERS.some(item => item.key === folder) : MEMBER_FOLDERS.some(item => item.key === folder && item.key !== SCHOOLS_FOLDER);
+  foldersOf(inSchool).some(item => item.key === folder && (inSchool || item.key !== SCHOOLS_FOLDER));
 
-export const folderLabel = (folder: string, inSchool: boolean) =>
-  (inSchool ? SCHOOL_FOLDERS : MEMBER_FOLDERS).find(item => item.key === folder)?.label ?? "";
+export const folderLabel = (folder: string, inSchool: boolean) => foldersOf(inSchool).find(item => item.key === folder)?.label ?? "";
 
-/** «التطوير المهني», «مدارس المشرفة › الثانوية التاسعة › الانضباط التعليمي», or «غير مصنّف» for a file not in a folder yet. */
+/** «الانضباط التعليمي › المساءلة» for a sub-folder, the folder's own label otherwise ("" for an unknown key). */
+export function folderTitle(folder: string, inSchool: boolean) {
+  const label = folderLabel(folder, inSchool);
+  const parent = folderParent(folder, inSchool);
+  return label && parent ? `${folderLabel(parent, inSchool)} › ${label}` : label;
+}
+
+/** «التطوير المهني › منفذ», «مدارس المشرفة › الثانوية التاسعة › الانضباط التعليمي», or «غير مصنّف» for a file not in a folder yet. */
 export function folderPath(file: { folder: string | null; schoolId: string | null; schoolName: string | null }) {
   if (!file.folder) return "غير مصنّف";
-  const label = folderLabel(file.folder, Boolean(file.schoolId));
+  const label = folderTitle(file.folder, Boolean(file.schoolId));
   if (!file.schoolId) return label || "غير مصنّف";
   return [folderLabel(SCHOOLS_FOLDER, false), file.schoolName || "مدرسة", label].join(" › ");
 }
@@ -188,13 +246,13 @@ export function yearsSinceHijri(hireDate: string, at: Date = new Date()) {
 
 /**
  * Cluster-file completion %: filled items ÷ required items (EDITABILITY Part 4).
- * Required: every non-derived profile field, the core info of each school, each plan's upload, and today's absence per school.
+ * Required: every non-derived profile field, the core info of each school, and today's absence per school.
+ * The five plan links no longer count: those files live in each school's «النموذج الإشرافي» now.
  * A cluster with no schools counts one missing item for "add a school".
  */
 export function completionPct(input: {
   profile: { type: string; value: string }[];
   schools: { name: string; stage: string; area: string; ministryNo: string; classes: number; students: number; absenceToday: boolean }[];
-  plans: { status: string }[];
 }) {
   let filled = 0;
   let total = 0;
@@ -207,7 +265,6 @@ export function completionPct(input: {
     count(school.students > 0);
     count(school.absenceToday);
   }
-  for (const plan of input.plans) count(plan.status === "uploaded");
   return total ? Math.round((filled / total) * 100) : 0;
 }
 

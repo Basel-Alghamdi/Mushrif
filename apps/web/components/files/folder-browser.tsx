@@ -1,10 +1,12 @@
 "use client";
 
 // ملف الإنجاز: the same folder tree for a member (her own files) and for the head (a member's files).
-// Her folders → «مدارس المشرفة» → each school → its seven folders. Files not in a folder yet (older uploads, files
-// the head filed from the chat) wait in «غير مصنّفة» until they are moved.
+// Her folders → «مدارس المشرفة» → each school → its folders. Some folders open sub-folders (e.g. النموذج الإشرافي → خطة التحسين)
+// and may still hold files of their own. Files not in a folder yet (older uploads, files the head filed from the chat)
+// wait in «غير مصنّفة» until they are moved.
 import {
-  MEMBER_FOLDERS, SCHOOL_FOLDERS, SCHOOLS_FOLDER, folderLabel, isFileFolder, type DocumentInfo, type DocumentKind, type DocumentPlacement,
+  MEMBER_FOLDERS, SCHOOL_FOLDERS, SCHOOLS_FOLDER, folderFamily, folderLabel, folderParent, folderTitle, isFileFolder, subfoldersOf, topFolders,
+  type DocumentInfo, type DocumentKind, type DocumentPlacement,
 } from "@rasd/schemas";
 import {
   ChevronLeft, CircleAlert, File, FileAudio, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderOpen, LoaderCircle, School, Trash2,
@@ -75,6 +77,11 @@ export function FolderBrowser({ documents, schools, location, onNavigate, onUplo
   const sorted = list.filter(document => isSorted(document, schoolIds));
   const inFolder = (folder: string, schoolId: string | null) =>
     sorted.filter(document => document.folder === folder && (document.schoolId ?? null) === schoolId);
+  /** A folder's files with those of its sub-folders (what its tile counts). */
+  const inFamily = (folder: string, schoolId: string | null) => {
+    const keys = folderFamily(folder, schoolId !== null);
+    return sorted.filter(document => keys.includes(document.folder!) && (document.schoolId ?? null) === schoolId);
+  };
   const inSchool = (schoolId: string) => sorted.filter(document => document.schoolId === schoolId);
 
   const school = location.schoolId ? schools.find(item => item.id === location.schoolId) : undefined;
@@ -82,7 +89,11 @@ export function FolderBrowser({ documents, schools, location, onNavigate, onUplo
   if (location.folder === SCHOOLS_FOLDER || location.schoolId) crumbs.push({ label: folderLabel(SCHOOLS_FOLDER, false), to: { folder: SCHOOLS_FOLDER } });
   if (location.schoolId) crumbs.push({ label: schoolName(school), to: { schoolId: location.schoolId } });
   if (location.folder === UNSORTED) crumbs.push({ label: "غير مصنّفة", to: location });
-  else if (location.folder && location.folder !== SCHOOLS_FOLDER) crumbs.push({ label: folderLabel(location.folder, Boolean(location.schoolId)), to: location });
+  else if (location.folder && location.folder !== SCHOOLS_FOLDER) {
+    const parent = folderParent(location.folder, Boolean(location.schoolId));
+    if (parent) crumbs.push({ label: folderLabel(parent, Boolean(location.schoolId)), to: { schoolId: location.schoolId, folder: parent } });
+    crumbs.push({ label: folderLabel(location.folder, Boolean(location.schoolId)), to: location });
+  }
 
   let body: ReactNode;
   if (documents === null) {
@@ -98,15 +109,26 @@ export function FolderBrowser({ documents, schools, location, onNavigate, onUplo
     );
   } else if (location.folder && location.folder !== SCHOOLS_FOLDER && isFileFolder(location.folder, Boolean(location.schoolId))) {
     const placement = { folder: location.folder, schoolId: location.schoolId ?? null };
+    const subfolders = subfoldersOf(placement.folder, placement.schoolId !== null);
     body = (
-      <FolderFiles placement={placement} documents={inFolder(placement.folder, placement.schoolId)} schools={schools}
-        onUpload={onUpload} onMove={onMove} onRemove={onRemove} onOpen={onOpen} />
+      <>
+        {subfolders.length > 0 && (
+          <div className="fb-grid">
+            {subfolders.map(folder => (
+              <Tile key={folder.key} label={folder.label} meta={filesCount(inFolder(folder.key, placement.schoolId).length)}
+                onClick={() => onNavigate({ schoolId: location.schoolId, folder: folder.key })} />
+            ))}
+          </div>
+        )}
+        <FolderFiles placement={placement} documents={inFolder(placement.folder, placement.schoolId)} schools={schools}
+          onUpload={onUpload} onMove={onMove} onRemove={onRemove} onOpen={onOpen} empty={subfolders.length > 0} />
+      </>
     );
   } else if (location.schoolId) {
     body = (
       <div className="fb-grid">
-        {SCHOOL_FOLDERS.map(folder => (
-          <Tile key={folder.key} label={folder.label} meta={filesCount(inFolder(folder.key, location.schoolId!).length)}
+        {topFolders(true).map(folder => (
+          <Tile key={folder.key} label={folder.label} meta={filesCount(inFamily(folder.key, location.schoolId!).length)}
             onClick={() => onNavigate({ schoolId: location.schoolId, folder: folder.key })} />
         ))}
       </div>
@@ -122,11 +144,11 @@ export function FolderBrowser({ documents, schools, location, onNavigate, onUplo
   } else {
     body = (
       <div className="fb-grid">
-        {MEMBER_FOLDERS.map(folder => folder.key === SCHOOLS_FOLDER ? (
+        {topFolders(false).map(folder => folder.key === SCHOOLS_FOLDER ? (
           <Tile key={folder.key} icon={School} label={folder.label} meta={schools.length ? counted(schools.length, SCHOOLS) : "لا توجد مدارس بعد"}
             onClick={() => onNavigate({ folder: SCHOOLS_FOLDER })} />
         ) : (
-          <Tile key={folder.key} label={folder.label} meta={filesCount(inFolder(folder.key, null).length)} onClick={() => onNavigate({ folder: folder.key })} />
+          <Tile key={folder.key} label={folder.label} meta={filesCount(inFamily(folder.key, null).length)} onClick={() => onNavigate({ folder: folder.key })} />
         ))}
         {unsorted.length > 0 && (
           <Tile icon={CircleAlert} tone="warn" label="غير مصنّفة" meta={`${counted(unsorted.length, FILES)} بلا مجلد`} onClick={() => onNavigate({ folder: UNSORTED })} />
@@ -165,7 +187,10 @@ function Tile({ label, meta, onClick, icon: Icon = Folder, tone }: { label: stri
 
 type FileActions = Pick<Props, "onMove" | "onRemove" | "onOpen"> & { schools: SchoolRef[] };
 
-function FolderFiles({ placement, documents, onUpload, ...actions }: FileActions & { placement: DocumentPlacement; documents: DocumentInfo[]; onUpload: Props["onUpload"] }) {
+/** `empty`: the folder has sub-folders, so its own file list says less when it is empty. */
+function FolderFiles({ placement, documents, onUpload, empty, ...actions }: FileActions & {
+  placement: DocumentPlacement; documents: DocumentInfo[]; onUpload: Props["onUpload"]; empty?: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const canDrop = useCanDrop();
   const [busy, setBusy] = useState(false);
@@ -198,7 +223,7 @@ function FolderFiles({ placement, documents, onUpload, ...actions }: FileActions
         <input ref={input} type="file" multiple accept={ACCEPT} hidden onChange={event => void upload(Array.from(event.target.files ?? []))} />
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
-      <FileList documents={documents} {...actions} empty="المجلد فارغ — ارفعي أول ملف." />
+      <FileList documents={documents} {...actions} empty={empty ? "افتحي المجلد المناسب أعلاه، أو ارفعي هنا ملفاً عاماً." : "المجلد فارغ — ارفعي أول ملف."} />
     </div>
   );
 }
@@ -273,13 +298,13 @@ function MoveForm({ document, schools, onMove, onCancel }: { document: DocumentI
         {!current && <option value="" disabled>اختاري المجلد…</option>}
         <optgroup label="ملف الإنجاز">
           {MEMBER_FOLDERS.filter(folder => folder.key !== SCHOOLS_FOLDER).map(folder => (
-            <option key={folder.key} value={encode({ folder: folder.key, schoolId: null })}>{folder.label}</option>
+            <option key={folder.key} value={encode({ folder: folder.key, schoolId: null })}>{folderTitle(folder.key, false)}</option>
           ))}
         </optgroup>
         {schools.map(school => (
           <optgroup key={school.id} label={schoolName(school)}>
             {SCHOOL_FOLDERS.map(folder => (
-              <option key={folder.key} value={encode({ folder: folder.key, schoolId: school.id })}>{folder.label}</option>
+              <option key={folder.key} value={encode({ folder: folder.key, schoolId: school.id })}>{folderTitle(folder.key, true)}</option>
             ))}
           </optgroup>
         ))}
@@ -292,7 +317,10 @@ function MoveForm({ document, schools, onMove, onCancel }: { document: DocumentI
   );
 }
 
-/** The seven folders of one school with how many of her files each holds (her school page links to them). */
+/** The folders of one school with how many of her files each holds, sub-folders included (her school page links to them). */
 export function schoolFolderCounts(documents: DocumentInfo[], schoolId: string) {
-  return SCHOOL_FOLDERS.map(folder => ({ ...folder, count: documents.filter(item => item.schoolId === schoolId && item.folder === folder.key).length }));
+  return topFolders(true).map(folder => {
+    const keys = folderFamily(folder.key, true);
+    return { ...folder, count: documents.filter(item => item.schoolId === schoolId && keys.includes(item.folder ?? "")).length };
+  });
 }

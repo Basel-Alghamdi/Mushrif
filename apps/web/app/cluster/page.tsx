@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useMember } from "../../components/member/context";
 import { displayName } from "../../components/member/model";
-import { AbsenceCard, RecentVisits, SetupCard } from "../../components/member/today";
+import { AbsenceCard, AttendanceCard, RecentVisits, SetupCard } from "../../components/member/today";
 import { VisitSheet } from "../../components/member/visits";
 import { firstName } from "../../lib/format";
 
@@ -17,6 +17,7 @@ export default function TodayPage() {
       <h1 className="m-hello">أهلاً {firstName(displayName(ws, me.name))}</h1>
       <SetupCard />
       <AbsenceCard />
+      <AttendanceCard />
       <button type="button" className="btn btn-primary btn-lg btn-block" onClick={() => setLogging(true)}>
         <Plus aria-hidden />سجّلي زيارة
       </button>

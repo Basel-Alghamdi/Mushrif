@@ -1,6 +1,6 @@
 "use client";
 
-import { EDUCATION_TYPES, MADRASATI_METRICS, STAGES, TIERS } from "@rasd/schemas";
+import { EDUCATION_TYPES, EVALUATION_DOMAINS, MADRASATI_METRICS, NAFES_GRADES, STAGES, SUPPORT_TYPES, TIERS } from "@rasd/schemas";
 import { Check, Pencil, Plus, School as SchoolIcon, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toNumber } from "../../lib/chat/helpers";
@@ -153,9 +153,9 @@ function SchoolCard({ school, file, editing, onEdit, onRemove }: CardProps) {
             </div>
           </details>
           <details className="mp-school-more">
-            <summary>المؤشرات</summary>
+            <summary>مؤشرات التقويم المدرسي</summary>
             <div className="field">
-              <span className="field-label" id={`tier-${school.id}`}>التصنيف</span>
+              <span className="field-label" id={`tier-${school.id}`}>تصنيف المدرسة</span>
               <div className="mp-chips" role="group" aria-labelledby={`tier-${school.id}`}>
                 {TIERS.map(tier => (
                   <button key={tier} type="button" className={`chip ${school.tier === tier ? "is-active" : ""}`} aria-pressed={school.tier === tier} onClick={() => change({ tier: school.tier === tier ? null : tier })}>{tier}</button>
@@ -163,20 +163,52 @@ function SchoolCard({ school, file, editing, onEdit, onRemove }: CardProps) {
               </div>
             </div>
             <div className="mp-school-form">
-              <TextField label="نوع الدعم" value={evaluation?.supportType ?? ""} onChange={supportType => file.setEvaluation(school.id, { supportType })} />
+              <TextField label="نوع الدعم" value={evaluation?.supportType ?? ""} onChange={supportType => file.setEvaluation(school.id, { supportType })}
+                options={SUPPORT_TYPES} listId={`support-${school.id}`} />
+            </div>
+            <h5 className="mp-sub-title">مجالات التقويم المدرسي</h5>
+            {EVALUATION_DOMAINS.map(domain => {
+              const current = evaluation?.domains[domain.key] ?? { level: "", percent: null };
+              const setDomain = (next: Partial<typeof current>) =>
+                file.setEvaluation(school.id, { domains: { ...evaluation?.domains, [domain.key]: { ...current, ...next } } });
+              return (
+                <div className="field" key={domain.key}>
+                  <span className="field-label" id={`domain-${school.id}-${domain.key}`}>{domain.label}</span>
+                  <div className="mp-chips" role="group" aria-labelledby={`domain-${school.id}-${domain.key}`}>
+                    {TIERS.map(tier => (
+                      <button key={tier} type="button" className={`chip ${current.level === tier ? "is-active" : ""}`} aria-pressed={current.level === tier}
+                        onClick={() => setDomain({ level: current.level === tier ? "" : tier })}>{tier}</button>
+                    ))}
+                  </div>
+                  <PercentField label={`نسبة ${domain.label}`} value={current.percent} onChange={percent => setDomain({ percent })} nullable />
+                </div>
+              );
+            })}
+            <h5 className="mp-sub-title">نافس</h5>
+            <div className="mp-school-counts">
+              {NAFES_GRADES.map(grade => (
+                <PercentField key={grade.key} label={grade.label} value={evaluation?.[grade.key] ?? null} onChange={value => file.setEvaluation(school.id, { [grade.key]: value })} nullable />
+              ))}
+              {evaluation?.nafesValue != null && (
+                <PercentField label="نافس (مستورد)" value={evaluation.nafesValue} onChange={nafesValue => file.setEvaluation(school.id, { nafesValue })} nullable />
+              )}
             </div>
             <div className="mp-school-counts">
-              <PercentField label="نافس" value={evaluation?.nafesValue ?? null} onChange={nafesValue => file.setEvaluation(school.id, { nafesValue })} nullable />
-              <PercentField label="قدرات" value={evaluation?.qudrat ?? null} onChange={qudrat => file.setEvaluation(school.id, { qudrat })} nullable />
-              <PercentField label="تحصيلي" value={evaluation?.tahsili ?? null} onChange={tahsili => file.setEvaluation(school.id, { tahsili })} nullable />
+              <PercentField label="القدرات" value={evaluation?.qudrat ?? null} onChange={qudrat => file.setEvaluation(school.id, { qudrat })} nullable />
+              <PercentField label="التحصيلي" value={evaluation?.tahsili ?? null} onChange={tahsili => file.setEvaluation(school.id, { tahsili })} nullable />
             </div>
-            <h5 className="mp-sub-title">مدرستي</h5>
+            <div className="mp-school-form">
+              <TextField label="رابط التقرير الخارجي" value={evaluation?.externalReportUrl ?? ""} dir="ltr"
+                onChange={externalReportUrl => file.setEvaluation(school.id, { externalReportUrl, externalReportStatus: externalReportUrl.trim() ? "uploaded" : "missing" })} />
+              <TextField label="رابط التقرير الذاتي" value={evaluation?.selfReportUrl ?? ""} dir="ltr" onChange={selfReportUrl => file.setEvaluation(school.id, { selfReportUrl })} />
+            </div>
+            <h5 className="mp-sub-title">مؤشرات منصة مدرستي</h5>
             <div className="mp-school-counts">
               {MADRASATI_METRICS.map((metric, index) => (
                 <PercentField key={metric.key} label={metric.label} value={school.madrasati[index] ?? 0} onChange={value => file.setMadrasati(school.id, index, value ?? 0)} />
               ))}
             </div>
-            <h5 className="mp-sub-title">الانضباط</h5>
+            <h5 className="mp-sub-title">مؤشر الانضباط</h5>
             <div className="mp-school-counts">
               <PercentField label="يومي" value={school.discipline.daily} onChange={daily => file.setDiscipline(school.id, { daily: daily ?? 0 })} />
               <PercentField label="أسبوعي" value={school.discipline.weekly} onChange={weekly => file.setDiscipline(school.id, { weekly: weekly ?? 0 })} />

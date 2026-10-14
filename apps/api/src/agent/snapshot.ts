@@ -1,5 +1,6 @@
 // The team as the agent sees it, read once per message from main's tables (loadDistrict + visits + documents) and
 // mapped onto the engine's model. Everything after this point reads the snapshot synchronously.
+import { EVALUATION_DOMAINS, NAFES_GRADES } from "@rasd/schemas";
 import { auditWith, PASSIVE_ACTIONS } from "../audit.js";
 import type { Actor } from "../auth.js";
 import { atomically, type Row, type Sql } from "../db.js";
@@ -37,6 +38,21 @@ function principalOf(school: MainSchool) {
   return field?.value ?? "";
 }
 
+/** The member-filled التقويم values, by their Arabic names, only where something is filled. */
+function indicatorsOf(evaluation: MainSchool["evaluation"]): Pick<School, "evaluationDomains" | "nafesByGrade" | "selfReportUrl"> {
+  if (!evaluation) return {};
+  const domains = EVALUATION_DOMAINS.flatMap(domain => {
+    const value = evaluation.domains[domain.key];
+    return value && (value.level || value.percent !== null) ? [[domain.label, value] as const] : [];
+  });
+  const grades = NAFES_GRADES.flatMap(grade => (evaluation[grade.key] === null ? [] : [[grade.label, evaluation[grade.key] as number] as const]));
+  return {
+    ...(domains.length ? { evaluationDomains: Object.fromEntries(domains) } : {}),
+    ...(grades.length ? { nafesByGrade: Object.fromEntries(grades) } : {}),
+    ...(evaluation.selfReportUrl ? { selfReportUrl: evaluation.selfReportUrl } : {}),
+  };
+}
+
 function schoolOf(school: MainSchool, today: string): School {
   const notes = school.customFields.find(field => comparable(field.label) === comparable("ملاحظات"));
   const evaluation = school.evaluation;
@@ -47,9 +63,10 @@ function schoolOf(school: MainSchool, today: string): School {
     teachesChinese: school.teachesChinese ? "نعم" : "لا",
     teachers: tileValue(school, TILE_PATTERNS.teachers), admin: tileValue(school, TILE_PATTERNS.admin), deputies: tileValue(school, TILE_PATTERNS.deputies),
     tier: school.tier ?? "", support: evaluation?.supportType ?? "", nafes: evaluation?.nafesValue == null ? "" : String(evaluation.nafesValue),
-    qudrat: evaluation?.qudrat ?? null, tahsili: evaluation?.tahsili ?? null, madrasati: school.madrasati,
+    qudrat: evaluation?.qudrat ?? null, tahsili: evaluation?.tahsili ?? null, ...indicatorsOf(evaluation), madrasati: school.madrasati,
     discipline: [school.discipline.daily, school.discipline.weekly, school.discipline.monthly],
     absence: school.absenceToday, ...(school.absenceToday ? { absenceDate: today } : {}),
+    ...(school.fullAttendanceToday === null ? {} : { fullAttendance: school.fullAttendanceToday }),
     principal: principalOf(school), ...(notes ? { notes: notes.value } : {}),
     customFields: school.customFields.map(({ id, label, value }) => ({ id, label, value })),
     staffTiles: school.staffTiles.map(({ id, label, value }) => ({ id, label, value })),
@@ -90,9 +107,6 @@ export function missingOf(workspace: Workspace) {
   }
   const pending = workspace.schools.filter(school => !school.absenceToday);
   if (pending.length) items.push(pending.length === workspace.schools.length ? "تثبيت غياب اليوم" : `تثبيت غياب اليوم في ${pending.map(school => `«${school.name}»`).join("، ")}`);
-  // The five plans are one item, so they do not crowd out everything else in a short list.
-  const plans = workspace.plans.filter(plan => plan.status !== "uploaded");
-  if (plans.length) items.push(plans.length === workspace.plans.length ? "رفع الخطط" : `الخطط: ${plans.map(plan => plan.label).join("، ")}`);
   return items;
 }
 

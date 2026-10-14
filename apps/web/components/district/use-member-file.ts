@@ -8,7 +8,8 @@ import { useToast } from "./toast";
 import { conflictRow, useSaver } from "./use-saver";
 
 type Evaluation = NonNullable<School["evaluation"]>;
-export type EvaluationChange = Partial<Pick<Evaluation, "supportType" | "nafesValue" | "qudrat" | "tahsili">>;
+export type EvaluationChange = Partial<Pick<Evaluation,
+  "supportType" | "nafesValue" | "qudrat" | "tahsili" | "nafesGrade3" | "nafesGrade6" | "nafesGrade9" | "domains" | "selfReportUrl" | "externalReportUrl" | "externalReportStatus">>;
 export type DisciplineChange = Partial<Pick<School["discipline"], "daily" | "weekly" | "monthly">>;
 /** School columns the head edits through PATCH /district/members/:id/schools/:schoolId. */
 export type SchoolChange = Partial<Pick<School, "name" | "stage" | "area" | "ministryNo" | "ministryEmail" | "educationType" | "classes" | "students" | "tier">>;
@@ -22,7 +23,8 @@ const serverId = (id: string) => id.slice(LOCAL.length);
 const insertAt = <T>(list: T[], index: number, item: T) => [...list.slice(0, index), item, ...list.slice(index)];
 
 const EMPTY_EVALUATION: Evaluation = {
-  supportType: "", nafesValue: null, nafesDirection: "", nafesDelta: "", qudrat: null, tahsili: null, externalReportUrl: "", externalReportStatus: "", importedAt: null,
+  supportType: "", nafesValue: null, nafesDirection: "", nafesDelta: "", qudrat: null, tahsili: null, nafesGrade3: null, nafesGrade6: null, nafesGrade9: null,
+  domains: {}, externalReportUrl: "", externalReportStatus: "", selfReportUrl: "", importedAt: null,
 };
 
 const toField = (row: Row): ProfileField => ({
@@ -38,7 +40,7 @@ function blankSchool(id: string, name: string): School {
     id, name, stage: "", area: "", ministryNo: "", ministryEmail: "", educationType: "", specialEdProgram: "", hasGuard: false, classes: 0, students: 0,
     giftedClasses: 0, giftedStudents: 0, teachesChinese: false, tier: null, updatedAt: new Date().toISOString(), evaluation: null,
     madrasati: [0, 0, 0, 0, 0, 0], discipline: { daily: 0, weekly: 0, monthly: 0, planStatus: "missing", planUrl: "" },
-    absenceToday: false, visitCount: 0, customFields: [], staffTiles: [], leadership: [],
+    absenceToday: false, fullAttendanceToday: null, visitCount: 0, customFields: [], staffTiles: [], leadership: [],
   };
 }
 

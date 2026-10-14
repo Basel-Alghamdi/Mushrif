@@ -2,7 +2,7 @@
 
 import { riyadhDate, type DocumentInfo, type DocumentPlacement } from "@rasd/schemas";
 import { api } from "../../lib/api";
-import type { LabelValue, LeadershipRole, Plan, ProfileField, Program, School, StaffTile, VisitReport } from "../../lib/types";
+import type { LabelValue, LeadershipRole, ProfileField, Program, School, StaffTile, VisitReport } from "../../lib/types";
 import { useMember, type Row, type SaveJob } from "./context";
 import { NOTES_FIELD } from "./model";
 import { replaceById, useCreate, useRemove, withVersion } from "./mutations";
@@ -13,7 +13,15 @@ const SCHOOL_COLUMNS = [
   "name", "stage", "area", "ministryNo", "ministryEmail", "educationType", "specialEdProgram", "hasGuard",
   "classes", "students", "giftedClasses", "giftedStudents", "teachesChinese", "tier",
 ] as const;
-export type VisitDraft = { schoolId: string; type: string; text: string; beneficiaries: number; sessions: number; blockers: string };
+export type VisitDraft = { schoolId: string; type: string; text: string };
+type Evaluation = NonNullable<School["evaluation"]>;
+/** The التقويم values she fills. A domain change carries only the domains it changes. */
+export type EvaluationChange = Partial<Pick<Evaluation,
+  "supportType" | "qudrat" | "tahsili" | "nafesGrade3" | "nafesGrade6" | "nafesGrade9" | "externalReportUrl" | "selfReportUrl" | "domains">>;
+const BLANK_EVALUATION: Evaluation = {
+  supportType: "", nafesValue: null, nafesDirection: "", nafesDelta: "", qudrat: null, tahsili: null, nafesGrade3: null, nafesGrade6: null, nafesGrade9: null,
+  domains: {}, externalReportUrl: "", externalReportStatus: "missing", selfReportUrl: "", importedAt: null,
+};
 
 const labelValue = (row: Row): LabelValue => ({ id: String(row.id), label: String(row.label), value: String(row.value ?? ""), updatedAt: row.updatedAt });
 
@@ -219,7 +227,7 @@ export function useActions() {
     rollback: ws => ({ ...ws, schools: replaceById(ws.schools, schoolId, item => ({ ...item, leadership: [...item.leadership, role] })) }),
   });
 
-  // Indicators: مدرستي and الانضباط are hers; التقويم values are the head's (members may only set the external report link).
+  // Indicators: مؤشرات التقويم المدرسي, منصة مدرستي and الانضباط are all hers (the head can edit them too).
   const setMadrasati = (schoolId: string, index: number, value: number) => {
     editSchool(schoolId, item => ({ ...item, madrasati: item.madrasati.map((old, position) => (position === index ? value : old)) }));
     schedule(`madrasati:${schoolId}`, () => ({
@@ -234,16 +242,34 @@ export function useActions() {
       send: () => api.put<Row>("/cluster/me/indicators/discipline", { schoolId, [key]: school(schoolId)?.discipline[key] ?? 0 }),
     }));
   };
-  const setReportUrl = (schoolId: string, url: string) => {
-    const blank = { supportType: "", nafesValue: null, nafesDirection: "", nafesDelta: "", qudrat: null, tahsili: null, externalReportUrl: "", externalReportStatus: "missing", importedAt: null };
-    editSchool(schoolId, item => ({ ...item, evaluation: { ...(item.evaluation ?? blank), externalReportUrl: url, externalReportStatus: url.trim() ? "uploaded" : "missing" } }));
-    schedule(`evaluation:${schoolId}`, () => ({
-      key: `evaluation:${schoolId}`,
-      send: () => {
-        const link = (school(schoolId)?.evaluation?.externalReportUrl ?? "").trim();
-        return api.put<Row>("/cluster/me/indicators/evaluation", { schoolId, externalReportUrl: link, externalReportStatus: link ? "uploaded" : "missing" });
-      },
-    }));
+  /** Saves each changed التقويم value a moment after the last keystroke; every value (and every domain) is its own request. */
+  const setEvaluation = (schoolId: string, change: EvaluationChange) => {
+    editSchool(schoolId, item => {
+      const before = item.evaluation ?? BLANK_EVALUATION;
+      const next = { ...before, ...change, domains: { ...before.domains, ...change.domains } };
+      if (change.externalReportUrl !== undefined) next.externalReportStatus = change.externalReportUrl.trim() ? "uploaded" : "missing";
+      return { ...item, evaluation: next };
+    });
+    const read = () => school(schoolId)?.evaluation ?? BLANK_EVALUATION;
+    const put = (id: string, body: () => Record<string, unknown>) =>
+      schedule(id, () => ({ key: id, send: () => api.put<Row>("/cluster/me/indicators/evaluation", { schoolId, ...body() }) }));
+    for (const key of Object.keys(change) as (keyof EvaluationChange)[]) {
+      if (key === "domains") {
+        for (const domain of Object.keys(change.domains ?? {}) as (keyof Evaluation["domains"])[]) {
+          put(`evaluation:${schoolId}:domain:${domain}`, () => ({ domains: { [domain]: read().domains[domain] } }));
+        }
+      } else if (key === "externalReportUrl") {
+        put(`evaluation:${schoolId}:${key}`, () => {
+          const link = read().externalReportUrl.trim();
+          return { externalReportUrl: link, externalReportStatus: link ? "uploaded" : "missing" };
+        });
+      } else {
+        put(`evaluation:${schoolId}:${key}`, () => {
+          const value = read()[key];
+          return { [key]: typeof value === "string" ? value.trim() : value };
+        });
+      }
+    }
   };
 
   const toggleAbsence = (target: School) => {
@@ -256,25 +282,17 @@ export function useActions() {
     });
   };
 
+  const setFullAttendance = (target: School, full: boolean | null) => {
+    const before = target.fullAttendanceToday;
+    editSchool(target.id, item => ({ ...item, fullAttendanceToday: full }));
+    void save<Row>({
+      key: `attendance:${target.id}`,
+      send: () => api.put<Row>(`/schools/${target.id}/attendance`, { date: riyadhDate(), full }),
+      rejected: () => editSchool(target.id, item => ({ ...item, fullAttendanceToday: before })),
+    });
+  };
+
   // ───────── تقاريري ─────────
-  const setPlanUrl = (plan: Plan, url: string) => {
-    const setPlan = (change: (item: Plan) => Plan) => update(ws => ({ ...ws, plans: replaceById(ws.plans, plan.id, change) }));
-    setPlan(item => ({ ...item, url, status: url.trim() ? "uploaded" : "missing" }));
-    const find = () => current().plans.find(item => item.id === plan.id);
-    schedule(`plan:${plan.id}`, () => patchJob(`plan:${plan.id}`, `/plans/${plan.id}`,
-      () => { const item = find(); return item ? { body: { url: item.url.trim() }, updatedAt: item.updatedAt } : null; },
-      row => setPlan(item => ({ ...item, status: String(row.status), updatedAt: row.updatedAt })),
-      row => setPlan(item => ({ ...item, url: String(row.url), status: String(row.status), updatedAt: row.updatedAt }))));
-  };
-
-  const setNafesFolder = (url: string) => {
-    update(ws => ({ ...ws, cluster: { ...ws.cluster, nafesCardFolderUrl: url } }));
-    schedule("nafes-folder", () => ({
-      key: "nafes-folder",
-      send: () => api.put<Row>("/cluster/me/indicators/evaluation", { nafesCardFolderUrl: current().cluster.nafesCardFolderUrl.trim() }),
-    }));
-  };
-
   const addVisit = async (draft: VisitDraft) => {
     const visit = await api.post<VisitReport>("/visits", { id: crypto.randomUUID(), ...draft });
     setVisits(list => [visit, ...list]);
@@ -347,8 +365,8 @@ export function useActions() {
   return {
     setProfileValue, addCustomField, removeCustomField,
     addSchool, removeSchool, setSchool, setTile, setNotes, setCustom, addCustom, removeCustom,
-    setRoleField, setRoleName, addRole, removeRole, setMadrasati, setDiscipline, setReportUrl, toggleAbsence,
-    setPlanUrl, setNafesFolder, addVisit, uploadDocument, moveDocument, removeDocument,
+    setRoleField, setRoleName, addRole, removeRole, setMadrasati, setDiscipline, setEvaluation, toggleAbsence, setFullAttendance,
+    addVisit, uploadDocument, moveDocument, removeDocument,
     addProgram, setProgram, removeProgram,
   };
 }

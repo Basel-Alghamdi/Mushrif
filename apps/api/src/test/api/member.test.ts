@@ -120,7 +120,23 @@ describe("member file", () => {
     const memberEvaluation = await api.call("PUT", "/cluster/me/indicators/evaluation", { schoolId: school.data.id, nafesValue: 10 }, rasha);
     assert.equal(memberEvaluation.status, 200);
     const [stored] = await api.sql`select nafes_value from evaluation_indicators where school_id = ${school.data.id}`;
-    assert.equal(stored.nafesValue, 81, "members still cannot set imported evaluation values");
+    assert.equal(stored.nafesValue, 81, "the imported single نافس value stays the head's");
+
+    // مؤشرات التقويم المدرسي: the member fills them; each domain saves on its own and merges with the others.
+    const own = (body: Record<string, unknown>) => api.call("PUT", "/cluster/me/indicators/evaluation", { schoolId: school.data.id, ...body }, rasha);
+    assert.equal((await own({ supportType: "عند الطلب", qudrat: 72, nafesGrade3: 64, nafesGrade9: null, selfReportUrl: " https://drive.example/self " })).status, 200);
+    assert.equal((await own({ domains: { management: { level: "تقدم", percent: 78 } } })).status, 200);
+    assert.equal((await own({ domains: { teaching: { level: "انطلاق", percent: null } } })).status, 200);
+    const refused = await own({ domains: { management: { level: "ممتاز", percent: 78 } }, nafesGrade6: 140 });
+    assert.equal(refused.status, 422);
+    assert.ok(refused.error?.fields?.domains && refused.error.fields.nafesGrade6);
+    assert.equal((await own({ domains: { unknown: { level: "تقدم" } } })).status, 422, "only the four domains");
+    const [filled] = await api.sql`select support_type, qudrat, nafes_grade3, self_report_url, domains, imported_at from evaluation_indicators where school_id = ${school.data.id}`;
+    assert.deepEqual([filled.supportType, filled.qudrat, filled.nafesGrade3, filled.selfReportUrl], ["عند الطلب", 72, 64, "https://drive.example/self"]);
+    assert.deepEqual(filled.domains, { management: { level: "تقدم", percent: 78 }, teaching: { level: "انطلاق", percent: null } });
+    const mine = (await api.call("GET", "/member/workspace", undefined, rasha)).data.schools.find((item: any) => item.id === school.data.id);
+    assert.equal(mine.evaluation.domains.management.percent, 78);
+    assert.equal(mine.evaluation.nafesGrade3, 64);
     const madrasati = await api.call("PUT", `/district/members/${rashaId}/indicators/madrasati`, { schoolId: school.data.id, metrics: [1, 2, 3, 4, 5, 6] }, head);
     assert.equal(madrasati.status, 200);
     const discipline = await api.call("PUT", `/district/members/${rashaId}/indicators/discipline`, { schoolId: school.data.id, daily: 90 }, head);
@@ -130,8 +146,37 @@ describe("member file", () => {
 
     const detail = (await api.call("GET", `/district/members/${rashaId}`, undefined, head)).data.workspace;
     const headSchool = detail.schools.find((item: any) => item.id === school.data.id);
-    assert.equal(headSchool.evaluation.supportType, "دعم مكثف");
+    assert.equal(headSchool.evaluation.supportType, "عند الطلب");
+    assert.equal(headSchool.evaluation.domains.teaching.level, "انطلاق");
     assert.equal(headSchool.discipline.daily, 90);
+  });
+
+  test("رصد حضور ١٠٠٪: yes / no / cleared per school and day, beside the absence confirmation", async () => {
+    const school = await api.call("POST", "/cluster/me/schools", { name: "ابتدائية الحضور" }, rasha);
+    const today = riyadhDate();
+    const answer = (full: unknown, date = today) => api.call("PUT", `/schools/${school.data.id}/attendance`, { date, full }, rasha);
+    const yes = await answer(true);
+    assert.equal(yes.status, 200, JSON.stringify(yes.error));
+    assert.deepEqual([yes.data.fullAttendance, yes.data.done], [true, false], "answering does not confirm the absence");
+    assert.equal((await api.call("PUT", `/schools/${school.data.id}/absence`, { date: today, done: true }, rasha)).status, 200);
+    const mine = () => api.call("GET", "/member/workspace", undefined, rasha).then(result => result.data.schools.find((item: any) => item.id === school.data.id));
+    assert.deepEqual([(await mine()).fullAttendanceToday, (await mine()).absenceToday], [true, true], "confirming the absence keeps the answer");
+    assert.equal((await answer(false)).data.fullAttendance, false);
+    assert.equal((await answer(null)).data.fullAttendance, null);
+    assert.equal((await mine()).fullAttendanceToday, null);
+    assert.equal((await answer("نعم")).status, 422);
+    assert.equal((await answer(true, "2999-01-01")).status, 422, "not for a day to come");
+    const [maha] = await api.sql`select id from profiles where email = 'maha.member@example.com'`;
+    const mahaSchool = (await api.call("GET", `/district/members/${maha.id}`, undefined, head)).data.workspace.schools[0];
+    if (mahaSchool) assert.equal((await api.call("PUT", `/schools/${mahaSchool.id}/attendance`, { date: today, full: true }, rasha)).status, 404, "only her own schools");
+  });
+
+  test("the plan links no longer count toward completion", async () => {
+    const before = (await api.call("GET", "/member/workspace", undefined, rasha)).data;
+    const [plan] = await api.sql`select id from plans where cluster_id = ${rashaCluster} limit 1`;
+    await api.sql`update plans set status = 'uploaded', url = 'https://x' where id = ${plan.id}`;
+    const after = (await api.call("GET", "/member/workspace", undefined, rasha)).data;
+    assert.equal(after.completion, before.completion);
   });
 
   test("the head's edits are not the member's activity, and members cannot use the mirrors", async () => {

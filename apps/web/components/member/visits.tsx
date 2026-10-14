@@ -6,7 +6,6 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { useActions } from "./actions";
 import { useMember } from "./context";
-import { NumberInput } from "./number-input";
 
 const OTHER = "__other";
 
@@ -37,7 +36,7 @@ function Sheet({ title, onClose, children, footer }: { title: string; onClose: (
 }
 
 /**
- * «سجّلي زيارة»: school, type, what happened — the rest is optional and folded away.
+ * «سجّلي زيارة»: school, type («أخرى» lets her type it), and the purpose of the visit.
  * A school that is not on her list yet («مدرسة أخرى») is added to مدارسي first, because every visit belongs to one of her schools.
  */
 export function VisitSheet({ onClose }: { onClose: () => void }) {
@@ -47,24 +46,25 @@ export function VisitSheet({ onClose }: { onClose: () => void }) {
   const [schoolId, setSchoolId] = useState(schools.length === 1 ? schools[0].id : schools.length ? "" : OTHER);
   const [schoolName, setSchoolName] = useState("");
   const [type, setType] = useState(VISIT_TYPES[0]);
+  const [otherType, setOtherType] = useState("");
   const [text, setText] = useState("");
-  const [beneficiaries, setBeneficiaries] = useState(0);
-  const [sessions, setSessions] = useState(0);
-  const [blockers, setBlockers] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const otherInput = useRef<HTMLInputElement>(null);
+  const otherTypeInput = useRef<HTMLInputElement>(null);
   const missingSchool = !schoolId || (schoolId === OTHER && !schoolName.trim());
+  const visitType = type === OTHER ? otherType.trim() : type;
+  const missing = missingSchool ? (schoolId === OTHER ? "اكتبي اسم المدرسة" : "اختاري المدرسة") : !visitType ? "اكتبي نوع الزيارة" : "";
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (missingSchool) return;
+    if (missing) return;
     setError("");
     setSaving(true);
     try {
       const target = schoolId === OTHER ? await addSchool(schoolName) : schoolId;
       if (!target) { setSaving(false); return; }
-      await addVisit({ schoolId: target, type, text: text.trim(), beneficiaries, sessions, blockers: blockers.trim() });
+      await addVisit({ schoolId: target, type: visitType, text: text.trim() });
       onClose();
       notify("حُفظت الزيارة");
     } catch (reason) {
@@ -77,8 +77,8 @@ export function VisitSheet({ onClose }: { onClose: () => void }) {
     <Sheet title="سجّلي زيارة" onClose={onClose}
       footer={(
         <>
-          {missingSchool && <p className="m-sheet-note" role="status">{schoolId === OTHER ? "اكتبي اسم المدرسة" : "اختاري المدرسة"}</p>}
-          <button type="submit" form="visit-form" className="btn btn-primary btn-lg btn-block" disabled={saving || missingSchool}>
+          {missing && <p className="m-sheet-note" role="status">{missing}</p>}
+          <button type="submit" form="visit-form" className="btn btn-primary btn-lg btn-block" disabled={saving || Boolean(missing)}>
             {saving ? <LoaderCircle className="m-spin" aria-hidden /> : <Check aria-hidden />}
             {saving ? "جارٍ الحفظ…" : "حفظ الزيارة"}
           </button>
@@ -118,35 +118,22 @@ export function VisitSheet({ onClose }: { onClose: () => void }) {
                 {item}
               </button>
             ))}
+            <button type="button" className={`m-chip${type === OTHER ? " is-on" : ""}`} aria-pressed={type === OTHER}
+              onClick={() => { setType(OTHER); window.setTimeout(() => otherTypeInput.current?.focus(), 0); }}>
+              أخرى
+            </button>
           </div>
+          {type === OTHER && (
+            <input ref={otherTypeInput} className="input" value={otherType} onChange={event => setOtherType(event.target.value)} maxLength={200}
+              placeholder="مثال: زيارة استطلاعية" aria-label="نوع الزيارة" />
+          )}
         </fieldset>
 
         <div className="field">
-          <label className="field-label" htmlFor="visit-text">ماذا حدث؟</label>
+          <label className="field-label" htmlFor="visit-text">الهدف من الزيارة</label>
           <textarea id="visit-text" className="input" rows={3} value={text} onChange={event => setText(event.target.value)}
-            placeholder="مثال: حضرت حصة رياضيات واتفقنا على خطة علاجية" />
+            placeholder="مثال: متابعة تنفيذ الخطة العلاجية في الرياضيات" />
         </div>
-
-        <details className="m-more">
-          <summary>تفاصيل إضافية (اختياري)</summary>
-          <div className="m-more-body">
-            <div className="m-grid-2">
-              <div className="field">
-                <label className="field-label" htmlFor="visit-beneficiaries">المستفيدات</label>
-                <NumberInput id="visit-beneficiaries" value={beneficiaries} onChange={setBeneficiaries} placeholder="العدد" />
-              </div>
-              <div className="field">
-                <label className="field-label" htmlFor="visit-sessions">الجلسات</label>
-                <NumberInput id="visit-sessions" value={sessions} onChange={setSessions} placeholder="العدد" />
-              </div>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="visit-blockers">المعوقات</label>
-              <input id="visit-blockers" className="input" value={blockers} onChange={event => setBlockers(event.target.value)}
-                placeholder="مثال: نقص في أجهزة العرض" />
-            </div>
-          </div>
-        </details>
 
         {error && <p className="field-error" role="alert">{error}</p>}
       </form>

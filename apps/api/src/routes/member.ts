@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import {
-  DEFAULT_LEADERSHIP_ROLE, DEFAULT_STAFF_TILES, MADRASATI_METRICS, NEW_LEADERSHIP_ROLE, PD_KINDS,
+  DEFAULT_LEADERSHIP_ROLE, DEFAULT_STAFF_TILES, EVALUATION_DOMAINS, MADRASATI_METRICS, NEW_LEADERSHIP_ROLE, PD_KINDS,
   SCHOOL_BASE_FIELDS, TIERS, VISIT_TYPES, messages, riyadhDate, toWesternDigits, validateProfileValue, validators, type ProfileFieldType,
 } from "@rasd/schemas";
 import { audit } from "../audit.js";
@@ -136,14 +136,28 @@ const headPaths: Record<FileResource, ResourcePaths> = {
 
 // ───────── indicators ─────────
 const reportStatus = p.oneOf(["uploaded", "missing"]);
-/** Members may only set the Nafes card folder and each school's external-report link/status (I-2, I-3). */
-const memberEvaluation: Record<string, Parser> = { nafesCardFolderUrl: p.rule(validators.url), externalReportUrl: p.rule(validators.url), externalReportStatus: reportStatus };
-/** The head may set every evaluation value. */
-const headEvaluation: Record<string, Parser> = {
-  ...memberEvaluation,
-  supportType: p.text(200), nafesValue: p.nullable(p.percent()), nafesDirection: p.oneOf(["", "up", "down"]), nafesDelta: p.text(40),
-  qudrat: p.nullable(p.percent()), tahsili: p.nullable(p.percent()),
+const domainKeys = new Set<string>(EVALUATION_DOMAINS.map(domain => domain.key));
+/** مجالات التقويم المدرسي: {domain: {level, percent}} — a level from TIERS (or "") and a percentage (or null). Only the domains sent change. */
+const domainsParser: Parser = value => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return reject("مجالات التقويم غير صحيحة");
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => {
+    if (!domainKeys.has(key) || !entry || typeof entry !== "object") return reject("مجالات التقويم غير صحيحة");
+    const { level = "", percent = null } = entry as Record<string, unknown>;
+    return [key, { level: level === "" ? "" : p.oneOf(TIERS)(level), percent: p.nullable(p.percent())(percent) }];
+  }));
 };
+/** The member fills مؤشرات التقويم المدرسي of her schools (the مشرفات' review, Oct 2026), and the Nafes card folder. */
+const memberEvaluation: Record<string, Parser> = {
+  nafesCardFolderUrl: p.rule(validators.url), externalReportUrl: p.rule(validators.url), externalReportStatus: reportStatus, selfReportUrl: p.rule(validators.url),
+  supportType: p.text(200), domains: domainsParser, qudrat: p.nullable(p.percent()), tahsili: p.nullable(p.percent()),
+  nafesGrade3: p.nullable(p.percent()), nafesGrade6: p.nullable(p.percent()), nafesGrade9: p.nullable(p.percent()),
+};
+/** The head also sets the imported single Nafes value and its trend. */
+const headEvaluation: Record<string, Parser> = {
+  ...memberEvaluation, nafesValue: p.nullable(p.percent()), nafesDirection: p.oneOf(["", "up", "down"]), nafesDelta: p.text(40),
+};
+/** Links the member pastes herself; anything else the head sets counts as imported. */
+const REPORT_LINKS = new Set(["externalReportUrl", "externalReportStatus", "selfReportUrl"]);
 
 function indicatorRoutes(app: Hono<AppEnv>, base: string, scope: FileScope, evaluationParsers: Record<string, Parser>) {
   app.put(`${base}/indicators/evaluation`, async c => {
@@ -161,11 +175,17 @@ function indicatorRoutes(app: Hono<AppEnv>, base: string, scope: FileScope, eval
       if (!Object.keys(report).length) return values;
       if (typeof body.schoolId !== "string") throw invalid({ schoolId: "اختاري المدرسة" });
       const school = await ownSchool(tx, clusterId, body.schoolId);
-      const imported = actor.role === "head" && Object.keys(report).some(key => !key.startsWith("externalReport")) ? { importedAt: new Date(), importedBy: actor.id } : {};
-      const changes = { ...report, ...imported };
-      const [row] = await tx`
-        insert into evaluation_indicators ${tx({ schoolId: school.id, ...changes })}
-        on conflict (school_id) do update set ${tx(changes)} returning *`;
+      const imported = actor.role === "head" && Object.keys(report).some(key => !REPORT_LINKS.has(key)) ? { importedAt: new Date(), importedBy: actor.id } : {};
+      const { domains, ...changes } = { ...report, ...imported } as Record<string, unknown>;
+      const insert = { schoolId: school.id, ...changes, ...(domains ? { domains: tx.json(domains as never) } : {}) };
+      // The domains sent are merged into the stored ones in one statement, so saves of different domains never undo each other.
+      const [row] = Object.keys(changes).length
+        ? await tx`
+          insert into evaluation_indicators ${tx(insert)}
+          on conflict (school_id) do update set ${tx(changes)}, domains = evaluation_indicators.domains || excluded.domains returning *`
+        : await tx`
+          insert into evaluation_indicators ${tx(insert)}
+          on conflict (school_id) do update set domains = evaluation_indicators.domains || excluded.domains returning *`;
       await audit(c, tx, { action: "update", entity: "evaluation_indicators", entityId: String(school.id), clusterId, after: report });
       return row;
     });
@@ -302,7 +322,7 @@ export function memberRoutes(app: Hono<AppEnv>) {
     const today = riyadhDate();
     const date = c.req.query("date") ? parseDate(c.req.query("date"), today) : today;
     const rows = await sql`
-      select s.id as school_id, coalesce(a.done, false) as done, a.confirmed_at
+      select s.id as school_id, coalesce(a.done, false) as done, a.confirmed_at, a.full_attendance
       from schools s left join absence_confirmations a on a.school_id = s.id and a.date = ${date}::date
       where s.cluster_id = ${actor.clusterId} and s.deleted_at is null order by s.sort_order, s.created_at`;
     return c.json(ok(rows.map(row => ({ ...row, date }))));
@@ -327,12 +347,34 @@ export function memberRoutes(app: Hono<AppEnv>) {
     return c.json(ok(row));
   });
 
+  // رصد حضور ١٠٠٪: yes / no for a school's day, or null to clear the answer.
+  app.put("/schools/:id/attendance", async c => {
+    const actor = requireMember(c);
+    const body = await readBody(c);
+    const date = parseDate(body.date, riyadhDate());
+    if (body.full !== null && typeof body.full !== "boolean") throw invalid({ full: "الحالة مطلوبة" });
+    const full = body.full as boolean | null;
+    const row = await sql.begin(async tx => {
+      const school = await ownSchool(tx, actor.clusterId, c.req.param("id"));
+      const [before] = await tx`select full_attendance from absence_confirmations where school_id = ${school.id} and date = ${date}::date`;
+      const [next] = await tx`
+        insert into absence_confirmations (school_id, date, full_attendance) values (${school.id}, ${date}::date, ${full})
+        on conflict (school_id, date) do update set full_attendance = excluded.full_attendance
+        returning school_id, date::text as date, done, full_attendance`;
+      await audit(c, tx, {
+        action: "update", entity: "absence_confirmation", entityId: `${school.id}:${date}`, field: "fullAttendance", before: before?.fullAttendance ?? null, after: full,
+      });
+      return next;
+    });
+    return c.json(ok(row));
+  });
+
   app.get("/cluster/me/visits", async c => {
     const actor = requireMember(c);
     const rows = await sql`select * from visit_reports where cluster_id = ${actor.clusterId} order by created_at desc limit 200`;
     return c.json(ok(rows));
   });
-  // The school and the visit type are required; the description may be short or empty.
+  // The school and the visit type are required; the purpose (text) may be short or empty.
   app.post("/visits", async c => {
     const actor = requireMember(c);
     const body = await readBody(c);

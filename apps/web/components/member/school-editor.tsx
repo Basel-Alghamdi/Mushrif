@@ -1,14 +1,13 @@
 "use client";
 
-import { EDUCATION_TYPES, MADRASATI_METRICS, STAGES, TIERS } from "@rasd/schemas";
+import { EDUCATION_TYPES, EVALUATION_DOMAINS, MADRASATI_METRICS, NAFES_GRADES, STAGES, SUPPORT_TYPES, TIERS } from "@rasd/schemas";
 import { LoaderCircle, Plus } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ar } from "../../lib/format";
 import type { LeadershipRole, School } from "../../lib/types";
 import { useActions } from "./actions";
 import { useMember } from "./context";
 import {
-  ADMIN_TILE, isCoreFilled, LEADER_ROLES, NAME_FIELD, notesOf, NOTES_FIELD, PHONE_FIELD, principalOf, PRINCIPAL_ROLES, roleValue, TEACHERS_TILE, tileOf,
+  ADMIN_TILE, isCoreFilled, LEADER_ROLES, NAME_FIELD, notesOf, NOTES_FIELD, PHONE_FIELD, principalOf, PRINCIPAL_ROLES, roleValue, TEACHERS_TILE, tileOf, toNumber,
 } from "./model";
 import { replaceById } from "./mutations";
 import { NumberInput } from "./number-input";
@@ -75,7 +74,7 @@ export function SchoolEditor({ school }: { school: School }) {
 
       <div className="m-exp-group">
         <Expander title="بيانات إضافية"><Extras school={school} /></Expander>
-        <Expander title="المؤشرات (تعبّئها رئيسة النطاق عادةً)"><Indicators school={school} /></Expander>
+        <Expander title="مؤشرات التقويم المدرسي"><Indicators school={school} /></Expander>
       </div>
     </>
   );
@@ -126,11 +125,11 @@ function Extras({ school }: { school: School }) {
           <NumberInput id="school-admin" value={tileOf(school, ADMIN_TILE)?.value ?? 0} onChange={value => setTile(school.id, ADMIN_TILE, value)} />
         </div>
         <div className="field">
-          <label className="field-label" htmlFor="school-gifted-classes">فصول الموهبة</label>
+          <label className="field-label" htmlFor="school-gifted-classes">عدد فصول موهبة</label>
           <NumberInput id="school-gifted-classes" value={school.giftedClasses} onChange={value => setSchool(school.id, "giftedClasses", value)} />
         </div>
         <div className="field">
-          <label className="field-label" htmlFor="school-gifted-students">طالبات الموهبة</label>
+          <label className="field-label" htmlFor="school-gifted-students">عدد طالبات موهبة</label>
           <NumberInput id="school-gifted-students" value={school.giftedStudents} onChange={value => setSchool(school.id, "giftedStudents", value)} />
         </div>
         {otherTiles.map(tile => (
@@ -164,47 +163,100 @@ function Extras({ school }: { school: School }) {
   );
 }
 
-/** A value only رئيسة النطاق sets: shown, or a quiet note when she has not yet. */
-function HeadValue({ label, value }: { label: string; value: string | null }) {
+/** A percentage 0–100 that may stay empty (null = not known yet, unlike 0). */
+function PercentInput({ id, value, onChange, label }: { id: string; value: number | null; onChange: (value: number | null) => void; label?: string }) {
+  const [text, setText] = useState(value === null ? "" : String(value));
+  // Follow changes that come from elsewhere (another device, رئيسة النطاق).
+  useEffect(() => {
+    setText(current => ((current.trim() ? toNumber(current) : null) === value ? current : value === null ? "" : String(value)));
+  }, [value]);
   return (
-    <div className="m-ro-row">
-      <span>{label}</span>
-      {value ? <b>{value}</b> : <small>تعبّئها رئيسة النطاق</small>}
+    <input id={id} className="input m-num" inputMode="numeric" value={text} placeholder="٪" aria-label={label}
+      onChange={event => {
+        const typed = event.target.value;
+        if (!typed.trim()) { setText(typed); onChange(null); return; }
+        const number = toNumber(typed);
+        const capped = Math.min(100, number);
+        setText(capped === number ? typed : String(capped));
+        onChange(capped);
+      }} />
+  );
+}
+
+/** Level chips (tap the chosen one again to clear) for a set value, e.g. تصنيف المدرسة or a domain's level. */
+function LevelChips({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="m-chips">
+      {TIERS.map(tier => (
+        <button type="button" key={tier} className={`m-chip${value === tier ? " is-on" : ""}`} aria-pressed={value === tier}
+          onClick={() => onChange(value === tier ? "" : tier)}>
+          {tier}
+        </button>
+      ))}
     </div>
   );
 }
 
+/** مؤشرات التقويم المدرسي — she fills them all now (رئيسة النطاق sees and can edit the same values). */
 function Indicators({ school }: { school: School }) {
-  const { setSchool, setMadrasati, setDiscipline, setReportUrl } = useActions();
+  const { setSchool, setMadrasati, setDiscipline, setEvaluation } = useActions();
   const evaluation = school.evaluation;
-  const percent = (value: number | null | undefined) => (value === null || value === undefined ? null : `${ar(value)}٪`);
-  const nafes = evaluation?.nafesValue === null || evaluation?.nafesValue === undefined ? null
-    : [percent(evaluation.nafesValue), evaluation.nafesDirection === "up" ? "↑" : evaluation.nafesDirection === "down" ? "↓" : "", evaluation.nafesDelta].filter(Boolean).join(" ");
+  const set = (change: Parameters<typeof setEvaluation>[1]) => setEvaluation(school.id, change);
 
   return (
     <>
       <fieldset className="m-choice">
         <legend className="field-label">تصنيف المدرسة</legend>
-        <div className="m-chips">
-          {TIERS.map(tier => (
-            <button type="button" key={tier} className={`m-chip${school.tier === tier ? " is-on" : ""}`} aria-pressed={school.tier === tier}
-              onClick={() => setSchool(school.id, "tier", school.tier === tier ? null : tier, 0)}>
-              {tier}
-            </button>
-          ))}
-        </div>
+        <LevelChips value={school.tier ?? ""} onChange={tier => setSchool(school.id, "tier", tier || null, 0)} />
       </fieldset>
-      <div className="m-ro">
-        <HeadValue label="نوع الدعم" value={evaluation?.supportType || null} />
-        <HeadValue label="نافس" value={nafes} />
-        <HeadValue label="القدرات" value={percent(evaluation?.qudrat)} />
-        <HeadValue label="التحصيلي" value={percent(evaluation?.tahsili)} />
+      <ChoiceChips id="school-support" label="نوع الدعم" options={SUPPORT_TYPES} value={evaluation?.supportType ?? ""} placeholder="مثال: دعم مكثف"
+        onChange={supportType => set({ supportType })} />
+
+      <h3 className="m-sub">مجالات التقويم المدرسي</h3>
+      {EVALUATION_DOMAINS.map(domain => {
+        const current = evaluation?.domains[domain.key] ?? { level: "", percent: null };
+        return (
+          <fieldset className="m-choice m-domain" key={domain.key}>
+            <legend className="field-label">{domain.label}</legend>
+            <div className="m-domain-row">
+              <LevelChips value={current.level} onChange={level => set({ domains: { [domain.key]: { ...current, level } } })} />
+              <PercentInput id={`domain-${domain.key}`} value={current.percent} label={`نسبة ${domain.label}`}
+                onChange={percent => set({ domains: { [domain.key]: { ...current, percent } } })} />
+            </div>
+          </fieldset>
+        );
+      })}
+
+      <h3 className="m-sub">نافس (٪)</h3>
+      <div className="m-grid-3">
+        {NAFES_GRADES.map(grade => (
+          <div className="field" key={grade.key}>
+            <label className="field-label" htmlFor={`nafes-${grade.key}`}>{grade.label}</label>
+            <PercentInput id={`nafes-${grade.key}`} value={evaluation?.[grade.key] ?? null} onChange={value => set({ [grade.key]: value })} />
+          </div>
+        ))}
       </div>
-      <Field label={<>رابط التقرير الخارجي <span className="m-optional">(اختياري)</span></>} htmlFor="school-report">
+      <div className="m-grid-2">
+        <div className="field">
+          <label className="field-label" htmlFor="school-qudrat">القدرات (٪)</label>
+          <PercentInput id="school-qudrat" value={evaluation?.qudrat ?? null} onChange={qudrat => set({ qudrat })} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="school-tahsili">التحصيلي (٪)</label>
+          <PercentInput id="school-tahsili" value={evaluation?.tahsili ?? null} onChange={tahsili => set({ tahsili })} />
+        </div>
+      </div>
+
+      <Field label="رابط التقرير الخارجي" htmlFor="school-report">
         <input id="school-report" className="input" type="url" inputMode="url" dir="ltr" value={evaluation?.externalReportUrl ?? ""} placeholder="https://"
-          onChange={event => setReportUrl(school.id, event.target.value)} />
+          onChange={event => set({ externalReportUrl: event.target.value })} />
       </Field>
-      <h3 className="m-sub">منصة مدرستي</h3>
+      <Field label="رابط التقرير الذاتي" htmlFor="school-self-report">
+        <input id="school-self-report" className="input" type="url" inputMode="url" dir="ltr" value={evaluation?.selfReportUrl ?? ""} placeholder="https://"
+          onChange={event => set({ selfReportUrl: event.target.value })} />
+      </Field>
+
+      <h3 className="m-sub">مؤشرات منصة مدرستي</h3>
       <div className="m-grid-2">
         {MADRASATI_METRICS.map((metric, index) => (
           <div className="field" key={metric.key}>
@@ -213,7 +265,7 @@ function Indicators({ school }: { school: School }) {
           </div>
         ))}
       </div>
-      <h3 className="m-sub">الانضباط</h3>
+      <h3 className="m-sub">مؤشر الانضباط</h3>
       <div className="m-grid-3">
         {DISCIPLINE.map(({ key, label }) => (
           <div className="field" key={key}>

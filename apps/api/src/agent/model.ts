@@ -38,10 +38,16 @@ export type School = {
   nafes: string;
   qudrat: number | null;
   tahsili: number | null;
+  /** مجالات التقويم المدرسي that are filled, by Arabic domain name: level (تميز…تهيئة) and percentage. */
+  evaluationDomains?: Record<string, { level: string; percent: number | null }>;
+  /** نافس percentages that are filled, by grade (الثالث الابتدائي، السادس الابتدائي، الثالث المتوسط). */
+  nafesByGrade?: Record<string, number>;
+  selfReportUrl?: string;
   madrasati: number[]; // the 6 مدرستي percentages
   discipline: number[]; // [daily, weekly, monthly]
   absence: boolean; // confirmed today
   absenceDate?: string;
+  fullAttendance?: boolean; // رصد حضور ١٠٠٪ today (absent while unanswered)
   principal: string; // the name in the «مديرة/قائدة المدرسة» leadership role
   notes?: string; // custom field «ملاحظات»
   customFields?: { id: string; label: string; value: string }[];

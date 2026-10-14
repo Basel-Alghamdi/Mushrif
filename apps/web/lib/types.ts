@@ -1,4 +1,5 @@
 // Shapes returned by the Rasd API (dates arrive as ISO strings).
+import type { EvaluationDomain, EvaluationDomainKey } from "@rasd/schemas";
 
 export type LabelValue = { id: string; label: string; value: string; updatedAt: string };
 
@@ -16,11 +17,16 @@ export type School = {
   giftedClasses: number; giftedStudents: number; teachesChinese: boolean; tier: string | null; updatedAt: string;
   evaluation: {
     supportType: string; nafesValue: number | null; nafesDirection: string; nafesDelta: string; qudrat: number | null; tahsili: number | null;
-    externalReportUrl: string; externalReportStatus: string; importedAt: string | null;
+    nafesGrade3: number | null; nafesGrade6: number | null; nafesGrade9: number | null;
+    /** مجالات التقويم المدرسي by domain key; a domain not filled yet is absent. */
+    domains: Partial<Record<EvaluationDomainKey, EvaluationDomain>>;
+    externalReportUrl: string; externalReportStatus: string; selfReportUrl: string; importedAt: string | null;
   } | null;
   madrasati: number[];
   discipline: { daily: number; weekly: number; monthly: number; planStatus: string; planUrl: string };
   absenceToday: boolean;
+  /** رصد حضور ١٠٠٪ today: yes, no, or null while unanswered. */
+  fullAttendanceToday: boolean | null;
   visitCount: number;
   customFields: LabelValue[];
   staffTiles: StaffTile[];

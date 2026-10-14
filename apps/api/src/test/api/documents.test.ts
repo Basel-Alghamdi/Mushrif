@@ -131,6 +131,12 @@ describe("documents", () => {
     const byHead = await api.call<DocumentInfo[]>("POST", `/district/members/${rashaId}/documents`, into("visit_reports", school.data.id), head);
     assert.equal(byHead.status, 201, JSON.stringify(byHead.error));
     assert.equal(byHead.data[0].folder, "visit_reports");
+    // Sub-folders: النموذج الإشرافي › خطة التحسين in a school, التطوير المهني › منفذ in hers.
+    const plan = await api.call<DocumentInfo[]>("POST", "/cluster/me/documents", into("supervisory_improvement_plan", school.data.id), rasha);
+    assert.equal(plan.status, 201, JSON.stringify(plan.error));
+    assert.equal(plan.data[0].folder, "supervisory_improvement_plan");
+    assert.equal((await api.call("POST", "/cluster/me/documents", into("pd_presenter"), rasha)).status, 201);
+    assert.equal((await api.call("POST", "/cluster/me/documents", into("pd_presenter", school.data.id), rasha)).status, 422, "her sub-folder is not a school's");
 
     // Refused before anything is stored: unknown folders, «مدارس المشرفة» itself, a school folder without its school,
     // her own folder inside a school, a school without a folder, and another member's school.

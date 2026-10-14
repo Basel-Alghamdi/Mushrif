@@ -6,7 +6,7 @@ import { ar, counted, relativeTime } from "../../lib/format";
 import type { VisitReport } from "../../lib/types";
 import { useActions } from "./actions";
 import { useMember } from "./context";
-import { FIELD_FORMS, PLAN_FORMS, progressOf, SCHOOL_FORMS, SEP } from "./model";
+import { FIELD_FORMS, progressOf, SCHOOL_FORMS, SEP } from "./model";
 
 /** «جهّزي ملفك ٦١٪» — one row per part of her file that is still missing something. Hidden once they are all done. */
 export function SetupCard() {
@@ -19,8 +19,6 @@ export function SetupCard() {
     { href: progress.firstIncomplete ? `/cluster/schools/${progress.firstIncomplete.id}` : "/cluster/schools", label: "مدارسي",
       done: schools > 0 && progress.gaps === 0,
       status: !schools ? "أضيفي مدارسك" : progress.gaps ? `باقي ${counted(progress.gaps, FIELD_FORMS)}` : counted(schools, SCHOOL_FORMS) },
-    { href: "/cluster/reports#plans", label: "الخطط", done: progress.plansLeft === 0,
-      status: progress.plansLeft ? `باقي ${counted(progress.plansLeft, PLAN_FORMS)}` : "مرفوعة" },
   ];
   if (rows.every(row => row.done)) return null;
 
@@ -60,6 +58,35 @@ export function AbsenceCard() {
               <span className="m-absence-name">{school.name || "مدرسة بدون اسم"}</span>
               <span className="m-absence-btn">{school.absenceToday ? <>تم<Check aria-hidden /></> : "ثبّتُّه"}</span>
             </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** «رصد حضور ١٠٠٪»: نعم / لا per school for today; tapping the chosen answer again clears it. */
+export function AttendanceCard() {
+  const { ws } = useMember();
+  const { setFullAttendance } = useActions();
+  if (!ws.schools.length) return null;
+
+  return (
+    <section className="card m-absence" aria-labelledby="attendance-title">
+      <h2 id="attendance-title">رصد حضور ١٠٠٪ اليوم</h2>
+      <ul>
+        {ws.schools.map(school => (
+          <li key={school.id} className={`m-attend-row${school.fullAttendanceToday === null ? "" : " is-done"}`}>
+            <span className="m-absence-name" id={`attend-${school.id}`}>{school.name || "مدرسة بدون اسم"}</span>
+            <div className="m-chips" role="group" aria-labelledby={`attend-${school.id}`}>
+              {([true, false] as const).map(answer => (
+                <button key={String(answer)} type="button" className={`m-chip${school.fullAttendanceToday === answer ? " is-on" : ""}`}
+                  aria-pressed={school.fullAttendanceToday === answer}
+                  onClick={() => setFullAttendance(school, school.fullAttendanceToday === answer ? null : answer)}>
+                  {answer ? "نعم" : "لا"}
+                </button>
+              ))}
+            </div>
           </li>
         ))}
       </ul>

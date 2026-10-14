@@ -7,7 +7,6 @@ export const SEP = "، ";
 export const SCHOOL_FORMS = { one: "مدرسة واحدة", two: "مدرستان", few: "مدارس", many: "مدرسة" };
 export const FIELD_FORMS = { one: "خانة واحدة", two: "خانتان", few: "خانات", many: "خانة" };
 export const YEAR_FORMS = { one: "سنة واحدة", two: "سنتان", few: "سنوات", many: "سنة" };
-export const PLAN_FORMS = { one: "خطة واحدة", two: "خطتان", few: "خطط", many: "خطة" };
 
 export const isFilled = (value: unknown) => String(value ?? "").trim() !== "";
 
@@ -88,10 +87,9 @@ export function toNumber(value: string) {
 
 // ---------- Completion (the same function the server uses, so the number moves as she types) ----------
 export function progressOf(workspace: Workspace) {
-  const completion = completionPct({ profile: workspace.profile, schools: workspace.schools, plans: workspace.plans });
+  const completion = completionPct({ profile: workspace.profile, schools: workspace.schools });
   const fields = emptyFields(workspace.profile);
   const gaps = workspace.schools.reduce((sum, school) => sum + schoolGaps(school).length, 0);
   const firstIncomplete = workspace.schools.find(school => schoolGaps(school).length > 0);
-  const plansLeft = workspace.plans.filter(plan => plan.status !== "uploaded").length;
-  return { completion, fields, gaps, firstIncomplete, plansLeft };
+  return { completion, fields, gaps, firstIncomplete };
 }

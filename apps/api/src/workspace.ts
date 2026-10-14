@@ -1,4 +1,4 @@
-import { MADRASATI_METRICS, completionPct, riyadhDate, yearsSinceHijri } from "@rasd/schemas";
+import { MADRASATI_METRICS, completionPct, riyadhDate, yearsSinceHijri, type EvaluationDomain, type EvaluationDomainKey } from "@rasd/schemas";
 import { PASSIVE_ACTIONS } from "./audit.js";
 import type { Row, Sql } from "./db.js";
 
@@ -71,7 +71,7 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     db`select * from evaluation_indicators where school_id = any(${schoolIds}::uuid[])`,
     db`select * from madrasati_indicators where school_id = any(${schoolIds}::uuid[])`,
     db`select * from discipline_indicators where school_id = any(${schoolIds}::uuid[])`,
-    db`select school_id, done from absence_confirmations where school_id = any(${schoolIds}::uuid[]) and date = ${today}::date`,
+    db`select school_id, done, full_attendance from absence_confirmations where school_id = any(${schoolIds}::uuid[]) and date = ${today}::date`,
     db`select school_id, count(*)::int as count from visit_reports where school_id = any(${schoolIds}::uuid[]) group by school_id`,
     db`select * from custom_section_fields where section_id = any(${sectionIds}::uuid[]) and deleted_at is null order by sort_order, created_at`,
   ]);
@@ -101,6 +101,7 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     madrasati: new Map(madrasatiRows.map(row => [String(row.schoolId), row])),
     discipline: new Map(disciplineRows.map(row => [String(row.schoolId), row])),
     absence: new Map(absenceRows.map(row => [String(row.schoolId), Boolean(row.done)])),
+    attendance: new Map(absenceRows.map(row => [String(row.schoolId), (row.fullAttendance as boolean | null) ?? null])),
     visits: new Map(visitRows.map(row => [String(row.schoolId), Number(row.count)])),
   };
 
@@ -114,7 +115,7 @@ type Lookup = {
   submissions: Map<string, Date>; activity: Map<string, Date>; documents: Map<string, number>; signIns: Map<string, Date | null>;
   custom: Map<string, Row[]>; tiles: Map<string, Row[]>;
   roles: Map<string, Row[]>; roleFields: Map<string, Row[]>; evaluation: Map<string, Row>; madrasati: Map<string, Row>;
-  discipline: Map<string, Row>; absence: Map<string, boolean>; visits: Map<string, number>;
+  discipline: Map<string, Row>; absence: Map<string, boolean>; attendance: Map<string, boolean | null>; visits: Map<string, number>;
 };
 
 function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
@@ -142,7 +143,10 @@ function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
         supportType: evaluation.supportType as string, nafesValue: evaluation.nafesValue as number | null,
         nafesDirection: evaluation.nafesDirection as string, nafesDelta: evaluation.nafesDelta as string,
         qudrat: evaluation.qudrat as number | null, tahsili: evaluation.tahsili as number | null,
+        nafesGrade3: evaluation.nafesGrade3 as number | null, nafesGrade6: evaluation.nafesGrade6 as number | null, nafesGrade9: evaluation.nafesGrade9 as number | null,
+        domains: (evaluation.domains ?? {}) as Partial<Record<EvaluationDomainKey, EvaluationDomain>>,
         externalReportUrl: evaluation.externalReportUrl as string, externalReportStatus: evaluation.externalReportStatus as string,
+        selfReportUrl: evaluation.selfReportUrl as string,
         importedAt: evaluation.importedAt as Date | null,
       } : null,
       madrasati: madrasatiValues(lookup.madrasati.get(schoolId)),
@@ -151,6 +155,8 @@ function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
         planStatus: (discipline?.planStatus as string | undefined) ?? "missing", planUrl: (discipline?.planUrl as string | undefined) ?? "",
       },
       absenceToday: lookup.absence.get(schoolId) ?? false,
+      /** رصد حضور ١٠٠٪ today: yes, no, or null while unanswered. */
+      fullAttendanceToday: lookup.attendance.get(schoolId) ?? null,
       visitCount: lookup.visits.get(schoolId) ?? 0,
       customFields: (lookup.custom.get(schoolId) ?? []).map(field => ({ id: field.id as string, label: field.label as string, value: field.value as string, updatedAt: field.updatedAt as Date })),
       staffTiles: (lookup.tiles.get(schoolId) ?? []).map(tile => ({ id: tile.id as string, label: tile.label as string, value: Number(tile.value), updatedAt: tile.updatedAt as Date })),
@@ -188,7 +194,7 @@ function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
       fields: (lookup.sectionFields.get(String(section.id)) ?? []).map(field => ({ id: field.id as string, label: field.label as string, value: field.value as string, updatedAt: field.updatedAt as Date })),
     })),
     disciplineSupportPlan: { text: (lookup.support.get(clusterId)?.text as string | undefined) ?? "", updatedAt: (lookup.support.get(clusterId)?.updatedAt as Date | undefined) ?? null },
-    completion: completionPct({ profile, schools, plans }),
+    completion: completionPct({ profile, schools }),
   };
 }
 

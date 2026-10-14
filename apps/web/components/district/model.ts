@@ -43,7 +43,7 @@ export const fieldValue = (workspace: Workspace, key: string) => workspace.profi
 export function withDerived(workspace: Workspace): Workspace {
   const hireDate = fieldValue(workspace, "hireDate");
   const profile = workspace.profile.map(field => field.key === "yearsOfExperience" && isDerived(field) ? { ...field, value: yearsSinceHijri(hireDate) } : field);
-  return { ...workspace, profile, completion: completionPct({ profile, schools: workspace.schools, plans: workspace.plans }) };
+  return { ...workspace, profile, completion: completionPct({ profile, schools: workspace.schools }) };
 }
 
 /** Where a missing item is filled on the head's side: a profile field, the schools tab, or only by the member herself. */
@@ -62,8 +62,6 @@ export function missingItems(workspace: Workspace): MissingItem[] {
   for (const school of workspace.schools) if (schoolIncomplete(school)) items.push({ label: `بيانات ${school.name || "مدرسة بدون اسم"}`, tab: "schools" });
   const absent = workspace.schools.filter(school => !school.absenceToday).length;
   if (absent) items.push({ label: workspace.schools.length > 1 ? `تثبيت غياب اليوم (${absent} من ${workspace.schools.length})` : "تثبيت غياب اليوم", tab: null });
-  const plans = workspace.plans.filter(plan => plan.status !== "uploaded");
-  if (plans.length) items.push({ label: `رفع الخطط: ${plans.map(plan => plan.label).join("، ")}`, tab: null });
   return items;
 }
 

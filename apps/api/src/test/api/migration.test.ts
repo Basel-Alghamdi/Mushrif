@@ -13,13 +13,29 @@ const AGENT = readFileSync(`${migrations}20261004120000_agent_chat_documents.sql
 
 let api: TestApi;
 
-describe("migrations 20261004120000_agent_chat_documents and 20261006120000_document_folders", () => {
+describe("migrations 20261004120000_agent_chat_documents, 20261006120000_document_folders and 20261014120000_supervisor_feedback", () => {
   before(async () => { api = await startApi(); });
   after(async () => { await api.stop(); });
 
   test("main's runner applied every migration", async () => {
     const rows = await api.sql`select version from supabase_migrations.schema_migrations order by version`;
-    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000", "20261006120000"]);
+    assert.deepEqual(rows.map(row => row.version), ["20260927120000", "20261004120000", "20261006120000", "20261014120000"]);
+  });
+
+  test("sub-folder keys, full attendance and the members' evaluation columns", async () => {
+    const [cluster] = await api.sql`select id, district_id from clusters limit 1`;
+    const [school] = await api.sql`insert into schools ${api.sql({ clusterId: cluster.id, name: "مدرسة الملاحظات" })} returning id`;
+    const [filed] = await api.sql`insert into attachments ${api.sql({
+      clusterId: cluster.id, districtId: cluster.districtId, ownerType: "document", name: "a.pdf", storagePath: `t/${crypto.randomUUID()}.pdf`,
+      folder: "supervisory_execution_1", schoolId: school.id,
+    })} returning folder`;
+    assert.equal(filed.folder, "supervisory_execution_1", "digits are allowed in folder keys");
+    const [day] = await api.sql`insert into absence_confirmations ${api.sql({ schoolId: school.id, date: "2026-10-14" })} returning done, full_attendance`;
+    assert.deepEqual([day.done, day.fullAttendance], [false, null], "full attendance starts unanswered");
+    const [row] = await api.sql`insert into evaluation_indicators ${api.sql({ schoolId: school.id, nafesGrade3: 70, selfReportUrl: "x" })} returning domains, nafes_grade6`;
+    assert.deepEqual([row.domains, row.nafesGrade6], [{}, null]);
+    await assert.rejects(api.sql`update evaluation_indicators set nafes_grade9 = 101 where school_id = ${school.id}`);
+    await assert.rejects(api.sql`update evaluation_indicators set domains = '[]'::jsonb where school_id = ${school.id}`);
   });
 
   test("files carry a folder key and, for a school's folder, the school", async () => {

@@ -33,11 +33,9 @@ async function clusterAnswer(actor: Actor) {
   const today = riyadhDate();
   const workspace = (await loadWorkspaces(sql, [actor.clusterId!])).get(actor.clusterId!)!;
   const missingAbsence = workspace.schools.filter(school => !school.absenceToday).map(school => school.name);
-  const missingPlans = workspace.plans.filter(plan => plan.status !== "uploaded").map(plan => plan.label);
   const text = [
     `اكتمال ملفك ${workspace.completion}٪ ويضم ${workspace.schools.length} مدارس.`,
     missingAbsence.length ? `لم يُثبّت الغياب اليوم في: ${missingAbsence.join("، ")}.` : "ثُبّت الغياب في جميع المدارس اليوم.",
-    missingPlans.length ? `خطط لم تُرفع: ${missingPlans.join("، ")}.` : "رُفعت جميع الخطط.",
     workspace.cluster.submittedToday ? "حدّثتِ ملفك اليوم." : "لم تحدّثي ملفك اليوم بعد.",
   ].join("\n");
   return { text, citations: [{ entity: "cluster", id: workspace.cluster.id, date: today }] };
@@ -81,8 +79,8 @@ export function aiRoutes(app: Hono<AppEnv>) {
       payload = { summaryText: report.summaryText, stats: report.stats };
     } else {
       const gaps = members
-        .map(item => ({ memberId: item.summary.id, name: item.summary.name, completion: item.summary.completion, missingPlans: item.workspace.plans.filter(p => p.status !== "uploaded").length }))
-        .filter(item => item.completion < 85 || item.missingPlans > 0)
+        .map(item => ({ memberId: item.summary.id, name: item.summary.name, completion: item.summary.completion }))
+        .filter(item => item.completion < 85)
         .sort((a, b) => a.completion - b.completion);
       plan = [{ step: `مراجعة ${members.length} ملفات`, ok: true }, { step: `ترتيب النواقص (${gaps.length})`, ok: true }, { step: "بانتظار الموافقة", ok: false }];
       payload = { gaps };

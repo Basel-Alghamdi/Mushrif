@@ -53,7 +53,7 @@ export function VisitsTab({ memberId, workspace }: { memberId: string; workspace
               <b>{visit.schoolName} · {visit.type}</b>
               <small>{relativeTime(visit.createdAt)}</small>
             </header>
-            {visit.text && <p>{visit.text}</p>}
+            {visit.text && <p><span className="muted">الهدف: </span>{visit.text}</p>}
             {(visit.beneficiaries || visit.sessions || visit.blockers) && (
               <small className="mp-visit-meta">
                 {[

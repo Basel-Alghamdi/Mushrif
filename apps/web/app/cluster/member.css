@@ -165,6 +165,11 @@ details[open]>summary .m-exp-chev{transform:rotate(180deg)}
 .m-absence-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;min-width:92px;min-height:44px;padding:0 14px;border:1.5px solid var(--primary-dark);border-radius:10px;background:var(--surface);color:var(--primary-dark);font-size:14px;font-weight:700}
 .m-absence-row.is-done{border-color:#0676474d;background:var(--success-bg)}
 .m-absence-row.is-done .m-absence-btn{border-color:var(--success);background:var(--success);color:#fff}
+.m-attend-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:5px;padding-inline-start:14px;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface)}
+.m-attend-row .m-chips{flex:none;flex-wrap:nowrap;gap:6px}
+.m-attend-row.is-done{border-color:#0676474d;background:var(--success-bg)}
+.m-domain-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.m-domain-row .m-num{width:88px;flex:none}
 
 .m-recent{display:flex;flex-direction:column;gap:6px}
 .m-recent-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
