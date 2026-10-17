@@ -1,5 +1,6 @@
 // The built-in Arabic engine: answers Khulood's questions from the database without any API key.
 import type { ChatBlock } from "@rasd/schemas";
+import { getDocument } from "../documents.js";
 import {
   builtInField, FILTER_LABELS, FILTER_LABELS_ONE, filterMembers, findDocumentByName, markRead, membersMissingField, metricValue, profileField, profileFieldByLabel, searchDocuments, searchPhrase,
   searchVisits, updatedToday, type MemberFilter,
@@ -286,13 +287,13 @@ function compare(ctx: Ctx): AgentReply | null {
 }
 
 // ---------- Search & documents ----------
-function search(ctx: Ctx): AgentReply | null {
+async function search(ctx: Ctx): Promise<AgentReply | null> {
   const verb = spanOf(ctx, W.search);
   if (!verb) return null;
   const inMention = (index: number) => ctx.mentions.some(item => index >= item.start && index <= item.end);
   const query = ctx.tokens.filter(token => !token.punct && !inMention(token.index) && (token.index < verb.start || token.index > verb.end)).map(token => token.raw).join(" ");
   const memberId = ctx.memberIds[0];
-  const hits = searchDocuments(ctx.team, query, { memberId });
+  const hits = await searchDocuments(ctx.session.db, ctx.team, query, { memberId });
   const visits = searchVisits(memberId ? ctx.details().filter(detail => detail.id === memberId) : ctx.details(), query).slice(0, 8);
   const shownQuery = searchPhrase(query);
   if (!shownQuery) return reply("وش الكلمة اللي أبحث عنها؟ اكتبي مثلاً: «ابحثي في الملفات عن خطة التحسين».");
@@ -310,15 +311,17 @@ function search(ctx: Ctx): AgentReply | null {
   return { text: `وجدت «${shownQuery}» في ${parts.join(" و")}:`, blocks };
 }
 
-function documentContent(ctx: Ctx): AgentReply | null {
+async function documentContent(ctx: Ctx): Promise<AgentReply | null> {
   const summarize = has(ctx, W.summarize);
   const fileWord = has(ctx, W.documentWords);
   if (!summarize && !fileWord) return null;
   // «وش الملفات اللي رفعها الفريق؟» asks for the list, not for one file whose name happens to contain «الفريق».
   if (!summarize && metric(ctx, "documents") && !ctx.tokens.some(token => token.norm === "ملف" || token.norm === "الملف")) return null;
   const textWithoutNames = ctx.tokens.filter(token => !ctx.mentions.some(item => token.index >= item.start && token.index <= item.end)).map(token => token.raw).join(" ");
-  const document = findDocumentByName(ctx.team, textWithoutNames);
-  if (!document || (!summarize && ctx.targetId)) return null;
+  const found = findDocumentByName(ctx.team, textWithoutNames);
+  if (!found || (!summarize && ctx.targetId)) return null;
+  const document = await getDocument(ctx.session.db, found.id);
+  if (!document) return null;
   const body = document.text.trim();
   const owner = document.ownerName ? ` (ملف ${shortName(document.ownerName)})` : "";
   if (!body) return reply(`«${document.name}»${owner} لا يحتوي نصاً أقدر أقرأه${document.kind === "image" ? " — قراءة الصور تحتاج تفعيل Claude" : ""}.`, documentsBlock([document]));
@@ -333,8 +336,8 @@ const UPLOADED = phrases(["رفعت", "رفعن", "رفعته", "رفعتها", 
 const asksUploads = (ctx: Ctx) =>
   has(ctx, UPLOADED) && !negated(ctx, spanOf(ctx, UPLOADED)) && !ctx.fields.length && ctx.metrics.every(item => item.key === "members");
 
-function documents(ctx: Ctx): AgentReply | null {
-  const content = documentContent(ctx);
+async function documents(ctx: Ctx): Promise<AgentReply | null> {
+  const content = await documentContent(ctx);
   if (content) return content;
   if (!metric(ctx, "documents") && !asksUploads(ctx)) return null;
   if (ctx.ambiguous && !ctx.targetId) return askWhich(ctx, ctx.ambiguous);
@@ -601,8 +604,8 @@ function absenceToday(ctx: Ctx): AgentReply | null {
 }
 
 // ---------- Fallback ----------
-function fallback(ctx: Ctx): AgentReply {
-  const hits = searchDocuments(ctx.team, ctx.raw, { limit: 5, requireAll: true });
+async function fallback(ctx: Ctx): Promise<AgentReply> {
+  const hits = await searchDocuments(ctx.session.db, ctx.team, ctx.raw, { limit: 5, requireAll: true });
   if (hits.length) {
     return reply(
       "ما فهمت سؤالك بالضبط، لكن وجدت هذه الكلمات في الملفات المرفوعة:",
@@ -629,6 +632,6 @@ export async function localRespond(input: EngineInput): Promise<AgentReply> {
     const result = await handler(ctx);
     if (result) return { ...result, intent };
   }
-  return { ...fallback(ctx), intent: "fallback" };
+  return { ...await fallback(ctx), intent: "fallback" };
 }
 

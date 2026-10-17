@@ -31,6 +31,12 @@ describe("reminders by email", () => {
     assert.deepEqual(rows.map(row => [row.body, row.channel]), [["رسالة الأولى", "app"], ["رسالة الثانية", "app"]]);
     const [notification] = await api.sql`select text from notifications where user_id = ${members[0].id} and kind = 'reminder' order by created_at desc limit 1`;
     assert.equal(notification.text, "رسالة الأولى");
+    // Each message is audited on its member's file, under its own reminder.
+    const audited = await api.sql`
+      select a.source, a.after->>'body' as body, r.to_user_id = c.member_id as her_file from audit_log a
+        join reminders r on r.id::text = a.entity_id join clusters c on c.id = a.cluster_id
+      where a.entity = 'reminder' and a.action = 'send' order by body`;
+    assert.deepEqual(audited.map(row => [row.source, row.body, row.herFile]), [["web", "رسالة الأولى", true], ["web", "رسالة الثانية", true]]);
   });
 
   test("with Resend: one batch call, her own text with line breaks, HTML escaped, replies to the head", async () => {

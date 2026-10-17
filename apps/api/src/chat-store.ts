@@ -23,17 +23,18 @@ const messageDto = (row: Row): ChatMessage => ({
 
 const MESSAGE_COLUMNS = (db: Sql) => db`id, conversation_id, role, text, blocks::text as blocks_json, attachments::text as attachments_json, created_at`;
 
+/** Her latest conversations; a preview needs only the start of the last message, never a whole long reply. */
 export async function listConversations(db: Sql, userId: string) {
   const rows = await db`
-    select c.*, (select m.text from chat_messages m where m.conversation_id = c.id order by m.created_at desc limit 1) as preview
-    from conversations c where c.user_id = ${userId} order by c.updated_at desc`;
+    select c.*, (select left(m.text, 200) from chat_messages m where m.conversation_id = c.id order by m.created_at desc limit 1) as preview
+    from conversations c where c.user_id = ${userId} order by c.updated_at desc limit 100`;
   return rows.map(conversationDto);
 }
 
 export async function getConversation(db: Sql, userId: string, id: string) {
   if (!isUuid(id)) return null;
   const [row] = await db`
-    select c.*, (select m.text from chat_messages m where m.conversation_id = c.id order by m.created_at desc limit 1) as preview
+    select c.*, (select left(m.text, 200) from chat_messages m where m.conversation_id = c.id order by m.created_at desc limit 1) as preview
     from conversations c where c.id = ${id} and c.user_id = ${userId}`;
   return row ? conversationDto(row) : null;
 }
@@ -64,40 +65,54 @@ export async function deleteConversation(db: Sql, userId: string, id: string) {
   return rows.length > 0;
 }
 
-export async function listMessages(db: Sql, conversationId: string) {
-  const rows = await db`select ${MESSAGE_COLUMNS(db)} from chat_messages where conversation_id = ${conversationId} order by created_at, id`;
+/** The conversation's messages, oldest first; with `last`, only that many of the newest (the agent's history). */
+export async function listMessages(db: Sql, conversationId: string, last?: number) {
+  const rows = last === undefined
+    ? await db`select ${MESSAGE_COLUMNS(db)} from chat_messages where conversation_id = ${conversationId} order by created_at, id`
+    : await db`
+      select * from (select ${MESSAGE_COLUMNS(db)} from chat_messages where conversation_id = ${conversationId} order by created_at desc, id desc limit ${last}) m
+      order by created_at, id`;
   return rows.map(messageDto);
 }
 
-/** Appends a message (clock time, so a reply written in the same transaction still sorts after the question). */
+/**
+ * Appends a message and touches the conversation in one statement (clock time, so a reply written in the same
+ * transaction still sorts after the question).
+ */
 export async function addMessage(db: Sql, conversationId: string, input: { role: ChatMessage["role"]; text: string; blocks?: ChatBlock[]; attachments?: ChatAttachment[] }) {
   const [row] = await db`
+    with conversation as (update conversations set updated_at = now() where id = ${conversationId} returning id, user_id)
     insert into chat_messages (user_id, conversation_id, role, text, blocks, attachments, created_at)
-    select c.user_id, c.id, ${input.role}, ${input.text}, ${db.json((input.blocks ?? []) as never)}, ${db.json((input.attachments ?? []) as never)}, clock_timestamp()
-    from conversations c where c.id = ${conversationId}
+    select user_id, id, ${input.role}, ${input.text}, ${db.json((input.blocks ?? []) as never)}, ${db.json((input.attachments ?? []) as never)}, clock_timestamp()
+    from conversation
     returning ${MESSAGE_COLUMNS(db)}`;
   if (!row) throw new Error(`conversation ${conversationId} not found`);
-  await db`update conversations set updated_at = now() where id = ${conversationId}`;
   return messageDto(row);
 }
+
+/** The conversation as listed after this message was added (no second read). */
+export const withLastMessage = (conversation: Conversation, message: ChatMessage): Conversation =>
+  ({ ...conversation, updatedAt: message.createdAt, preview: cleanText(message.text).slice(0, 120) });
 
 /** Rewrites the blocks of a stored message (e.g. a proposal card switching from pending to applied). */
 export async function updateMessageBlocks(db: Sql, messageId: string, blocks: ChatBlock[]) {
   await db`update chat_messages set blocks = ${db.json(blocks as never)} where id = ${messageId}`;
 }
 
-/** The message whose proposal card (or undo offer) refers to this proposal. */
-export async function findMessageWithProposal(db: Sql, proposalId: string) {
+/** The message of this conversation whose proposal card (or undo offer) refers to this proposal. */
+export async function findMessageWithProposal(db: Sql, conversationId: string, proposalId: string) {
   const [row] = await db`
     select ${MESSAGE_COLUMNS(db)} from chat_messages
-    where blocks @> ${db.json([{ proposalId }] as never)} or blocks @> ${db.json([{ undoProposalId: proposalId }] as never)}
+    where conversation_id = ${conversationId}
+      and (blocks @> ${db.json([{ proposalId }] as never)} or blocks @> ${db.json([{ undoProposalId: proposalId }] as never)})
     order by created_at desc limit 1`;
   return row ? messageDto(row) : null;
 }
 
 // ---------- Proposals (agent_runs) ----------
-export type ProposalKind = "profile_updates" | "new_members" | "school_updates" | "assign_documents" | "import" | "undo";
-export const PROPOSAL_KINDS: ProposalKind[] = ["profile_updates", "new_members", "school_updates", "assign_documents", "import", "undo"];
+/** `api_requests`: head actions through the API (agent/api-actions.ts) · `kpi_import`: a KPI sheet into the register. */
+export type ProposalKind = "profile_updates" | "new_members" | "school_updates" | "assign_documents" | "import" | "undo" | "api_requests" | "kpi_import";
+export const PROPOSAL_KINDS: ProposalKind[] = ["profile_updates", "new_members", "school_updates", "assign_documents", "import", "undo", "api_requests", "kpi_import"];
 
 /** A change the agent prepared; nothing happens until the head applies it. `result` is the text shown after applying. */
 export type Proposal<T = unknown> = {

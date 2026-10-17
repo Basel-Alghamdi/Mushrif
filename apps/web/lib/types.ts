@@ -1,5 +1,5 @@
 // Shapes returned by the Rasd API (dates arrive as ISO strings).
-import type { EvaluationDomain, EvaluationDomainKey } from "@rasd/schemas";
+import type { DocumentInfo, EvaluationDomain, EvaluationDomainKey, FolderLayout, KpiScope, SchoolKpi } from "@rasd/schemas";
 
 export type LabelValue = { id: string; label: string; value: string; updatedAt: string };
 
@@ -51,6 +51,8 @@ export type Workspace = {
   plans: Plan[];
   programs: Program[];
   sections: CustomSection[];
+  /** ملف الإنجاز: her folders, her schools' folders, and the ones رئيسة النطاق removed. */
+  folders: FolderLayout;
   disciplineSupportPlan: { text: string; updatedAt: string | null };
   completion: number;
 };
@@ -65,7 +67,26 @@ export type MemberSummary = {
 };
 
 /** GET /district/members/:id (the head's audited view of one member's file). */
-export type MemberDetail = { summary: MemberSummary; phone: string; workspace: Workspace };
+export type MemberDetail = {
+  summary: MemberSummary; phone: string; workspace: Workspace;
+  /** Her files (same as GET /district/members/:id/attachments), sent with the file so the profile opens in one request. */
+  documents: DocumentInfo[];
+  /** Which register rows she sees (own schools / every school), and the rows that are hers. */
+  kpiScope: KpiScope;
+  kpis: SchoolKpi[];
+};
+
+/** GET /member/bootstrap: everything the member app needs to open, in one request. */
+export type MemberBootstrap = {
+  me: Me;
+  workspace: Workspace;
+  documents: DocumentInfo[];
+  visits: VisitReport[];
+  /** "district": she may also see every school's row (GET /cluster/me/kpis, loaded when the page opens). */
+  kpiScope: KpiScope;
+  /** The register rows that are hers (assigned to her, or one of her schools' ministry numbers): small, always loaded. */
+  kpis: SchoolKpi[];
+};
 
 export type Invitation = {
   id: string; name: string; email: string; clusterLabel: string; status: "pending" | "expired";

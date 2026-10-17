@@ -1,6 +1,6 @@
 "use client";
 
-import type { DocumentInfo } from "@rasd/schemas";
+import type { DocumentInfo, KpiScope } from "@rasd/schemas";
 import { ArrowRight, BellRing, Check, CircleAlert, Copy, Ellipsis, KeyRound, Mail, Phone, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -67,8 +67,10 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
   const file = useMemberFile(memberId, detail.workspace);
   const { workspace } = file;
   const [summary, setSummary] = useState<MemberSummary>(detail.summary);
-  const [documents, setDocuments] = useState<DocumentInfo[] | null>(null);
+  // Her files arrive with the file; asked again only after a change in the documents tab.
+  const [documents, setDocuments] = useState<DocumentInfo[]>(detail.documents);
   const [documentsError, setDocumentsError] = useState("");
+  const [kpiScope, setKpiScope] = useState<KpiScope>(detail.kpiScope);
   const [tab, setTab] = useState<Tab>("profile");
   const [onlyIds, setOnlyIds] = useState<string[] | null>(null);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -84,7 +86,6 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
       setDocumentsError(errorText(reason));
     }
   }, [memberId]);
-  useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
   const name = fieldValue(workspace, "fullName") || summary.name;
   const title = fieldValue(workspace, "title") || summary.title;
@@ -101,7 +102,7 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "profile", label: "البيانات" },
     { id: "schools", label: "المدارس", count: workspace.schools.length },
-    { id: "documents", label: "ملف الإنجاز", count: documents?.length ?? summary.documentCount },
+    { id: "documents", label: "ملف الإنجاز", count: documents.length },
     { id: "visits", label: "الزيارات", count: workspace.schools.reduce((sum, school) => sum + school.visitCount, 0) },
   ];
 
@@ -149,8 +150,10 @@ function ProfileView({ memberId, detail }: { memberId: string; detail: MemberDet
 
       <div id="mp-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "profile" && <ProfileTab file={file} missing={missing} onlyIds={onlyIds} onShowAll={() => setOnlyIds(null)} onGo={setTab} />}
-        {tab === "schools" && <SchoolsTab file={file} />}
-        {tab === "documents" && <DocumentsTab memberId={memberId} documents={documents} schools={workspace.schools} error={documentsError} onChanged={() => void loadDocuments()} />}
+        {tab === "schools" && <SchoolsTab file={file} kpis={detail.kpis} kpiScope={kpiScope} onKpiScope={setKpiScope} />}
+        {tab === "documents" && (
+          <DocumentsTab memberId={memberId} documents={documents} schools={workspace.schools} folders={workspace.folders} error={documentsError} onChanged={() => void loadDocuments()} />
+        )}
         {tab === "visits" && <VisitsTab memberId={memberId} workspace={workspace} />}
       </div>
 

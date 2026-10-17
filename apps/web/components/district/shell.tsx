@@ -73,6 +73,8 @@ function TopbarTitle({ pathname }: { pathname: string }) {
   let title = "محادثة جديدة";
   if (pathname.startsWith("/district/team/")) title = "ملف المشرفة";
   else if (pathname.startsWith("/district/team")) title = "الفريق والأرقام";
+  else if (pathname.startsWith("/district/kpis")) title = "مؤشرات الأداء";
+  else if (pathname.startsWith("/district/folders")) title = "مجلدات ملف الإنجاز";
   else if (pathname.startsWith("/district/c/")) {
     const id = decodeURIComponent(pathname.split("/")[3] ?? "");
     title = conversations.find(item => item.id === id)?.title ?? "المحادثة";

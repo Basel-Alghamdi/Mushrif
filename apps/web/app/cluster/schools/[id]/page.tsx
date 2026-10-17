@@ -32,24 +32,28 @@ export default function SchoolPage() {
     router.replace("/cluster/schools");
     void removeSchool(school);
   };
+  const folders = schoolFolderCounts(documents, school.id, ws.folders);
 
   return (
     <div className="m-page">
       {back}
       <h1 className="sr-only">{school.name || "مدرسة بدون اسم"}</h1>
       <SchoolEditor school={school} />
-      <section className="fb-school-folders" aria-labelledby="school-files">
-        <h2 id="school-files">ملفات المدرسة</h2>
-        <div className="fb-grid">
-          {schoolFolderCounts(documents, school.id).map(folder => (
-            <Link key={folder.key} href={`/cluster/files?s=${school.id}&f=${folder.key}`} className="fb-tile">
-              <span className="fb-tile-icon" aria-hidden><Folder /></span>
-              <span className="fb-tile-text"><b>{folder.label}</b><small>{filesCount(folder.count)}</small></span>
-              <ChevronLeft className="fb-tile-go" aria-hidden />
-            </Link>
-          ))}
-        </div>
-      </section>
+      {/* Without «مدارس المشرفة» (رئيسة النطاق removed it) her schools have no folders. */}
+      {folders.length > 0 && (
+        <section className="fb-school-folders" aria-labelledby="school-files">
+          <h2 id="school-files">ملفات المدرسة</h2>
+          <div className="fb-grid">
+            {folders.map(folder => (
+              <Link key={folder.key} href={`/cluster/files?s=${school.id}&f=${folder.key}`} className="fb-tile">
+                <span className="fb-tile-icon" aria-hidden><Folder /></span>
+                <span className="fb-tile-text"><b>{folder.label}</b><small>{filesCount(folder.count)}</small></span>
+                <ChevronLeft className="fb-tile-go" aria-hidden />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="m-done-row">
         <Link href="/cluster/schools" className="btn btn-primary btn-lg"><Check aria-hidden />تم</Link>
         <ConfirmDelete variant="link" label="حذف هذه المدرسة" confirmLabel="نعم، احذفيها" onConfirm={remove} />

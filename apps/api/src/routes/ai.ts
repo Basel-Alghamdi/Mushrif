@@ -6,7 +6,7 @@ import { sql } from "../db.js";
 import { ApiError, invalid, notFound, ok } from "../errors.js";
 import { isUuid, readBody } from "../parse.js";
 import { loadWorkspaces } from "../workspace.js";
-import { buildReport, loadDistrict, sendReminders } from "./district.js";
+import { buildReport, loadDistrict, pendingInvitations, sendReminders } from "./district.js";
 
 type Citation = { entity: string; id: string; date: string };
 
@@ -14,8 +14,7 @@ type Citation = { entity: string; id: string; date: string };
 // every number still comes from these queries and carries a citation (SPEC §7.3).
 async function districtAnswer(head: Actor) {
   const today = riyadhDate();
-  const { members } = await loadDistrict(sql, head.districtId);
-  const [{ pending }] = await sql`select count(*)::int as pending from invitations where district_id = ${head.districtId} and status = 'pending' and expires_at > now()`;
+  const [{ members }, pending] = await Promise.all([loadDistrict(sql, head.districtId), pendingInvitations(sql, head.districtId)]);
   if (!members.length) return { text: `لم تنضم أي عضوة بعد. توجد ${pending} دعوات بانتظار القبول.`, citations: [] as Citation[] };
   const report = buildReport(members, pending, today);
   const missing = members.filter(item => item.summary.submission === "missing").map(item => item.summary.name);

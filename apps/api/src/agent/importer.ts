@@ -1,9 +1,12 @@
 // Reads files dropped into the chat and turns them into profile/school changes for the right members.
 import type { ChatBlock, ProposalChange } from "@rasd/schemas";
 import type { DocumentTable, StoredDocument } from "../documents.js";
+import { ApiError } from "../errors.js";
+import { currentHead } from "../internal-api.js";
 import { cleanText, normalizeEmail } from "../parse.js";
 import { detailOf, normalizeFieldValue, profileField, type TeamSnapshot } from "./data.js";
-import { classifyHeader, findHeaderRow, headerScore, isSequential, SCHOOL_NUMBERS, type Column } from "./headers.js";
+import { classifyHeader, findHeaderRow, headerScore, isKpiWorkbook, isSequential, SCHOOL_NUMBERS, type Column } from "./headers.js";
+import { proposeKpiImport } from "./kpi-card.js";
 import type { MemberDetail, School, Session } from "./model.js";
 import { findMentions, matchFullName, resolvedIds } from "./names.js";
 import { comparable, EMAIL_PATTERN, tokenize, westernDigits } from "./normalize.js";
@@ -289,11 +292,31 @@ function ownerQuestion(context: ImportContext, document: StoredDocument, candida
   return choices(options, `${OWNER_PROMPT} «${document.name}»`);
 }
 
+/** A KPI sheet goes to the register's import as its own card (never school rows in members' files). */
+async function kpiCards(session: Session, documents: StoredDocument[], lines: string[], blocks: ChatBlock[]) {
+  if (!documents.length) return;
+  const head = await currentHead(session.head.id);
+  for (const document of documents) {
+    try {
+      const card = await proposeKpiImport(session, head, document);
+      blocks.push(card.block);
+      lines.push(`- «${document.name}» ملف مؤشرات أداء — ${card.text}`);
+    } catch (error) {
+      lines.push(`- «${document.name}» ملف مؤشرات أداء، لكن تعذّر تجهيز استيراده: ${error instanceof ApiError ? error.message : "حدث خطأ غير متوقع"}`);
+      if (!(error instanceof ApiError)) console.error("kpi import preview failed", error);
+    }
+  }
+}
+
+export const isKpiFile = (document: StoredDocument) => document.kind === "spreadsheet" && isKpiWorkbook(document.tables);
+
 /** Handles the files attached to Khulood's message (both brains use this). */
 export async function importAttachments(context: ImportContext & { documents: StoredDocument[] }): Promise<AgentReply> {
-  const analyses = context.documents.map(document => analyzeDocument(context, document));
-  const lines: string[] = analyses.map(analysis => `- ${analysis.description}`);
   const blocks: ChatBlock[] = [];
+  const kpiLines: string[] = [];
+  await kpiCards(context.session, context.documents.filter(isKpiFile), kpiLines, blocks);
+  const analyses = context.documents.filter(document => !isKpiFile(document)).map(document => analyzeDocument(context, document));
+  const lines: string[] = [...kpiLines, ...analyses.map(analysis => `- ${analysis.description}`)];
 
   const payload: ProposalPayload = { title: "", summary: "", changes: [], newMembers: [], unmatched: [], schools: [], assignments: [] };
   const immediate: DocumentAssignment[] = [];
@@ -329,7 +352,7 @@ export async function importAttachments(context: ImportContext & { documents: St
   ].filter(Boolean);
 
   if (payload.changes!.length || payload.newMembers!.length || schoolCount || payload.assignments!.length) {
-    const fileNames = context.documents.map(document => `«${document.name}»`).join("، ");
+    const fileNames = analyses.map(analysis => `«${analysis.document.name}»`).join("، ");
     payload.title = `تحديث البيانات من ${fileNames}`;
     payload.summary = summaryParts.join("، و") || "ربط الملف بملف المشرفة";
     const kind = schoolCount && !payload.changes!.length ? "school_updates" : payload.newMembers!.length && !payload.changes!.length ? "new_members" : "import";

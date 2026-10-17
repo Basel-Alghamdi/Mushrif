@@ -3,7 +3,7 @@ import type { Hono } from "hono";
 import { toWesternDigits, validators } from "@rasd/schemas";
 import { MIN_PASSWORD, seedMember } from "../accounts.js";
 import { audit, auditWith } from "../audit.js";
-import { requireHead, supabaseAdmin, type AppEnv } from "../auth.js";
+import { forgetActor, requireHead, supabaseAdmin, type Actor, type AppEnv } from "../auth.js";
 import { sql, type Row } from "../db.js";
 import { env } from "../env.js";
 import { emailConfigured, escapeHtml, rtlEmail, sendEmail } from "../email.js";
@@ -38,17 +38,16 @@ async function deliverInvitation(invitation: Row, link: string, headName: string
   }
 }
 
+/** The signed-in user as GET /auth/me (and the member bootstrap) answer it. */
+export const meOf = (actor: Actor) => ({
+  user: { id: actor.id, name: actor.name, email: actor.email, phone: actor.phone, title: actor.title, role: actor.role, clusterLabel: actor.clusterLabel },
+  permissions: actor.role === "head"
+    ? ["district:read", "district:write", "members:contact", "imports", "reminders", "reports", "agent"]
+    : ["cluster:read", "cluster:write", "ai:ask"],
+});
+
 export function accessRoutes(app: Hono<AppEnv>) {
-  app.get("/auth/me", c => {
-    const actor = c.get("actor");
-    const permissions = actor.role === "head"
-      ? ["district:read", "district:write", "members:contact", "imports", "reminders", "reports", "agent"]
-      : ["cluster:read", "cluster:write", "ai:ask"];
-    return c.json(ok({
-      user: { id: actor.id, name: actor.name, email: actor.email, phone: actor.phone, title: actor.title, role: actor.role, clusterLabel: actor.clusterLabel },
-      permissions,
-    }));
-  });
+  app.get("/auth/me", c => c.json(ok(meOf(c.get("actor")))));
 
   // ───────── first sign-in (decision 2): she types her email, then chooses her password ─────────
   // Members only: the head's account always gets its password at setup (bootstrap:head), so it can never be claimed here.
@@ -89,9 +88,11 @@ export function accessRoutes(app: Hono<AppEnv>) {
       update profiles set activated_at = now(), activation_expires_at = null
       where id = ${profile.id} and role = 'member' and activated_at is null returning id`;
     if (!claimed) throw new ApiError(409, "ALREADY_ACTIVATED", "الحساب مفعّل مسبقاً — ادخلي بكلمة المرور");
+    forgetActor(String(profile.id));
     const { error } = await supabaseAdmin.auth.admin.updateUserById(String(profile.id), { password, email_confirm: true });
     if (error) {
       await sql`update profiles set activated_at = null, activation_expires_at = ${profile.activationExpiresAt} where id = ${profile.id}`;
+      forgetActor(String(profile.id));
       if (error.code === "weak_password") throw invalid({ password: "كلمة المرور ضعيفة — اختاري كلمة أطول" });
       console.error("activation failed", error);
       throw new ApiError(502, "AUTH_PROVIDER_ERROR", "تعذّر تفعيل الحساب — أعيدي المحاولة");
@@ -102,10 +103,9 @@ export function accessRoutes(app: Hono<AppEnv>) {
         source: c.get("source") ?? "web", ip: ip === "unknown" ? null : ip,
       }, { action: "activate", entity: "account", entityId: String(profile.id), clusterId: profile.clusterId });
       // The head sees every first sign-in, so a claim she did not expect stands out.
-      const heads = await tx`select id from profiles where district_id = ${profile.districtId} and role = 'head'`;
-      for (const head of heads) {
-        await tx`insert into notifications ${tx({ userId: head.id, kind: "activation", text: `فعّلت ${profile.name} حسابها`, level: "info" })}`;
-      }
+      await tx`
+        insert into notifications (user_id, kind, text, level)
+        select id, 'activation', ${`فعّلت ${profile.name} حسابها`}, 'info' from profiles where district_id = ${profile.districtId} and role = 'head'`;
     });
     return c.json(ok({ email }));
   });

@@ -103,6 +103,12 @@ describe("accounts and first sign-in", () => {
     const profile = await api.sql`select f.field_key, f.value from profile_fields f join clusters c on c.id = f.cluster_id where c.member_id = ${created.data.id} and f.field_key in ('fullName', 'title', 'email', 'phone')`;
     const values = Object.fromEntries(profile.map(row => [row.fieldKey, row.value]));
     assert.deepEqual(values, { fullName: "نورة سالم", title: "عضو فريق تنفيذي", email: "", phone: "055 123 4567" }, "a personal login email is not copied into البريد الوزاري");
+    const { DEFAULT_FOLDERS, DEFAULT_PLANS, DEFAULT_PROFILE_FIELDS } = await import("@rasd/schemas");
+    const [seeded] = await api.sql`
+      select (select count(*)::int from profile_fields where cluster_id = c.id) as fields, (select count(*)::int from plans where cluster_id = c.id) as plans,
+        (select count(*)::int from folders where cluster_id = c.id) as folders
+      from clusters c where c.member_id = ${created.data.id}`;
+    assert.deepEqual(seeded, { fields: DEFAULT_PROFILE_FIELDS.length, plans: DEFAULT_PLANS.length, folders: DEFAULT_FOLDERS.member.length + DEFAULT_FOLDERS.school.length }, "her file starts with the default fields, plans and folders");
 
     const member = await api.activate("noura.test@gmail.com");
     const me = await api.call("GET", "/auth/me", undefined, member);
@@ -145,7 +151,8 @@ describe("accounts and first sign-in", () => {
     const before = await api.signIn(email, "first-pass");
     assert.equal((await api.call("GET", "/auth/me", undefined, before.token)).status, 200);
 
-    // Tokens are compared to the reset by their issue second.
+    // Tokens are compared to the reset by their issue second. Her account was just read (and kept in the API's
+    // short cache) by /auth/me above: the reset must still end the session at once.
     await new Promise(resolve => setTimeout(resolve, 1100));
     const reset = await api.call("POST", `/district/members/${id}/reset-password`, undefined, head);
     assert.deepEqual(reset.data, { reset: true });
@@ -162,6 +169,30 @@ describe("accounts and first sign-in", () => {
     const [audit] = await api.sql`select cluster_id from audit_log where action = 'reset_password' and entity_id = ${id}`;
     assert.ok(audit?.clusterId);
     assert.equal((await api.call("POST", "/district/members/00000000-0000-0000-0000-000000000000/reset-password", undefined, head)).status, 404);
+  });
+
+  test("the signed-in account is kept for a short while, and forgetActor drops it", async () => {
+    const { forgetActor, loadActor } = await import("../../auth.js");
+    const id = await profileId(HEAD_EMAIL);
+    const { phone } = (await loadActor(id))!;
+    const setPhone = (value: string) => api.sql`update profiles set phone = ${value} where id = ${id}`;
+    try {
+      await setPhone("0500000001");
+      assert.equal((await loadActor(id))!.phone, phone, "kept: no database round trip");
+      forgetActor(id);
+      assert.equal((await loadActor(id))!.phone, "0500000001", "read again after forgetActor");
+
+      // A read that overlaps a change (forgetActor while it is in flight) serves its request but is not kept.
+      forgetActor(id);
+      const overlapping = loadActor(id);
+      forgetActor(id);
+      await overlapping;
+      await setPhone("0500000002");
+      assert.equal((await loadActor(id))!.phone, "0500000002");
+    } finally {
+      await setPhone(phone);
+      forgetActor(id);
+    }
   });
 
   test("seed:roster created the fictional team and is idempotent", async () => {

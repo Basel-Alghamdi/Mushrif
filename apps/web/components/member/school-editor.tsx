@@ -4,6 +4,8 @@ import { EDUCATION_TYPES, EVALUATION_DOMAINS, MADRASATI_METRICS, NAFES_GRADES, S
 import { LoaderCircle, Plus } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { LeadershipRole, School } from "../../lib/types";
+import { KpiSummary } from "../district/kpis/kpi-view";
+import { kpiHeadline, kpiOfSchool } from "../district/kpis/model";
 import { useActions } from "./actions";
 import { useMember } from "./context";
 import {
@@ -21,7 +23,8 @@ const DISCIPLINE: { key: "daily" | "weekly" | "monthly"; label: string }[] = [
 
 /** The values the server counts first (~one screen); additional data and indicators fold away. */
 export function SchoolEditor({ school }: { school: School }) {
-  const { update } = useMember();
+  const { update, kpis } = useMember();
+  const kpi = kpiOfSchool(kpis, school);
   const actions = useActions();
   const { setSchool, setTile } = actions;
   const lastName = useRef(school.name);
@@ -73,6 +76,12 @@ export function SchoolEditor({ school }: { school: School }) {
       </section>
 
       <div className="m-exp-group">
+        {/* رئيسة النطاق's register row for this school, read-only; nothing at all when the register has none. */}
+        {kpi && (
+          <Expander title={<>مؤشرات الأداء (من رئيسة النطاق)<small className="kp-exp-line">{kpiHeadline(kpi)}</small></>}>
+            <KpiSummary row={kpi} />
+          </Expander>
+        )}
         <Expander title="بيانات إضافية"><Extras school={school} /></Expander>
         <Expander title="مؤشرات التقويم المدرسي"><Indicators school={school} /></Expander>
       </div>

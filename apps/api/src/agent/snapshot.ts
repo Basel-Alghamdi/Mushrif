@@ -1,10 +1,10 @@
 // The team as the agent sees it, read once per message from main's tables (loadDistrict + visits + documents) and
 // mapped onto the engine's model. Everything after this point reads the snapshot synchronously.
-import { EVALUATION_DOMAINS, NAFES_GRADES } from "@rasd/schemas";
-import { auditWith, PASSIVE_ACTIONS } from "../audit.js";
+import { EVALUATION_DOMAINS, NAFES_GRADES, type FolderLayout } from "@rasd/schemas";
+import { auditMany, PASSIVE_ACTIONS } from "../audit.js";
 import type { Actor } from "../auth.js";
-import { atomically, type Row, type Sql } from "../db.js";
-import { documentContentsForDistrict, toDocumentInfo, type StoredDocument } from "../documents.js";
+import type { Row, Sql } from "../db.js";
+import { documentsForDistrict, toDocumentInfo, type DocumentRow } from "../documents.js";
 import { loadDistrict } from "../routes/district.js";
 import type { memberSummary, Workspace } from "../workspace.js";
 import { builtInByKey, builtInField, type MemberDetail, type MemberSummary, type ProfileField, type School, type Session, type TeamStats, type Visit } from "./model.js";
@@ -16,8 +16,10 @@ export type TeamSnapshot = {
   stats: TeamStats;
   index: NameIndex;
   details: Map<string, MemberDetail>;
-  /** Every file in the district: the members' files and the head's own chat uploads (with their text). */
-  documents: StoredDocument[];
+  /** Every file in the district: the members' files and the head's own chat uploads (without their text: data.ts searches it in SQL). */
+  documents: DocumentRow[];
+  /** Each cluster's ملف الإنجاز folders, so a file's path reads as she sees it. */
+  layouts: Map<string, FolderLayout>;
   /** Members whose full file (with national IDs, phones…) a reply used: audited as read_pii, like the head's detail view. */
   read: Set<string>;
 };
@@ -135,7 +137,7 @@ function visitOf(row: Row): Visit {
   };
 }
 
-function memberOf(main: { workspace: Workspace; summary: ReturnType<typeof memberSummary> }, visits: Visit[], documents: StoredDocument[], lastChange: string | null): MemberDetail {
+function memberOf(main: { workspace: Workspace; summary: ReturnType<typeof memberSummary> }, visits: Visit[], documents: DocumentRow[], lastChange: string | null): MemberDetail {
   const { workspace, summary } = main;
   const today = workspace.cluster.today;
   const schools = workspace.schools.map(school => schoolOf(school, today));
@@ -149,7 +151,7 @@ function memberOf(main: { workspace: Workspace; summary: ReturnType<typeof membe
     completion: workspace.completion, missing, schoolCount: schools.length,
     studentCount: schools.reduce((total, school) => total + school.students, 0),
     teacherCount: schools.reduce((total, school) => total + school.teachers, 0),
-    absenceDoneToday: summary.absence, visitCount: visits.length, documentCount: documents.length, programCount: workspace.programs.length,
+    absenceDoneToday: summary.absence, visitCount: summary.visits, documentCount: documents.length, programCount: workspace.programs.length,
     submittedAt, lastActivityAt: iso(summary.lastActivityAt), submittedToday: Boolean(submittedAt), workspaceUpdatedAt: lastChange,
     workspace: {
       profile, schools,
@@ -167,9 +169,10 @@ export async function loadTeam(db: Sql, head: Actor): Promise<TeamSnapshot> {
   const { members: main } = await loadDistrict(db, head.districtId);
   const clusterIds = db.array(main.map(item => item.workspace.cluster.id));
   const [visitRows, documents, changeRows] = await Promise.all([
+    // The latest visits are what a reply quotes; the counts in each summary come from the workspaces.
     db`select v.*, s.name as school_name from visit_reports v left join schools s on s.id = v.school_id
-      where v.cluster_id = any(${clusterIds}::uuid[]) order by v.created_at desc`,
-    documentContentsForDistrict(db, head.districtId),
+      where v.cluster_id = any(${clusterIds}::uuid[]) order by v.created_at desc limit 500`,
+    documentsForDistrict(db, head.districtId),
     // The file's last change by anyone (her, the head or the agent); creating the account does not count.
     db`select cluster_id, max(at) as at from audit_log where cluster_id = any(${clusterIds}::uuid[])
       and action <> all(${db.array(PASSIVE_ACTIONS)}::text[]) and not (entity = 'member' and action = 'create') group by cluster_id`,
@@ -183,18 +186,19 @@ export async function loadTeam(db: Sql, head: Actor): Promise<TeamSnapshot> {
     return memberOf(item, visits.get(clusterId) ?? [], documents.filter(document => document.clusterId === clusterId), changes.get(clusterId) ?? null);
   });
   const members = details.map(({ workspace: _workspace, visits: _visits, documents: _documents, ...summary }) => summary);
-  return { members, stats: statsOf(members), index: buildNameIndex(members), details: new Map(details.map(detail => [detail.id, detail])), documents, read: new Set() };
+  return {
+    members, stats: statsOf(members), index: buildNameIndex(members), details: new Map(details.map(detail => [detail.id, detail])), documents,
+    layouts: new Map(main.map(item => [item.workspace.cluster.id, item.workspace.folders])), read: new Set(),
+  };
 }
 
-/** One read_pii audit row per member whose full file the agent used for a reply (actor = the head, source "agent"). */
+/** One read_pii audit row per member whose full file the agent used for a reply (actor = the head, source "agent"), in one insert. */
 export async function auditFileReads(session: Session, snapshots: TeamSnapshot[]) {
   const clusters = new Set<string>();
   for (const team of snapshots) for (const id of team.read) clusters.add(team.details.get(id)!.clusterId);
   if (!clusters.size) return;
   try {
-    await atomically(session.db, async tx => {
-      for (const clusterId of clusters) await auditWith(tx, session.audit, { action: "read_pii", entity: "cluster", entityId: clusterId, clusterId });
-    });
+    await auditMany(session.db, session.audit, [...clusters].map(clusterId => ({ action: "read_pii", entity: "cluster", entityId: clusterId, clusterId })));
   } catch (error) {
     console.error("could not audit the agent's file reads", error);
   }

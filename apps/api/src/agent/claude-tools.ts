@@ -1,18 +1,27 @@
 // Tools the Claude brain can call. Every input is validated with zod before anything runs.
 import type { BetaTool } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { folderPath, type ChatBlock, type ProposalChange } from "@rasd/schemas";
+import {
+  DEFAULT_FOLDERS, folderPath, isFileFolder, KPI_STANDARDS, kpiSupport, looksLikeMinistryNo, ministryKey, type ChatBlock, type DocumentInfo,
+  type DocumentPlacement, type ProposalChange, type SchoolKpi,
+} from "@rasd/schemas";
 import { z } from "zod/v4";
+import type { Actor } from "../auth.js";
 import { findDocument, getDocument, type StoredDocument } from "../documents.js";
+import { ApiError } from "../errors.js";
+import { callInternal, currentHead } from "../internal-api.js";
+import { proposeApiActions } from "./api-actions.js";
+import { ActionError, catalogById, checkAction, pathOf } from "./catalog.js";
 import {
   allDetails, builtInField, detailOf, FILTER_LABELS, filterMembers, markRead, metricValue, searchDocuments, searchVisits, updatedToday,
   type MemberFilter, type TeamSnapshot,
 } from "./data.js";
-import { importAttachments } from "./importer.js";
+import { importAttachments, isKpiFile } from "./importer.js";
+import { proposeKpiImport } from "./kpi-card.js";
 import { PROFILE_FIELD_TABLE, scan, type MetricId } from "./lexicon.js";
 import { loginText, reminderText } from "./local-actions.js";
 import { approvalOnly, type MemberDetail, type MemberSummary, type Session } from "./model.js";
 import { lookupMembers } from "./names.js";
-import { comparable, tokenize } from "./normalize.js";
+import { comparable, coreWord, tokenize } from "./normalize.js";
 import { executePayload, proposeChanges, type ProposalPayload } from "./proposals.js";
 import { choices, memberBlock, shortName } from "./render.js";
 import { loadTeam } from "./snapshot.js";
@@ -29,10 +38,13 @@ export type ToolContext = {
   snapshots: TeamSnapshot[];
   /** The turn carries attachments or a tool has read document text: immediate writes are off, changes go through proposals. */
   readDocuments: boolean;
+  /** The head as she is now (re-read once per turn): the actor of every API call the tools make. */
+  actor: () => Promise<Actor>;
 };
 
 export function toolContext(session: Session, attachments: StoredDocument[] = []): ToolContext {
   let snapshot: Promise<TeamSnapshot> | null = null;
+  let actor: Promise<Actor> | null = null;
   const snapshots: TeamSnapshot[] = [];
   const load = async () => {
     const team = await loadTeam(session.db, session.head);
@@ -43,6 +55,7 @@ export function toolContext(session: Session, attachments: StoredDocument[] = []
     session, attachments, blocks: [], snapshots, readDocuments: attachments.length > 0,
     team: () => (snapshot ??= load().catch(error => { snapshot = null; throw error; })),
     changed: () => { snapshot = null; },
+    actor: () => (actor ??= currentHead(session.head.id).catch(error => { actor = null; throw error; })),
   };
 }
 
@@ -100,6 +113,21 @@ async function requireMember(ctx: ToolContext, query: string) {
   return resolved.detail;
 }
 
+/** A folder of her ملف الإنجاز (in one of her schools, with `school`), checked against her folders as they are now. */
+async function placementOf(ctx: ToolContext, detail: MemberDetail, folderKey?: string, school?: string): Promise<{ placement?: DocumentPlacement; where?: string }> {
+  if (!folderKey && !school) return {};
+  const layout = (await ctx.team()).layouts.get(detail.clusterId) ?? DEFAULT_FOLDERS;
+  const found = school ? detail.workspace.schools.find(item => item.id === school || comparable(item.name) === comparable(school)) : null;
+  if (school && !found) throw new ToolInputError(`${detail.name} has no school "${school}". Her schools: ${detail.workspace.schools.map(item => item.name).join("، ") || "none"}.`);
+  const inSchool = Boolean(found);
+  if (!folderKey || !isFileFolder(layout, folderKey, inSchool)) {
+    const keys = layout[inSchool ? "school" : "member"].filter(item => isFileFolder(layout, item.key, inSchool)).map(item => `${item.key} (${item.label})`);
+    throw new ToolInputError(`"${folderKey ?? ""}" is not one of her ${inSchool ? "school " : ""}folders. Keys: ${keys.join(", ") || "none"}.`);
+  }
+  const placement = { folder: folderKey, schoolId: found?.id ?? null };
+  return { placement, where: folderPath({ ...placement, schoolName: found?.name ?? null }, layout) };
+}
+
 /** Field reference → existing field id, built-in id from a synonym, or a new custom label. */
 export function resolveField(detail: MemberDetail, field: string): { fieldId: string | null; fieldLabel: string; before: string } {
   const profile = detail.workspace.profile;
@@ -125,7 +153,11 @@ function memberRow(member: MemberSummary) {
   };
 }
 
-function memberDetailForModel(detail: MemberDetail) {
+/** «التطوير المهني › منفذ» as she sees it in her ملف الإنجاز (her own folders, not the defaults). */
+const folderOf = (team: TeamSnapshot, clusterId: string | null, document: Pick<DocumentInfo, "folder" | "schoolId" | "schoolName">) =>
+  folderPath(document, (clusterId && team.layouts.get(clusterId)) || DEFAULT_FOLDERS);
+
+function memberDetailForModel(team: TeamSnapshot, detail: MemberDetail) {
   return {
     ...memberRow(detail),
     profile: detail.workspace.profile.map(field => ({ id: field.id, label: field.label, value: field.value, ...(field.custom ? { custom: true } : {}), ...(field.derived ? { derived: true } : {}) })),
@@ -134,7 +166,7 @@ function memberDetailForModel(detail: MemberDetail) {
     sections: detail.workspace.sections,
     visits: detail.visits.slice(0, 40),
     // Names only: a document's text is read with get_document / search_documents.
-    documents: detail.documents.map(document => ({ id: document.id, name: document.name, kind: document.kind, folder: folderPath(document), createdAt: document.createdAt })),
+    documents: detail.documents.map(document => ({ id: document.id, name: document.name, kind: document.kind, folder: folderOf(team, detail.clusterId, document), createdAt: document.createdAt })),
     lastChangedAt: detail.workspace.updatedAt,
   };
 }
@@ -198,7 +230,7 @@ export const TOOLS: ToolDefinition[] = [
     schema: z.object({ member: z.string().min(1).describe("name, email or id") }),
     run: async (input, ctx) => {
       const detail = await requireMember(ctx, input.member);
-      return untrusted("member_data", { member: detail.name }, JSON.stringify(memberDetailForModel(detail)));
+      return untrusted("member_data", { member: detail.name }, JSON.stringify(memberDetailForModel(await ctx.team(), detail)));
     },
   }),
   defineTool({
@@ -220,9 +252,10 @@ export const TOOLS: ToolDefinition[] = [
     effect: "reads_documents",
     run: async (input, ctx) => {
       const memberId = input.member ? (await requireMember(ctx, input.member)).id : undefined;
+      const team = await ctx.team();
       return {
-        hits: searchDocuments(await ctx.team(), input.query, { memberId, limit: input.limit ?? 8 }).map(hit => ({
-          documentId: hit.document.id, name: hit.document.name, owner: hit.document.ownerName, folder: folderPath(hit.document), kind: hit.document.kind, where: hit.where,
+        hits: (await searchDocuments(ctx.session.db, team, input.query, { memberId, limit: input.limit ?? 8 })).map(hit => ({
+          documentId: hit.document.id, name: hit.document.name, owner: hit.document.ownerName, folder: folderOf(team, hit.document.clusterId, hit.document), kind: hit.document.kind, where: hit.where,
           snippets: untrusted("document", { name: hit.document.name, document_id: hit.document.id }, hit.snippets.join("\n")),
         })),
       };
@@ -235,10 +268,11 @@ export const TOOLS: ToolDefinition[] = [
     effect: "reads_documents",
     run: async (input, ctx) => {
       const memberId = input.member ? (await requireMember(ctx, input.member)).id : undefined;
-      const documents = (await ctx.team()).documents.filter(document => !memberId || document.ownerId === memberId);
+      const team = await ctx.team();
+      const documents = team.documents.filter(document => !memberId || document.ownerId === memberId);
       return {
         documents: documents.slice(0, 60).map(document => ({
-          id: document.id, name: document.name, owner: document.ownerName, folder: folderPath(document), kind: document.kind, createdAt: document.createdAt,
+          id: document.id, name: document.name, owner: document.ownerName, folder: folderOf(team, document.clusterId, document), kind: document.kind, createdAt: document.createdAt,
           excerpt: untrusted("document", { name: document.name, document_id: document.id }, document.excerpt),
         })),
       };
@@ -250,8 +284,8 @@ export const TOOLS: ToolDefinition[] = [
     schema: z.object({ document_id: z.string().min(1), max_chars: z.number().int().min(500).max(60000).optional() }),
     effect: "reads_documents",
     run: async (input, ctx) => {
-      const document = (await ctx.team()).documents.find(item => item.id === input.document_id);
-      if (!document) throw new ToolInputError("Document not found.");
+      const document = await getDocument(ctx.session.db, input.document_id);
+      if (!document || document.districtId !== ctx.session.head.districtId) throw new ToolInputError("Document not found.");
       const limit = input.max_chars ?? 30000;
       const about = { id: document.id, name: document.name, owner: document.ownerName, kind: document.kind, pages: document.pages, truncated: document.text.length > limit };
       return `${JSON.stringify(about)}\n${untrusted("document", { name: document.name, document_id: document.id }, document.text.slice(0, limit))}`;
@@ -264,6 +298,99 @@ export const TOOLS: ToolDefinition[] = [
     run: async (input, ctx) => {
       const details = input.member ? [await requireMember(ctx, input.member)] : allDetails(await ctx.team());
       return untrusted("member_data", {}, JSON.stringify({ visits: searchVisits(details, input.query ?? "").slice(0, 50) }));
+    },
+  }),
+  defineTool({
+    name: "find_school",
+    description: "Find schools by any part of the name (spelling-tolerant) or by ministry number: the members' schools (schoolId, memberId — for her file's routes) and the rows of the KPI register (kpiId). `member` limits her schools to one member.",
+    schema: z.object({ query: z.string().min(1), member: z.string().optional() }),
+    run: async (input, ctx) => {
+      const team = await ctx.team();
+      const only = input.member ? (await requireMember(ctx, input.member)).id : undefined;
+      const key = ministryKey(input.query);
+      const words = comparable(input.query).split(" ").map(coreWord).filter(Boolean);
+      const matches = (name: string, ministryNo: string) =>
+        (looksLikeMinistryNo(key) && ministryKey(ministryNo) === key) || (words.length > 0 && words.every(word => comparable(name).includes(word)));
+      const schools = team.members.filter(member => !only || member.id === only).flatMap(member => (team.details.get(member.id)?.workspace.schools ?? [])
+        .filter(school => matches(school.name, school.ministryNo))
+        .map(school => ({ schoolId: school.id, name: school.name, ministryNo: school.ministryNo, stage: school.stage, memberId: member.id, memberName: member.name })));
+      const register = (await ctx.session.db`
+        select id, school_name, ministry_no, year from school_kpis
+        where district_id = ${ctx.session.head.districtId} and deleted_at is null order by year desc, school_name`)
+        .filter(row => matches(String(row.schoolName), String(row.ministryNo)))
+        .map(row => ({ kpiId: String(row.id), schoolName: String(row.schoolName), ministryNo: String(row.ministryNo), year: String(row.year) }));
+      return untrusted("member_data", { query: input.query }, JSON.stringify({ schools: schools.slice(0, 30), register: register.slice(0, 30) }));
+    },
+  }),
+  defineTool({
+    name: "query_kpis",
+    description: "مؤشرات الأداء — the district register of school-evaluation scores (from the ministry sheet): rows with المستوى العام / درجة النواتج and their levels (تميز، تقدم، انطلاق، تهيئة), مستوى المتابعة, each standard with the support it needs, the members who follow each school, and counts. Filters: year, member, level, q (school name or ministry number), unassigned (no member), severe (a standard under 50).",
+    schema: z.object({
+      year: z.string().optional(), member: z.string().optional(), level: z.string().optional(), q: z.string().optional(),
+      unassigned: z.boolean().optional(), severe: z.boolean().optional(), limit: z.number().int().min(1).max(300).optional(),
+    }),
+    run: async (input, ctx) => {
+      const memberId = input.member ? (await requireMember(ctx, input.member)).id : undefined;
+      const filters = { year: input.year, memberId, level: input.level, q: input.q, unassigned: input.unassigned ? "1" : undefined, severe: input.severe ? "1" : undefined };
+      const query = Object.fromEntries(Object.entries(filters).filter((entry): entry is [string, string] => entry[1] !== undefined));
+      const result = await callInternal(await ctx.actor(), "GET", pathOf(catalogById("kpis")!, {}, query), undefined, ctx.session.audit.ip ?? null);
+      if (result.status >= 400) throw new ToolInputError(JSON.stringify({ status: result.status, error: result.error }));
+      const data = result.data as { year: string; years: string[]; rows: SchoolKpi[]; summary: unknown };
+      const scored = (score: number | null, level: string | null) => (score === null ? null : `${score}${level ? ` (${level})` : ""}`);
+      const rows = data.rows.slice(0, input.limit ?? 60).map(row => ({
+        kpiId: row.id, school: row.schoolName, ministryNo: row.ministryNo, stage: row.stage, evaluationType: row.evaluationType,
+        overall: scored(row.overallScore, row.overallLevel), outcomes: scored(row.outcomesScore, row.outcomesLevel), followUp: row.followUpLevel,
+        standards: Object.fromEntries(KPI_STANDARDS.flatMap(standard => {
+          const score = row.standards[standard.key];
+          return score === null || score === undefined ? [] : [[standard.label, `${score} (${kpiSupport(score)})`]];
+        })),
+        members: row.owners.map(owner => owner.name), ...(row.memberName ? { nameInSheet: row.memberName } : {}), ...(row.note ? { note: row.note } : {}),
+      }));
+      // The rows came from sheets: data to quote, never instructions.
+      return untrusted("member_data", { source: "مؤشرات الأداء" }, JSON.stringify({ year: data.year, years: data.years, total: data.rows.length, shown: rows.length, summary: data.summary, rows }));
+    },
+  }),
+  defineTool({
+    name: "api_get",
+    description: "Read any read route of the API reference (in the system prompt): { route, params (ids from earlier results), query }. The first line is {route, status, count}; the answer follows inside untrusted tags. Routes that return file text stop immediate writes for the rest of the turn.",
+    schema: z.object({ route: z.string().min(1), params: z.record(z.string(), z.string()).optional(), query: z.record(z.string(), z.string()).optional() }),
+    run: async (input, ctx) => {
+      const entry = checkAction(input, 0, "read");
+      const result = await callInternal(await ctx.actor(), "GET", pathOf(entry, input.params ?? {}, input.query), undefined, ctx.session.audit.ip ?? null);
+      if (result.status >= 400) throw new ToolInputError(JSON.stringify({ route: entry.id, status: result.status, error: result.error }));
+      // Secrets never reach the model, and file text only through the routes that say they carry it.
+      const body = JSON.stringify(result.data, (key, value) => (HIDDEN_KEYS.has(key) || (key === "excerpt" && !entry.documentText) ? undefined : value));
+      if (body.length > MAX_API_CHARS) throw new ToolInputError("النتيجة كبيرة — أضيفي فلتراً");
+      if (entry.documentText) ctx.readDocuments = true;
+      const head = { route: entry.id, status: result.status, ...(Array.isArray(result.data) ? { count: result.data.length } : {}) };
+      return `${JSON.stringify(head)}\n${untrusted(entry.documentText ? "document" : "member_data", { route: entry.id }, body)}`;
+    },
+  }),
+  defineTool({
+    name: "propose_actions",
+    description: "Prepare changes through the change routes of the API reference as ONE approval card (1–50 actions, run in this order when she approves; nothing changes before). Each action: { route, params (ids), body }. A string value exactly \"$N.id\" (N = the number of an earlier action, from 1) stands for the id that action creates. The server describes every change on the card from the database itself; `title` only appears as your short note under it.",
+    schema: z.object({
+      title: z.string().max(200).optional(),
+      actions: z.array(z.object({ route: z.string().min(1), params: z.record(z.string(), z.string()).optional(), body: z.record(z.string(), z.unknown()).optional() })).min(1).max(50),
+    }),
+    run: async (input, ctx) => {
+      const card = await proposeApiActions(ctx.session, await ctx.actor(), await ctx.team(), input.actions, input.title);
+      ctx.blocks.push(card.block);
+      return { created: true, actions: input.actions.length, rows: card.rows, summary: card.summary };
+    },
+  }),
+  defineTool({
+    name: "import_kpis",
+    description: "Import a KPI sheet (مؤشرات الأداء: the ministry's Excel of school-evaluation scores) into the district register — an attachment or any district document. Prepares ONE approval card: what is added, updated, unchanged or removed, rows left out, and which member each name in the sheet goes to. mode: merge (default — updates and adds, removes nothing) or replace (also removes this year's imported schools the file no longer has). year overrides the year the sheet states.",
+    schema: z.object({ document_id: z.string().min(1), mode: z.enum(["merge", "replace"]).optional(), year: z.string().regex(/^\d{0,4}$/).optional() }),
+    effect: "reads_documents",
+    run: async (input, ctx) => {
+      const document = await findDocument(ctx.session.db, input.document_id);
+      if (!document || document.districtId !== ctx.session.head.districtId) throw new ToolInputError("Document not found.");
+      const card = await proposeKpiImport(ctx.session, await ctx.actor(), document, { mode: input.mode, year: input.year });
+      ctx.blocks.push(card.block);
+      const { year, added, updated, unchanged, removed, sheets, names, skipped } = card.result;
+      return `${JSON.stringify({ created: true, year, added, updated, unchanged, removed, skipped: skipped.length })}\n${untrusted("document", { name: document.name, document_id: document.id }, JSON.stringify({ sheets, names: names.map(item => ({ name: item.name, schools: item.count, member: item.memberName, status: item.status })) }))}`;
     },
   }),
   defineTool({
@@ -345,27 +472,33 @@ export const TOOLS: ToolDefinition[] = [
   }),
   defineTool({
     name: "assign_document",
-    description: "Prepare filing a document (e.g. a chat attachment) into a member's file, as a proposal card.",
-    schema: z.object({ document_id: z.string().min(1), member: z.string().min(1) }),
+    description: "Prepare filing a document (e.g. a chat attachment) into a member's file, as a proposal card — optionally in one of her ملف الإنجاز folders (`folder_key`, from api_get member_folders) or a folder inside one of her schools (`school` + `folder_key`).",
+    schema: z.object({
+      document_id: z.string().min(1), member: z.string().min(1),
+      folder_key: z.string().optional().describe("a folder key of hers; omit to file it outside the folders"),
+      school: z.string().optional().describe("for a school's folder: the school's name or id"),
+    }),
     run: async (input, ctx) => {
       const document = await findDocument(ctx.session.db, input.document_id);
       if (!document || document.districtId !== ctx.session.head.districtId) throw new ToolInputError("Document not found.");
       const detail = await requireMember(ctx, input.member);
+      const { placement, where } = await placementOf(ctx, detail, input.folder_key, input.school);
       ctx.blocks.push(await proposeChanges(ctx.session, "assign_documents", {
         title: `حفظ «${document.name}» في ملف ${shortName(detail.name)}`, summary: "ربط الملف بملف المشرفة",
-        assignments: [{ documentId: document.id, documentName: document.name, memberId: detail.id, memberName: detail.name }],
+        assignments: [{ documentId: document.id, documentName: document.name, memberId: detail.id, memberName: detail.name, ...(placement ? { placement, where } : {}) }],
       }));
-      return { created: true };
+      return { created: true, ...(where ? { folder: where } : {}) };
     },
   }),
   defineTool({
     name: "import_attachment",
-    description: "Run the built-in importer on an attached file: rosters/spreadsheets are matched row by row to members (by email or name), school tables become schools, Word/PDF label:value forms fill the member's profile. Produces a proposal card (filing the document into her file is part of the card). Pass `member` when Khulood said whose file it is.",
+    description: "Run the built-in importer on an attached file: rosters/spreadsheets are matched row by row to members (by email or name), school tables become schools, Word/PDF label:value forms fill the member's profile. Produces a proposal card (filing the document into her file is part of the card). Pass `member` when Khulood said whose file it is. Not for a KPI sheet (مؤشرات الأداء): that is import_kpis.",
     schema: z.object({ document_id: z.string().min(1), member: z.string().optional() }),
     effect: "reads_documents",
     run: async (input, ctx) => {
       const document = ctx.attachments.find(item => item.id === input.document_id) ?? await getDocument(ctx.session.db, input.document_id);
       if (!document || document.uploadedBy !== ctx.session.head.id) throw new ToolInputError("Attachment not found.");
+      if (isKpiFile(document)) throw new ToolInputError("هذا ملف مؤشرات أداء — استخدمي import_kpis");
       const forced = input.member ? (await requireMember(ctx, input.member)).id : undefined;
       const result = await importAttachments({ session: ctx.session, team: await ctx.team(), text: "", documents: [document], forcedMemberId: forced, fileNow: false });
       ctx.changed();
@@ -439,7 +572,12 @@ export const TOOLS: ToolDefinition[] = [
 
 export const TOOL_PARAMS: BetaTool[] = TOOLS.map(tool => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }));
 
+/** Tools that only add a card under the reply: a response that calls nothing else and already has its text is final. */
+export const DISPLAY_ONLY = new Set(["show_table", "show_stats", "show_member", "suggest_replies"]);
+
 const MAX_RESULT_CHARS = 60_000;
+const MAX_API_CHARS = 50_000;
+const HIDDEN_KEYS = new Set(["token", "inviteUrl"]);
 
 /** Cuts a long result; an untrusted block left open by the cut is closed again. */
 function clip(content: string) {
@@ -463,6 +601,8 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext): P
     const result = await tool.execute(input, ctx);
     return { content: clip(typeof result === "string" ? result : JSON.stringify(result ?? { ok: true })), isError: false };
   } catch (error) {
-    return { content: error instanceof ToolInputError ? error.message : `Tool failed: ${(error as Error).message}`, isError: true };
+    // The model can act on these (a wrong id, a refused value, the API's Arabic message): they come back as they are.
+    const told = error instanceof ToolInputError || error instanceof ActionError || error instanceof ApiError;
+    return { content: told ? error.message : `Tool failed: ${(error as Error).message}`, isError: true };
   }
 }

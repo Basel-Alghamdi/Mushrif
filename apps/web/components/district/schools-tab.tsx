@@ -1,12 +1,16 @@
 "use client";
 
-import { EDUCATION_TYPES, EVALUATION_DOMAINS, MADRASATI_METRICS, NAFES_GRADES, STAGES, SUPPORT_TYPES, TIERS } from "@rasd/schemas";
+import {
+  EDUCATION_TYPES, EVALUATION_DOMAINS, MADRASATI_METRICS, NAFES_GRADES, STAGES, SUPPORT_TYPES, TIERS, type KpiScope, type SchoolKpi,
+} from "@rasd/schemas";
 import { Check, Pencil, Plus, School as SchoolIcon, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toNumber } from "../../lib/chat/helpers";
 import { ar, counted } from "../../lib/format";
 import type { School, Workspace } from "../../lib/types";
 import { ConfirmDialog } from "./dialog";
+import { kpiOfSchool } from "./kpis/model";
+import { MemberKpisBar, SchoolKpiBlock } from "./kpis/profile-kpis";
 import { principalName, teachersTile } from "./model";
 import { useToast } from "./toast";
 import type { MemberFile } from "./use-member-file";
@@ -25,17 +29,27 @@ const CORE: { label: string; empty: (school: School) => boolean }[] = [
 ];
 const missingCore = (school: School) => CORE.filter(item => item.empty(school)).map(item => item.label);
 
-export function SchoolsTab({ file }: { file: MemberFile }) {
+type Props = {
+  file: MemberFile;
+  /** Her rows of the district register (مؤشرات الأداء), and which rows she sees. */
+  kpis: SchoolKpi[];
+  kpiScope: KpiScope;
+  onKpiScope: (scope: KpiScope) => void;
+};
+
+export function SchoolsTab({ file, kpis, kpiScope, onKpiScope }: Props) {
   const toast = useToast();
   const { workspace } = file;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<School | null>(null);
+  const unlisted = kpis.filter(row => !workspace.schools.some(school => kpiOfSchool([row], school)));
 
   // A school is only created once it has a name; then it opens for the rest of its data (see AddSchool).
   const addSchool = (name: string) => { file.addSchool(name).catch(reason => toast((reason as Error).message)); };
 
   return (
     <div className="mp-panel">
+      <MemberKpisBar memberId={workspace.cluster.memberId} scope={kpiScope} onScope={onKpiScope} unlisted={unlisted} />
       {!workspace.schools.length && <p className="mp-note">لم تُضف مدارس بعد. تضيفها من حسابها، أو أضيفيها أنتِ هنا.</p>}
 
       <div className="mp-schools">
@@ -43,6 +57,7 @@ export function SchoolsTab({ file }: { file: MemberFile }) {
           <SchoolCard
             key={school.id}
             school={school}
+            kpi={kpiOfSchool(kpis, school)}
             file={file}
             editing={editingId === school.id}
             onEdit={() => setEditingId(editingId === school.id ? null : school.id)}
@@ -103,9 +118,9 @@ function AddSchool({ onAdd, workspace, onCreated }: { onAdd: (name: string) => v
   );
 }
 
-type CardProps = { school: School; file: MemberFile; editing: boolean; onEdit: () => void; onRemove: () => void };
+type CardProps = { school: School; kpi: SchoolKpi | undefined; file: MemberFile; editing: boolean; onEdit: () => void; onRemove: () => void };
 
-function SchoolCard({ school, file, editing, onEdit, onRemove }: CardProps) {
+function SchoolCard({ school, kpi, file, editing, onEdit, onRemove }: CardProps) {
   const principal = principalName(school);
   const teachers = teachersTile(school)?.value ?? 0;
   const gaps = missingCore(school);
@@ -130,6 +145,8 @@ function SchoolCard({ school, file, editing, onEdit, onRemove }: CardProps) {
         </div>
         {school.tier && <span className="pill pill-brand">{school.tier}</span>}
       </header>
+
+      {kpi && <SchoolKpiBlock row={kpi} />}
 
       {editing && (
         <>

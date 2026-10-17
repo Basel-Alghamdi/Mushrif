@@ -25,27 +25,33 @@ export type AuditContext = {
 export const PASSIVE_ACTIONS = ["read_pii", "activate", "accept", "reset_password"];
 
 /**
- * Appends to audit_log (EDITABILITY §1.7). Call inside the same transaction as the change it records.
- * A member's own write also marks her as active today: the first one creates today's daily_submissions row,
- * so its time is when she started (decision 6 — no separate "send" step needed).
+ * Appends to audit_log (EDITABILITY §1.7), one row per entry in one statement. Call inside the same transaction as
+ * the change it records. A member's own write also marks her as active today: the first one creates today's
+ * daily_submissions row, so its time is when she started (decision 6 — no separate "send" step needed). That upsert
+ * rides in the same statement, so auditing costs one round trip to the database.
  */
-export async function auditWith(db: Sql, context: AuditContext, entry: AuditEntry) {
+export async function auditMany(db: Sql, context: AuditContext, entries: AuditEntry[]) {
+  if (!entries.length) return;
   const { actor } = context;
-  await db`
-    insert into audit_log (district_id, cluster_id, actor_id, action, entity, entity_id, field, before, after, source, ip)
-    values (
-      ${actor.districtId}, ${entry.clusterId ?? actor.clusterId ?? null}, ${actor.id}, ${entry.action}, ${entry.entity},
-      ${entry.entityId ?? null}, ${entry.field ?? null},
-      ${entry.before === undefined ? null : db.json(entry.before as never)},
-      ${entry.after === undefined ? null : db.json(entry.after as never)},
-      ${entry.source ?? context.source}, ${context.ip ?? null}
-    )`;
-  if (actor.role === "member" && actor.id && actor.clusterId && !PASSIVE_ACTIONS.includes(entry.action)) {
-    await db`
-      insert into daily_submissions (cluster_id, member_id, date) values (${actor.clusterId}, ${actor.id}, ${riyadhDate()}::date)
-      on conflict (member_id, date) do nothing`;
+  const rows = entries.map(entry => ({
+    districtId: actor.districtId, clusterId: entry.clusterId ?? actor.clusterId ?? null, actorId: actor.id, action: entry.action,
+    entity: entry.entity, entityId: entry.entityId ?? null, field: entry.field ?? null,
+    before: entry.before === undefined ? null : db.json(entry.before as never),
+    after: entry.after === undefined ? null : db.json(entry.after as never),
+    source: entry.source ?? context.source, ip: context.ip ?? null,
+  }));
+  const active = actor.role === "member" && actor.id && actor.clusterId && entries.some(entry => !PASSIVE_ACTIONS.includes(entry.action));
+  if (!active) {
+    await db`insert into audit_log ${db(rows)}`;
+    return;
   }
+  await db`
+    with logged as (insert into audit_log ${db(rows)})
+    insert into daily_submissions (cluster_id, member_id, date) values (${actor.clusterId!}, ${actor.id}, ${riyadhDate()}::date)
+    on conflict (member_id, date) do nothing`;
 }
+
+export const auditWith = (db: Sql, context: AuditContext, entry: AuditEntry) => auditMany(db, context, [entry]);
 
 export const auditContext = (c: Context<AppEnv>, source?: ChangeSource): AuditContext =>
   ({ actor: c.get("actor"), source: source ?? c.get("source"), ip: c.get("ip") });

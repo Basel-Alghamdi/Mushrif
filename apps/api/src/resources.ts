@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { audit } from "./audit.js";
+import { audit, auditContext, auditMany } from "./audit.js";
 import { requireHead, requireMember, type AppEnv } from "./auth.js";
 import { sql, type Row, type Sql } from "./db.js";
 import { ApiError, invalid, notFound, ok } from "./errors.js";
@@ -20,8 +20,8 @@ export type ResourceSpec = {
   afterCreate?: (db: Sql, row: Row) => Promise<void>;
   /** Extra rule on update, e.g. derived profile fields are read-only. */
   guardUpdate?: (row: Row, values: Record<string, unknown>) => void;
-  /** Runs in the update's transaction, e.g. to mirror a profile field into profiles. */
-  afterUpdate?: (db: Sql, before: Row, after: Row) => Promise<void>;
+  /** Runs in the update's transaction, e.g. to mirror a profile field into profiles. What it returns runs after the commit. */
+  afterUpdate?: (db: Sql, before: Row, after: Row) => Promise<void | (() => void)>;
 };
 
 export type ResourcePaths = { list: string; create: string; order: string; item: string };
@@ -98,8 +98,12 @@ export function resourceRoutes(app: Hono<AppEnv>, paths: ResourcePaths, spec: Re
       const parentId = await resolveParent(tx, clusterId, spec.owner, c.req.param("parentId"));
       const owned = await tx`select id from ${tx(spec.table)} where ${tx(snakeColumn)} = ${parentId} and deleted_at is null`;
       const ownedIds = new Set(owned.map(row => String(row.id)));
-      if (ids.length !== ownedIds.size || !ids.every(id => ownedIds.has(id))) throw invalid({ ids: "قائمة الترتيب لا تطابق العناصر الحالية" });
-      for (const [index, id] of ids.entries()) await tx`update ${tx(spec.table)} set sort_order = ${index} where id = ${id}`;
+      if (ids.length !== ownedIds.size || new Set(ids).size !== ids.length || !ids.every(id => ownedIds.has(id))) {
+        throw invalid({ ids: "قائمة الترتيب لا تطابق العناصر الحالية" });
+      }
+      await tx`
+        update ${tx(spec.table)} t set sort_order = o.ord - 1
+        from unnest(${tx.array(ids)}::uuid[]) with ordinality as o(id, ord) where t.id = o.id`;
       await audit(c, tx, { action: "reorder", entity: spec.entity, entityId: parentId, clusterId, after: ids });
     });
     return c.json(ok({ ids }));
@@ -107,7 +111,7 @@ export function resourceRoutes(app: Hono<AppEnv>, paths: ResourcePaths, spec: Re
 
   app.patch(paths.item, async c => {
     const body = await readBody(c);
-    const updated = await sql.begin(async tx => {
+    const { updated, committed } = await sql.begin(async tx => {
       const clusterId = await scope(c, tx);
       const row = await findOwnedRow(tx, clusterId, spec, c.req.param("id") ?? "");
       if (!row) throw notFound(spec.missing);
@@ -116,13 +120,12 @@ export function resourceRoutes(app: Hono<AppEnv>, paths: ResourcePaths, spec: Re
       spec.guardUpdate?.(row, values);
       assertFresh(body, row);
       const [next] = await tx`update ${tx(spec.table)} set ${tx(values)} where id = ${row.id} returning *`;
-      for (const key of Object.keys(values)) {
-        if (JSON.stringify(row[key]) === JSON.stringify(next[key])) continue;
-        await audit(c, tx, { action: "update", entity: spec.entity, entityId: String(row.id), clusterId, field: key, before: row[key], after: next[key] });
-      }
-      await spec.afterUpdate?.(tx, row, next);
-      return next;
+      await auditMany(tx, auditContext(c), Object.keys(values)
+        .filter(key => JSON.stringify(row[key]) !== JSON.stringify(next[key]))
+        .map(key => ({ action: "update", entity: spec.entity, entityId: String(row.id), clusterId, field: key, before: row[key], after: next[key] })));
+      return { updated: next, committed: await spec.afterUpdate?.(tx, row, next) };
     });
+    committed?.();
     return c.json(ok(updated));
   });
 

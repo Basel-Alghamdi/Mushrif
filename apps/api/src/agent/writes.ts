@@ -1,7 +1,8 @@
 // The agent's writes on a member's file, in main's tables. Each unit runs in its own transaction with the audit row
 // (actor = the head, source "agent", the member's cluster) and returns the steps that undo it.
 import {
-  DEFAULT_LEADERSHIP_ROLE, DEFAULT_PROFILE_FIELDS, DEFAULT_STAFF_TILES, MADRASATI_METRICS, TIERS, toWesternDigits, validators, type MemberCreateInput,
+  DEFAULT_LEADERSHIP_ROLE, DEFAULT_PROFILE_FIELDS, DEFAULT_STAFF_TILES, MADRASATI_METRICS, TIERS, toWesternDigits, validators, type DocumentPlacement,
+  type MemberCreateInput,
 } from "@rasd/schemas";
 import { createMemberAccount } from "../accounts.js";
 import { auditWith, type AuditEntry } from "../audit.js";
@@ -385,11 +386,11 @@ export async function createTeamMember(session: Session, input: MemberCreateInpu
   return { id: userId, name: cleanText(input.name), email: normalizeEmail(input.email), clusterId, activated: false };
 }
 
-/** Files a document into a member's file (null: back to the head's unfiled uploads). */
-export async function fileDocument(session: Session, documentId: string, memberId: string | null) {
+/** Files a document into a member's file, in one of her folders if given (null member: back to the head's unfiled uploads). */
+export async function fileDocument(session: Session, documentId: string, memberId: string | null, placement?: DocumentPlacement) {
   const before = await findDocument(session.db, documentId);
   if (!before || before.districtId !== session.head.districtId) return null;
-  const after = await assignDocument(session.db, documentId, memberId, session.audit);
+  const after = await assignDocument(session.db, documentId, memberId, session.audit, placement);
   return after ? { before, after } : null;
 }
 

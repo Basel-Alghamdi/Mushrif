@@ -1,0 +1,106 @@
+/* ==========================================================================
+   مجلدات ملف الإنجاز (head): the folders page, the folder editor and «توحيد».
+   Builds on globals.css and district.css (dialog, chip, card, pill). Logical properties only.
+   ========================================================================== */
+
+/* ============ Folders page ============ */
+.fp{max-width:1080px}
+.fp-head{display:flex;flex-direction:column;gap:2px}
+.fp-head p{color:var(--text-2);font-size:13.5px}
+.fp-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-items:start;gap:12px}
+.fp-skeleton{display:block;height:260px;border-radius:var(--radius)}
+.fp-group{display:flex;flex-direction:column;gap:12px}
+.fp-group-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.fp-group-head h2{font-size:16px}
+.fp-members{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.fp-members a{display:flex;flex-direction:column;justify-content:center;min-height:44px;padding:4px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-alt);line-height:1.45}
+.fp-members a:hover{border-color:#00968855;background:var(--primary-soft)}
+.fp-members b{font-size:13px;font-weight:600}
+.fp-members small{color:var(--text-3);font-size:11.5px}
+.fp-folders{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;font-size:13.5px}
+.fp-folders li{display:flex;align-items:flex-start;gap:8px;padding:3px 0}
+.fp-folders svg{margin-top:5px;color:var(--primary);font-size:15px}
+.fp-folders small{color:var(--text-3);font-size:12.5px}
+.fp-school-folders{border-top:1px solid var(--border)}
+.fp-school-folders[open]{padding-bottom:4px}
+.fp-actions{display:flex;flex-wrap:wrap;gap:8px}
+
+/* Disclosures: down when closed, up when open (border-inline-start is the right edge in RTL). */
+.fp-school-folders>summary,.fe-also>summary,.fe-removed>summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;color:var(--text-2);font-size:13.5px;font-weight:600;list-style:none}
+.fp-school-folders>summary::-webkit-details-marker,.fe-also>summary::-webkit-details-marker,.fe-removed>summary::-webkit-details-marker{display:none}
+.fp-school-folders>summary::after,.fe-also>summary::after,.fe-removed>summary::after{content:"";flex:none;width:8px;height:8px;margin-top:-4px;margin-inline-start:auto;border-inline-start:2px solid var(--text-3);border-bottom:2px solid var(--text-3);transform:rotate(45deg);transition:transform .15s}
+.fp-school-folders[open]>summary::after,.fe-also[open]>summary::after,.fe-removed[open]>summary::after{margin-top:4px;transform:rotate(-135deg)}
+
+/* ============ Folder editor ============ */
+.fe-scopes{display:flex;flex-wrap:wrap;gap:8px}
+.fe-scopes label{cursor:pointer}
+.fe-scopes label:has(:focus-visible){outline:2px solid var(--primary);outline-offset:2px}
+.fe-note{color:var(--text-3);font-size:12.5px;line-height:1.7}
+.fe-warn{color:var(--warning);font-weight:600}
+.fe-skipped{padding:10px 12px;border:1px solid var(--warning-border);border-radius:12px;background:var(--warning-bg);color:var(--warning);font-size:13px}
+.fe-skipped ul{margin:4px 0 0;padding-inline-start:18px}
+.fe-skeleton{display:flex;flex-direction:column;gap:8px}
+.fe-skeleton i{display:block;height:52px;border-radius:12px}
+
+.fe-list,.fe-subs{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.fe-list{overflow:hidden;border:1px solid var(--border);border-radius:12px;background:#fff}
+.fe-list>li+li{border-top:1px solid var(--border)}
+.fe-subs{padding-inline-start:28px}
+.fe-subs>li{border-top:1px dashed var(--border)}
+.fe-row.is-open{background:var(--primary-soft)}
+.fe-row-main{display:flex;align-items:center;gap:2px;min-height:52px;padding-block:4px;padding-inline:10px 6px}
+.fe-row-main .btn-icon{flex:none;color:var(--text-2)}
+.fe-icon{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:var(--primary-tint);color:var(--primary-dark);font-size:16px}
+.fe-subs .fe-icon{width:28px;height:28px;background:var(--surface-alt);color:var(--text-2);font-size:14px}
+.fe-label{display:flex;flex:1;flex-direction:column;min-width:0;padding:6px 8px;border:0;border-radius:8px;background:none;text-align:start;line-height:1.5}
+button.fe-label:hover{background:#0000000a}
+.fe-label b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.fe-label small{color:var(--text-3);font-size:12px}
+.fe-row-actions{display:flex;flex-wrap:wrap;gap:4px;padding-block:0 8px;padding-inline:52px 10px}
+.fe-danger{color:var(--danger)}
+.fe-danger:hover:not(:disabled){background:var(--danger-bg)}
+.fe-hidden{border:1px dashed var(--border-strong);border-radius:12px}
+.fe-hidden .fe-icon{background:var(--surface-alt);color:var(--text-3)}
+
+.fe-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.fe-form .input{flex:1;min-width:140px;min-height:40px}
+.fe-row-main>.fe-form{flex:1;min-width:0;padding-inline-start:8px}
+.fe-row>.fe-form{padding-block:0 10px;padding-inline:52px 10px}
+
+.fe-removed{border-top:1px solid var(--border)}
+.fe-removed ul{margin:0;padding:0;list-style:none}
+.fe-removed li{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px dashed var(--border);font-size:13.5px}
+.fe-removed li span{flex:1;min-width:0;color:var(--text-2);overflow-wrap:anywhere}
+.fe-saving{display:inline-flex;align-items:center;gap:8px;margin-inline-end:auto;color:var(--text-3);font-size:13px}
+.fe-saving .spinner{width:16px;height:16px}
+
+.fe-also{padding:0 12px;border:1px solid var(--border);border-radius:12px;background:#fff}
+.fe-also>summary span:first-child{color:var(--text)}
+.fe-also-body{display:flex;flex-direction:column;gap:10px;padding-bottom:12px}
+.fe-picks{display:flex;flex-wrap:wrap;gap:6px}
+.fe-also-list{display:flex;flex-direction:column;max-height:260px;margin:0;padding:0;overflow-y:auto;list-style:none}
+.fe-also-list label{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.fe-also-list input{flex:none;width:18px;height:18px;accent-color:var(--primary-dark)}
+.fe-also-list span{display:flex;flex-direction:column;min-width:0;line-height:1.45}
+.fe-also-list b{font-size:13.5px;font-weight:500}
+.fe-also-list small{color:var(--text-3);font-size:12px}
+
+/* ============ توحيد المجلدات ============ */
+.fs-targets{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0}
+.fs-preview{display:flex;flex-direction:column;margin:0;padding:0;border:1px solid var(--border);border-radius:12px;list-style:none}
+.fs-preview li{display:flex;flex-direction:column;gap:2px;padding:10px 12px;line-height:1.6}
+.fs-preview li+li{border-top:1px solid var(--border)}
+.fs-preview b{font-size:14px}
+.fs-preview span{font-size:13.5px}
+.fs-preview small{color:var(--text-3);font-size:12px}
+
+@media (max-width:899.98px){
+  .fp-head h1{display:none} /* the topbar names the page */
+  .fe-row-main .btn-icon{width:44px;min-height:44px}
+  .fe-form .input{font-size:16px;min-height:44px}
+}
+@media (max-width:600px){
+  .fp-groups{grid-template-columns:minmax(0,1fr)}
+  .fe-subs{padding-inline-start:16px}
+  .fe-row-actions,.fe-row>.fe-form{padding-inline-start:10px}
+}

@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { api, errorText, redirectIfSignedOut } from "../../lib/api";
+import { createContext, ReactNode, useContext, useEffect, useLayoutEffect, useState } from "react";
+import { errorText, getMe, lastMe, redirectIfSignedOut } from "../../lib/api";
 import { enforceSessionOnly } from "../../lib/supabase";
 import type { Me } from "../../lib/types";
 
@@ -24,10 +24,16 @@ export function HeadGuard({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<HeadUser | null>(null);
   const [error, setError] = useState("");
 
+  // Seen in this tab before: open her pages before the first paint, while /auth/me confirms in the background.
+  useLayoutEffect(() => {
+    const cached = lastMe()?.user;
+    if (cached?.role === "head") setUser(cached);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     enforceSessionOnly()
-      .then(() => api.get<Me>("/auth/me"))
+      .then(() => getMe())
       .then(({ user }) => {
         if (cancelled) return;
         if (user.role !== "head") window.location.replace("/cluster");
@@ -37,7 +43,8 @@ export function HeadGuard({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  if (error) {
+  // A failed check only stops the pages when nothing was shown yet; otherwise their own requests report it.
+  if (error && !user) {
     return (
       <div className="page-loading">
         <div className="d-load-error">

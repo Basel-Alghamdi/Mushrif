@@ -26,8 +26,12 @@ export const supabaseAdmin = createClient(env.supabaseUrl, env.supabaseSecretKey
 });
 
 const issuer = `${env.supabaseUrl}/auth/v1`;
-const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
+// The signing keys change rarely; a token with an unknown key still makes jose fetch them again.
+const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`), { cacheMaxAge: 12 * 60 * 60_000 });
 const legacySecret = env.supabaseJwtSecret ? new TextEncoder().encode(env.supabaseJwtSecret) : null;
+
+/** Fetches the signing keys before the first request needs them (index.ts). A legacy secret needs none. */
+export const warmJwks = () => (legacySecret ? Promise.resolve() : jwks.reload());
 
 /** Verifies a Supabase access token and returns the user id (`sub`) and when the token was issued (seconds). */
 export async function verifyAccessToken(token: string) {
@@ -39,13 +43,31 @@ export async function verifyAccessToken(token: string) {
 
 type ActorRow = Actor & { activatedAt: Date | null; sessionsValidAfter: Date | null; deletedAt: Date | null };
 
+// Every request needs its actor, and the database is a round trip away: rows are kept in this process for a short
+// while. Changes that authenticate() checks (delete, password reset, activation, contact details) call forgetActor.
+const ACTOR_TTL_MS = 30_000;
+const actors = new Map<string, { row: ActorRow; expires: number }>();
+let forgets = 0;
+
+/** Drops a cached actor. Call after the change is committed, so the next request reads it. */
+export function forgetActor(userId: string) {
+  actors.delete(userId);
+  forgets += 1;
+}
+
 export async function loadActor(userId: string): Promise<ActorRow | null> {
+  const cached = actors.get(userId);
+  if (cached && cached.expires > Date.now()) return cached.row;
+  const started = forgets;
   const [row] = await sql`
     select p.id, p.role, p.district_id, p.name, p.email, p.phone, p.title, p.activated_at, p.sessions_valid_after, p.deleted_at,
       c.id as cluster_id, coalesce(c.label, '') as cluster_label
     from profiles p left join clusters c on c.member_id = p.id
     where p.id = ${userId}`;
-  return row ? (row as ActorRow) : null;
+  if (!row) return null;
+  // A read that overlapped a forgetActor may predate that change: it serves this request but is not kept.
+  if (forgets === started) actors.set(userId, { row: row as ActorRow, expires: Date.now() + ACTOR_TTL_MS });
+  return row as ActorRow;
 }
 
 export const authenticate = createMiddleware<AppEnv>(async (c, next) => {
@@ -65,7 +87,10 @@ export const authenticate = createMiddleware<AppEnv>(async (c, next) => {
     return c.json(fail("UNAUTHENTICATED", "انتهت الجلسة — سجّلي الدخول مرة أخرى"), 401);
   }
   // Signing in proves she has a password (first sign-in, an invitation or the recovery link), so the account is no longer claimable.
-  if (!row.activatedAt) await sql`update profiles set activated_at = now(), activation_expires_at = null where id = ${row.id} and activated_at is null`;
+  if (!row.activatedAt) {
+    await sql`update profiles set activated_at = now(), activation_expires_at = null where id = ${row.id} and activated_at is null`;
+    forgetActor(row.id);
+  }
   const { activatedAt: _activated, sessionsValidAfter: _sessions, deletedAt: _deleted, ...actor } = row;
   c.set("actor", actor);
   c.set("source", c.req.header("x-rasd-source") === "mobile" ? "mobile" : "web");

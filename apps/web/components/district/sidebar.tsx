@@ -1,7 +1,7 @@
 "use client";
 
 import type { Conversation } from "@rasd/schemas";
-import { Ellipsis, LogOut, Pencil, Search, SquarePen, Trash2, Users, X } from "lucide-react";
+import { ChartColumn, Ellipsis, FolderTree, LogOut, Pencil, Search, SquarePen, Trash2, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +28,8 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
   }, [conversations, query]);
 
   const onTeam = pathname.startsWith("/district/team");
+  const onKpis = pathname.startsWith("/district/kpis");
+  const onFolders = pathname.startsWith("/district/folders");
   const activeId = pathname.startsWith("/district/c/") ? decodeURIComponent(pathname.split("/")[3] ?? "") : "";
 
   return (
@@ -47,6 +49,12 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
       <nav className="d-nav" aria-label="الأقسام">
         <Link href="/district/team" className={`d-nav-item ${onTeam ? "is-active" : ""}`} onClick={onNavigate} aria-current={onTeam ? "page" : undefined}>
           <Users /> الفريق والأرقام
+        </Link>
+        <Link href="/district/kpis" className={`d-nav-item ${onKpis ? "is-active" : ""}`} onClick={onNavigate} aria-current={onKpis ? "page" : undefined}>
+          <ChartColumn /> مؤشرات الأداء
+        </Link>
+        <Link href="/district/folders" className={`d-nav-item ${onFolders ? "is-active" : ""}`} onClick={onNavigate} aria-current={onFolders ? "page" : undefined}>
+          <FolderTree /> مجلدات ملف الإنجاز
         </Link>
       </nav>
 

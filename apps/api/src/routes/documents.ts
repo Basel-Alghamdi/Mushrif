@@ -5,11 +5,12 @@ import { auditContext } from "../audit.js";
 import { requireHead, requireMember, type Actor, type AppEnv } from "../auth.js";
 import { sql } from "../db.js";
 import {
-  MAX_FILES_PER_UPLOAD, MAX_UPLOAD_BYTES, checkPlacement, deleteDocument, documentsForCluster, documentsForDistrict, findDocument, getDocument,
-  placeDocument, readDocumentFile, safeContentType, saveDocument, toDocumentInfo, type DocumentRow,
+  MAX_FILES_PER_UPLOAD, MAX_UPLOAD_BYTES, assignDocument, checkPlacement, deleteDocument, documentsForCluster, documentsForDistrict, findDocument,
+  getDocument, placeDocument, readDocumentFile, safeContentType, saveDocument, toDocumentInfo, type DocumentRow,
 } from "../documents.js";
-import { ApiError, fail, notFound, ok } from "../errors.js";
+import { ApiError, fail, invalid, notFound, ok } from "../errors.js";
 import { memberInDistrict } from "../ownership.js";
+import { isUuid, readBody } from "../parse.js";
 
 /** One upload request may carry several files, but never more than 100MB in total (it is read into memory). */
 export const uploadLimit = bodyLimit({
@@ -108,6 +109,17 @@ export function documentRoutes(app: Hono<AppEnv>) {
     const head = requireHead(c);
     const clusterId = await memberInDistrict(sql, head, c.req.param("id"));
     return saveUploads(c, head, clusterId);
+  });
+
+  // Files a district document (e.g. one she attached in the chat) into a member's file, optionally into one of her folders.
+  app.post("/district/documents/:id/assign", async c => {
+    const head = requireHead(c);
+    const document = await visibleDocument(head, c.req.param("id"));
+    const body = await readBody(c);
+    if (!isUuid(body.memberId)) throw invalid({ memberId: "اختاري المشرفة" });
+    const assigned = await assignDocument(sql, document.id, body.memberId, auditContext(c), readPlacement(body));
+    if (!assigned) throw notFound("الملف غير موجود");
+    return c.json(ok(toDocumentInfo(assigned)));
   });
 
   // ───────── any signed-in user, within what she may see ─────────

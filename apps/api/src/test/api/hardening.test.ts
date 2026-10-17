@@ -357,13 +357,14 @@ describe("auth.users read", () => {
     try {
       await assert.rejects(limited`select last_sign_in_at from auth.users limit 1`, (error: { code?: string }) => error.code === "42501");
       const { lastSignIns, loadWorkspaces } = await import("../../workspace.js");
+      // The API's own role sees it…
+      assert.ok((await loadWorkspaces(f.sql, [f.rasha.clusterId])).get(f.rasha.clusterId)!.cluster.lastSignInAt);
+      // …a role that cannot gets null (logged once; the process then stops asking).
       assert.equal(await lastSignIns(limited, [f.rasha.id]), null);
       const workspaces = await loadWorkspaces(limited, [f.rasha.clusterId]);
       const rasha = workspaces.get(f.rasha.clusterId)!;
       assert.equal(rasha.cluster.memberName, f.rasha.name);
       assert.equal(rasha.cluster.lastSignInAt, null);
-      // The API's own role still sees it.
-      assert.ok((await loadWorkspaces(f.sql, [f.rasha.clusterId])).get(f.rasha.clusterId)!.cluster.lastSignInAt);
     } finally {
       await limited.end();
     }

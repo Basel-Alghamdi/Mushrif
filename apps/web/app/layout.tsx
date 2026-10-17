@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
+
+// Served with the app (downloaded at build time): no request to Google before the first text can show.
+const plex = IBM_Plex_Sans_Arabic({ subsets: ["arabic"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--font-plex" });
 
 export const metadata: Metadata = {
   title: "رَصد | منصة متابعة الفريق التنفيذي",
@@ -11,5 +15,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#009688", width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="ar" dir="rtl"><body>{children}</body></html>;
+  return <html lang="ar" dir="rtl" className={plex.variable}><body>{children}</body></html>;
 }

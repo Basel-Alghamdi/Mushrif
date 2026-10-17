@@ -33,7 +33,8 @@ describe("deleting a member's account", () => {
     const removed = await api.call("DELETE", `/district/members/${memberId}`, undefined, head);
     assert.equal(removed.status, 200, JSON.stringify(removed.error));
 
-    // Her open session ends, and she cannot sign in again with her address and password.
+    // Her open session ends at once — although her account was read (and kept in the API's short cache) by her own
+    // refused delete just above — and she cannot sign in again with her address and password.
     const refused = await api.call("GET", "/member/workspace", undefined, member);
     assert.equal(refused.status, 401);
     await assert.rejects(api.signIn(EMAIL, PASSWORD));

@@ -1,7 +1,7 @@
 // Stored files (decision 7): rows in attachments (+ attachment_contents for the text and tables read out of them),
 // bytes in a private Supabase Storage bucket. A member's files have owner_type "document"; the head's chat uploads
 // start without a cluster and are filed into a member's cluster later (assignDocument).
-// Inside a cluster, each file sits in one of the fixed ملف الإنجاز folders (folder, + school_id for a school's folder).
+// Inside a cluster, each file sits in one of her ملف الإنجاز folders (folder, + school_id for a school's folder).
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import { atomically, type Row, type Sql } from "./db.js";
 import { env } from "./env.js";
 import { ApiError, notFound } from "./errors.js";
 import { detectKind, extractContent, hasContent, type DocumentTable } from "./extract.js";
+import { loadLayouts } from "./folders.js";
 import { cleanText, isUuid } from "./parse.js";
 
 export { detectKind, type DocumentTable } from "./extract.js";
@@ -190,10 +191,10 @@ export const toDocumentInfo = ({
 }: DocumentRow & Partial<Pick<StoredDocument, "text" | "tables">>): DocumentInfo => info;
 
 // Text/tables come as text: postgres.camel would rewrite keys inside the jsonb. Without `content`, only the start of the
-// text (for the excerpt) and the sheet names are read — listings never load whole files' content.
+// text (for the excerpt) and the sheet names (stored beside the tables) are read — listings never load whole files' content.
 const selectDocuments = (db: Sql, where: postgres.Fragment, content: boolean) => db`
   select a.*, ac.pages, coalesce(ac.status, 'ready') as status,
-    ${content ? db`ac.text, ac.tables::text as tables_json` : db`left(ac.text, 2000) as text, jsonb_path_query_array(ac.tables, '$[*].sheet')::text as sheets_json`},
+    ${content ? db`ac.text, ac.tables::text as tables_json` : db`left(ac.text, 2000) as text, ac.sheets::text as sheets_json`},
     c.member_id as owner_id, owner.name as owner_name, uploader.name as uploader_name, s.name as school_name
   from attachments a
     left join attachment_contents ac on ac.attachment_id = a.id
@@ -276,8 +277,11 @@ export async function saveDocument(db: Sql, input: {
   return (await findDocument(db, id))!;
 }
 
-/** Files a document into a member's cluster (or back to unfiled with null). */
-export async function assignDocument(db: Sql, id: string, memberId: string | null, context?: AuditContext) {
+/**
+ * Files a document into a member's cluster (or back to unfiled with null), optionally straight into one of her folders
+ * (checked against her folders like an upload).
+ */
+export async function assignDocument(db: Sql, id: string, memberId: string | null, context?: AuditContext, placement?: DocumentPlacement | null) {
   return atomically(db, async tx => {
     const before = await findDocument(tx, id);
     if (!before) return null;
@@ -291,9 +295,10 @@ export async function assignDocument(db: Sql, id: string, memberId: string | nul
     }
     // Her folders (and her schools) do not exist in another cluster: a file filed elsewhere starts out of the folders.
     const keepFolder = clusterId !== null && clusterId === before.clusterId;
+    const target = placement && clusterId ? await checkPlacement(tx, clusterId, placement)
+      : keepFolder ? { folder: before.folder, schoolId: before.schoolId } : { folder: null, schoolId: null };
     await tx`
-      update attachments set cluster_id = ${clusterId}, owner_type = 'document',
-        folder = ${keepFolder ? before.folder : null}, school_id = ${keepFolder ? before.schoolId : null}
+      update attachments set cluster_id = ${clusterId}, owner_type = 'document', folder = ${target.folder}, school_id = ${target.schoolId}
       where id = ${id}`;
     if (context) await auditWith(tx, context, { action: "assign", entity: "document", entityId: id, clusterId: clusterId ?? before.clusterId, before: before.ownerId, after: memberId });
     return findDocument(tx, id);
@@ -301,16 +306,18 @@ export async function assignDocument(db: Sql, id: string, memberId: string | nul
 }
 
 /**
- * Where a file may go in a cluster: one of her folders (not «مدارس المشرفة» itself) or a folder of one of her schools.
- * Anything else is refused, so a file can never land in another member's school.
+ * Where a file may go in a cluster: one of her folders as they are now (not «مدارس المشرفة» itself, not a removed one),
+ * or a folder of one of her schools while she has «مدارس المشرفة». Anything else is refused — INVALID_FOLDER tells the
+ * app her folders changed — and a file can never land in another member's school.
  */
 export async function checkPlacement(db: Sql, clusterId: string, placement: DocumentPlacement): Promise<DocumentPlacement> {
   const schoolId = placement.schoolId || null;
-  if (!isFileFolder(placement.folder, schoolId !== null)) throw new ApiError(422, "INVALID_FOLDER", "اختاري مجلداً من مجلدات ملف الإنجاز");
-  if (schoolId) {
-    const [school] = isUuid(schoolId) ? await db`select id from schools where id = ${schoolId} and cluster_id = ${clusterId} and deleted_at is null` : [];
-    if (!school) throw notFound("المدرسة غير موجودة");
-  }
+  const [layouts, schools] = await Promise.all([
+    loadLayouts(db, [clusterId]),
+    schoolId && isUuid(schoolId) ? db`select id from schools where id = ${schoolId} and cluster_id = ${clusterId} and deleted_at is null` : [],
+  ]);
+  if (!isFileFolder(layouts.get(clusterId)!, placement.folder, schoolId !== null)) throw new ApiError(422, "INVALID_FOLDER", "اختاري مجلداً من مجلدات ملف الإنجاز");
+  if (schoolId && !schools.length) throw notFound("المدرسة غير موجودة");
   return { folder: placement.folder, schoolId };
 }
 

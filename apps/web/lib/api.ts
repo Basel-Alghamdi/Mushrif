@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut, supabase } from "./supabase";
+import type { Me } from "./types";
 
 // Empty = same origin: next.config.ts forwards /api/v1 to the API (works from phones on the network, no CORS).
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -25,6 +26,8 @@ async function authHeader(): Promise<Record<string, string>> {
   return data.session ? { authorization: `Bearer ${data.session.access_token}` } : {};
 }
 
+const sessionEnded = (status: number, code?: string) => status === 401 || code === "NO_PROFILE";
+
 async function send<T>(path: string, init: RequestInit, auth: boolean): Promise<T> {
   let response: Response;
   try {
@@ -35,6 +38,7 @@ async function send<T>(path: string, init: RequestInit, auth: boolean): Promise<
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const error = payload?.error ?? {};
+    if (auth && sessionEnded(response.status, error.code)) forgetMe();
     throw new ApiError(error.message ?? "تعذّر الحفظ — أعيدي المحاولة", response.status, error.code ?? "UNKNOWN", error.fields, error.details);
   }
   return payload?.data as T;
@@ -62,9 +66,55 @@ export const api = Object.assign(request, {
   },
 });
 
+const LAST_ROLE = "rasd:lastRole"; // this device: the login page sends her home without waiting for the server
+const LAST_ME = "rasd:me"; // this tab: the head's pages open at once and /auth/me confirms in the background
+
+let me: Promise<Me> | null = null;
+
+/** GET /auth/me, asked once and shared (the login page hands its request to HeadGuard); `fresh` asks again. */
+export function getMe(fresh = false): Promise<Me> {
+  if (fresh || !me) {
+    const request = api.get<Me>("/auth/me");
+    me = request;
+    // A failure is never kept: the next caller asks again.
+    request.then(rememberMe, () => { if (me === request) me = null; });
+  }
+  return me;
+}
+
+/** Keeps who signed in (her role on this device, her account in this tab) for the next page to open at once. */
+export function rememberMe(value: Me) {
+  try {
+    localStorage.setItem(LAST_ROLE, value.user.role);
+    sessionStorage.setItem(LAST_ME, JSON.stringify(value));
+  } catch { /* private mode: every page asks the server */ }
+}
+
+export function lastRole(): Me["user"]["role"] | null {
+  try {
+    const role = localStorage.getItem(LAST_ROLE);
+    return role === "head" || role === "member" ? role : null;
+  } catch {
+    return null;
+  }
+}
+
+export function lastMe(): Me | null {
+  try { return JSON.parse(sessionStorage.getItem(LAST_ME) ?? "null") as Me | null; } catch { return null; }
+}
+
+// Forgotten whenever the session ends, so the login page never sends a refused account back home (a redirect loop).
+function forgetMe() {
+  me = null;
+  try {
+    localStorage.removeItem(LAST_ROLE);
+    sessionStorage.removeItem(LAST_ME);
+  } catch { /* ignore */ }
+}
+
 /** Sends the user to the login page when the session is gone. Returns true if it redirected. */
 export function redirectIfSignedOut(error: unknown) {
-  if (error instanceof ApiError && (error.status === 401 || error.code === "NO_PROFILE")) {
+  if (error instanceof ApiError && sessionEnded(error.status, error.code)) {
     window.location.replace("/login");
     return true;
   }
@@ -93,4 +143,7 @@ export async function downloadFile(path: string, filename: string, open = false)
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export const logout = signOut;
+export async function logout() {
+  forgetMe();
+  await signOut();
+}

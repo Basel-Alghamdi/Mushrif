@@ -22,7 +22,7 @@ const FILTERS: { id: Filter; label: string; test: (member: MemberSummary) => boo
   { id: "incomplete", label: "ملف ناقص", test: member => member.completion < COMPLETE_FROM },
 ];
 
-const REFRESH_MS = 20_000;
+const REFRESH_MS = 60_000;
 const PHONE = "(max-width: 899.98px)";
 const VIEW_KEY = "rasd:team-view";
 
@@ -56,13 +56,18 @@ export function TeamPage() {
     }
   }, []);
 
-  // Refresh every 20s while the page is visible, and right away when she comes back to the tab.
+  // Refresh right away and then every minute while the page is visible; a hidden tab asks nothing.
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, REFRESH_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+    let timer: number | undefined;
+    const sync = () => {
+      window.clearInterval(timer);
+      if (document.visibilityState !== "visible") return;
+      void load();
+      timer = window.setInterval(() => void load(), REFRESH_MS);
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", sync); };
   }, [load]);
 
   useEffect(() => {

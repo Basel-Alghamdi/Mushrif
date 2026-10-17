@@ -1,7 +1,9 @@
 // Proposals: changes the agent prepares for Khulood to approve (stored in agent_runs), their execution, and undo.
-import type { ChatBlock, MemberCreateInput, ProposalChange, ProposalStatus } from "@rasd/schemas";
+import type { ChatBlock, DocumentPlacement, MemberCreateInput, ProposalChange, ProposalStatus } from "@rasd/schemas";
 import { createProposal, type Proposal, type ProposalKind } from "../chat-store.js";
 import { ApiError } from "../errors.js";
+import { executeApiRequests, type ApiRequestsPayload } from "./api-actions.js";
+import { executeKpiImport, type KpiImportPayload } from "./kpi-card.js";
 import type { School, Session } from "./model.js";
 import { ar, countAcc, countGen, NOUNS, shortName } from "./render.js";
 import {
@@ -12,7 +14,8 @@ import {
 export type { ProposalKind } from "../chat-store.js";
 export type NewMemberSuggestion = MemberCreateInput & { fields?: FieldWrite[]; source?: string };
 export type SchoolUpsert = { memberId: string; memberName: string; schools: Partial<School>[]; source?: string };
-export type DocumentAssignment = { documentId: string; documentName: string; memberId: string; memberName: string };
+/** `placement`: the folder of her ملف الإنجاز it goes into (checked again on approval); `where` names it for the card. */
+export type DocumentAssignment = { documentId: string; documentName: string; memberId: string; memberName: string; placement?: DocumentPlacement; where?: string };
 
 export type ProposalPayload = {
   title: string;
@@ -23,6 +26,9 @@ export type ProposalPayload = {
   schools?: SchoolUpsert[];
   assignments?: DocumentAssignment[];
   undo?: UndoPlan;
+  /** Rows the server already described (api_requests, kpi_import); the first `pinnedRows` are never cut from the card. */
+  rows?: ProposalChange[];
+  pinnedRows?: number;
 };
 
 /** A reply to Khulood. `intent` names the local-engine handler that answered (diagnostics and tests only — never stored). */
@@ -51,21 +57,25 @@ function displayChanges(payload: ProposalPayload): ProposalChange[] {
     }
   }
   for (const assignment of payload.assignments ?? []) {
-    rows.push({ memberId: assignment.memberId, memberName: assignment.memberName, fieldId: null, fieldLabel: "إضافة ملف إلى ملفها", before: "", after: assignment.documentName });
+    rows.push({
+      memberId: assignment.memberId, memberName: assignment.memberName, fieldId: null, fieldLabel: "إضافة ملف إلى ملفها", before: "",
+      after: assignment.where ? `${assignment.documentName} — في ${assignment.where}` : assignment.documentName,
+    });
   }
-  return rows;
+  return [...(payload.rows ?? []), ...rows];
 }
 
 export function proposalBlock(proposalId: string, payload: ProposalPayload, status: ProposalStatus = "pending"): ChatBlock {
   const changes = displayChanges(payload);
   const newMembers = (payload.newMembers ?? []).map(({ name, email, title, phone, clusterLabel }) => ({ name, email, ...(title ? { title } : {}), ...(phone ? { phone } : {}), ...(clusterLabel ? { clusterLabel } : {}) }));
-  const hidden = changes.length - MAX_CHANGES_SHOWN;
+  const shown = Math.max(MAX_CHANGES_SHOWN, payload.pinnedRows ?? 0);
+  const hidden = changes.length - shown;
   return {
     type: "proposal",
     proposalId,
     title: payload.title,
-    summary: hidden > 0 ? `${payload.summary} (أعرض أول ${ar(MAX_CHANGES_SHOWN)} تغيير، وسيُطبَّق الكل)` : payload.summary,
-    changes: changes.slice(0, MAX_CHANGES_SHOWN),
+    summary: hidden > 0 ? `${payload.summary} (أعرض أول ${ar(shown)} تغيير، وسيُطبَّق الكل)` : payload.summary,
+    changes: changes.slice(0, shown),
     ...(newMembers.length ? { newMembers } : {}),
     ...(payload.unmatched?.length ? { unmatched: payload.unmatched.slice(0, 50) } : {}),
     status,
@@ -158,8 +168,10 @@ async function applySchools(session: Session, upserts: SchoolUpsert[], outcome: 
 async function applyAssignments(session: Session, assignments: DocumentAssignment[], outcome: Outcome) {
   for (const assignment of assignments) {
     const member = await findMember(session.db, session, assignment.memberId);
-    const filed = member ? await fileDocument(session, assignment.documentId, member.id).catch(error => { failure(error); return null; }) : null;
-    if (!member || !filed) { outcome.notes.push(`تعذّر ربط الملف ${assignment.documentName}`); continue; }
+    let problem = "";
+    // Her folders may have changed since the card was made: the folder is checked again in her file (INVALID_FOLDER).
+    const filed = member ? await fileDocument(session, assignment.documentId, member.id, assignment.placement).catch(error => { problem = failure(error); return null; }) : null;
+    if (!member || !filed) { outcome.notes.push(`تعذّر ربط الملف ${assignment.documentName}${problem ? `: ${problem}` : ""}`); continue; }
     outcome.undo.push({ kind: "file", documentId: filed.before.id, documentName: filed.before.name, ownerId: filed.before.ownerId });
     outcome.rows.push([member.name, "ملف جديد في ملفها", "—", filed.before.name]);
     outcome.memberIds.push(member.id);
@@ -231,14 +243,27 @@ export async function executePayload(session: Session, payload: ProposalPayload,
   return { text, blocks };
 }
 
-/** An undo can be applied for this long after the change it reverses; later, the data may have moved on. */
+/**
+ * An undo can be applied for this long after the change it reverses; later, the data may have moved on. A card of
+ * API actions expires too: it was described from data that has moved on as well.
+ */
 export const UNDO_WINDOW_HOURS = 24;
 export const UNDO_EXPIRED_MESSAGE = "انتهت مهلة التراجع: يمكن التراجع خلال ٢٤ ساعة من التنفيذ فقط. عدّلي البيانات من ملف المشرفة إن احتجتِ.";
+export const PROPOSAL_EXPIRED_MESSAGE = "انتهت صلاحية هذا الاقتراح بعد ٢٤ ساعة — اطلبيه من جديد ليُجهَّز من البيانات الحالية.";
 
-export const undoExpired = (proposal: Pick<Proposal, "kind" | "createdAt">, now = Date.now()) =>
-  proposal.kind === "undo" && now - Date.parse(proposal.createdAt) > UNDO_WINDOW_HOURS * 3_600_000;
+/** Why this proposal can no longer be applied (410), or null. */
+export function proposalExpired(proposal: Pick<Proposal, "kind" | "createdAt" | "payload">, now = Date.now()) {
+  if (proposal.kind !== "undo" && proposal.kind !== "api_requests") return null;
+  if (now - Date.parse(proposal.createdAt) <= UNDO_WINDOW_HOURS * 3_600_000) return null;
+  const isUndo = proposal.kind === "undo" || Boolean((proposal.payload as ApiRequestsPayload | null)?.isUndo);
+  return isUndo ? { code: "UNDO_EXPIRED", message: UNDO_EXPIRED_MESSAGE, isUndo } : { code: "PROPOSAL_EXPIRED", message: PROPOSAL_EXPIRED_MESSAGE, isUndo };
+}
 
 export async function executeProposal(session: Session, proposal: Proposal): Promise<AgentReply> {
-  if (undoExpired(proposal)) throw new ApiError(410, "UNDO_EXPIRED", UNDO_EXPIRED_MESSAGE);
-  return executePayload({ ...session, conversationId: proposal.conversationId ?? session.conversationId }, (proposal.payload ?? {}) as ProposalPayload);
+  const expired = proposalExpired(proposal);
+  if (expired) throw new ApiError(410, expired.code, expired.message);
+  const scoped = { ...session, conversationId: proposal.conversationId ?? session.conversationId };
+  if (proposal.kind === "api_requests") return executeApiRequests(scoped, proposal.payload as ApiRequestsPayload);
+  if (proposal.kind === "kpi_import") return executeKpiImport(scoped, proposal.payload as KpiImportPayload);
+  return executePayload(scoped, (proposal.payload ?? {}) as ProposalPayload);
 }

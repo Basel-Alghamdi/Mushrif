@@ -4,13 +4,16 @@ import {
   SCHOOL_BASE_FIELDS, TIERS, VISIT_TYPES, messages, riyadhDate, toWesternDigits, validateProfileValue, validators, type ProfileFieldType,
 } from "@rasd/schemas";
 import { audit } from "../audit.js";
-import { requireMember, type AppEnv } from "../auth.js";
-import { sql } from "../db.js";
+import { forgetActor, requireMember, type AppEnv } from "../auth.js";
+import { sql, type Sql } from "../db.js";
+import { documentsForCluster, toDocumentInfo } from "../documents.js";
 import { ApiError, invalid, notFound, ok } from "../errors.js";
+import { kpisForMember } from "../kpis.js";
 import { ownSchool } from "../ownership.js";
 import { assertFresh, isUuid, p, parseDate, parseFields, readBody, reject, type Parser } from "../parse.js";
 import { memberFile, ownFile, resourceRoutes, type FileScope, type ResourcePaths, type ResourceSpec } from "../resources.js";
 import { loadWorkspaces } from "../workspace.js";
+import { meOf } from "./access.js";
 
 // No blocking formats (decision 1): values are normalized (digits) but never rejected for their shape.
 // Fields with options (e.g. الرتبة) suggest values; free text is always accepted.
@@ -50,10 +53,13 @@ const fileSpecs: Record<FileResource, ResourceSpec> = {
     parsers: { label: p.label(), value: profileValue, span: value => (value === 1 || value === 2 ? value : reject("عرض الحقل غير صحيح")) },
     defaults: () => ({ label: "حقل جديد", value: "", span: 1, fieldType: "text" }),
     guardUpdate: (row, values) => { if (row.fieldType === "derived" && "value" in values) throw invalid({ value: "تُحسب تلقائياً" }); },
-    // الصفة lives in profiles.title too (decision 4).
+    // الصفة lives in profiles.title too (decision 4), and so on her signed-in actor (GET /auth/me): it is dropped from the
+    // actor cache once the change is committed, so no request in between keeps the old title.
     afterUpdate: async (db, before, after) => {
       if (after.fieldKey !== "title" || after.value === before.value) return;
-      await db`update profiles p set title = ${after.value as string} from clusters c where c.id = ${after.clusterId as string} and p.id = c.member_id`;
+      const [member] = await db`
+        update profiles p set title = ${after.value as string} from clusters c where c.id = ${after.clusterId as string} and p.id = c.member_id returning p.id`;
+      if (member) return () => forgetActor(String(member.id));
     },
   },
   schools: {
@@ -62,9 +68,11 @@ const fileSpecs: Record<FileResource, ResourceSpec> = {
     defaults: () => ({ name: "مدرسة جديدة" }),
     afterCreate: async (db, school) => {
       // EDITABILITY S-1: a new school starts with 1 leadership role and 2 staff tiles.
-      for (const [index, label] of DEFAULT_STAFF_TILES.entries()) await db`insert into school_staff_tiles ${db({ schoolId: school.id, label, sortOrder: index })}`;
-      const [role] = await db`insert into leadership_roles ${db({ schoolId: school.id, role: DEFAULT_LEADERSHIP_ROLE.role, state: DEFAULT_LEADERSHIP_ROLE.state })} returning id`;
-      for (const [index, label] of DEFAULT_LEADERSHIP_ROLE.fields.entries()) await db`insert into leadership_fields ${db({ roleId: role.id, label, sortOrder: index })}`;
+      const [[role]] = await Promise.all([
+        db`insert into leadership_roles ${db({ schoolId: school.id, role: DEFAULT_LEADERSHIP_ROLE.role, state: DEFAULT_LEADERSHIP_ROLE.state })} returning id`,
+        db`insert into school_staff_tiles ${db(DEFAULT_STAFF_TILES.map((label, index) => ({ schoolId: school.id, label, sortOrder: index })))}`,
+      ]);
+      await db`insert into leadership_fields ${db(DEFAULT_LEADERSHIP_ROLE.fields.map((label, index) => ({ roleId: role.id, label, sortOrder: index })))}`;
     },
   },
   customFields: {
@@ -80,7 +88,7 @@ const fileSpecs: Record<FileResource, ResourceSpec> = {
     parsers: { role: p.label("اسم الدور مطلوب"), state: p.text(200) },
     defaults: () => ({ role: NEW_LEADERSHIP_ROLE.role, state: NEW_LEADERSHIP_ROLE.state }),
     afterCreate: async (db, role) => {
-      for (const [index, label] of NEW_LEADERSHIP_ROLE.fields.entries()) await db`insert into leadership_fields ${db({ roleId: role.id, label, sortOrder: index })}`;
+      await db`insert into leadership_fields ${db(NEW_LEADERSHIP_ROLE.fields.map((label, index) => ({ roleId: role.id, label, sortOrder: index })))}`;
     },
   },
   leadershipFields: {
@@ -228,8 +236,25 @@ function indicatorRoutes(app: Hono<AppEnv>, base: string, scope: FileScope, eval
   });
 }
 
+/** Her latest visit reports (GET /cluster/me/visits and the bootstrap). */
+const visitsOf = (db: Sql, clusterId: string) =>
+  db`select * from visit_reports where cluster_id = ${clusterId} order by created_at desc limit 200`;
+
 export function memberRoutes(app: Hono<AppEnv>) {
   // ───────── whole file ─────────
+  // Everything the member app opens with (MemberBootstrap), read in one go: one request and one round of queries.
+  app.get("/member/bootstrap", async c => {
+    const actor = requireMember(c);
+    const [workspaces, documents, visits, kpis] = await Promise.all([
+      loadWorkspaces(sql, [actor.clusterId]), documentsForCluster(sql, actor.clusterId), visitsOf(sql, actor.clusterId), kpisForMember(sql, actor.clusterId),
+    ]);
+    const workspace = workspaces.get(actor.clusterId);
+    if (!workspace) throw notFound("ملف العنقود غير موجود");
+    return c.json(ok({
+      me: meOf(actor), workspace, documents: documents.map(toDocumentInfo), visits, kpiScope: kpis.kpiScope, kpis: kpis.rows,
+    }));
+  });
+
   app.get("/member/workspace", async c => {
     const actor = requireMember(c);
     const workspace = (await loadWorkspaces(sql, [actor.clusterId])).get(actor.clusterId);
@@ -266,7 +291,8 @@ export function memberRoutes(app: Hono<AppEnv>) {
       await ownSchool(tx, actor.clusterId, c.req.param("id"));
       const before = (await tx`select field_key from school_field_overrides where cluster_id = ${actor.clusterId} and hidden`).map(row => row.fieldKey);
       await tx`delete from school_field_overrides where cluster_id = ${actor.clusterId}`;
-      for (const fieldKey of new Set(hidden as string[])) await tx`insert into school_field_overrides ${tx({ clusterId: actor.clusterId, fieldKey, hidden: true })}`;
+      const rows = [...new Set(hidden as string[])].map(fieldKey => ({ clusterId: actor.clusterId, fieldKey, hidden: true }));
+      if (rows.length) await tx`insert into school_field_overrides ${tx(rows)}`;
       await audit(c, tx, { action: "update", entity: "school_field_overrides", entityId: actor.clusterId, before, after: hidden });
     });
     return c.json(ok({ hidden }));
@@ -371,8 +397,7 @@ export function memberRoutes(app: Hono<AppEnv>) {
 
   app.get("/cluster/me/visits", async c => {
     const actor = requireMember(c);
-    const rows = await sql`select * from visit_reports where cluster_id = ${actor.clusterId} order by created_at desc limit 200`;
-    return c.json(ok(rows));
+    return c.json(ok(await visitsOf(sql, actor.clusterId)));
   });
   // The school and the visit type are required; the purpose (text) may be short or empty.
   app.post("/visits", async c => {
@@ -436,11 +461,12 @@ export function memberRoutes(app: Hono<AppEnv>) {
         insert into daily_submissions (cluster_id, member_id, date) values (${actor.clusterId}, ${actor.id}, ${today}::date)
         on conflict (member_id, date) do update set submitted_at = now()
         returning id, date::text as date, submitted_at`;
-      const heads = await tx`select id from profiles where district_id = ${actor.districtId} and role = 'head'`;
-      for (const head of heads) {
-        await tx`insert into notifications ${tx({ userId: head.id, kind: "submission", text: `أرسلت ${actor.name} تحديث اليوم`, level: "info" })}`;
-      }
-      await audit(c, tx, { action: "submit", entity: "daily_submission", entityId: String(submission.id), after: { date: today } });
+      await Promise.all([
+        tx`
+          insert into notifications (user_id, kind, text, level)
+          select id, 'submission', ${`أرسلت ${actor.name} تحديث اليوم`}, 'info' from profiles where district_id = ${actor.districtId} and role = 'head'`,
+        audit(c, tx, { action: "submit", entity: "daily_submission", entityId: String(submission.id), after: { date: today } }),
+      ]);
       return submission;
     });
     return c.json(ok(row), 201);

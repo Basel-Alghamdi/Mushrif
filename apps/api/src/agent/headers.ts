@@ -1,9 +1,11 @@
 // Recognizing spreadsheet headers and form labels: profile fields, school fields, the member column, or custom fields.
 // Pure (no database), shared by the importer and its tests.
+import { KPI_STANDARDS } from "@rasd/schemas";
+import type { DocumentTable } from "../documents.js";
 import { cleanText } from "../parse.js";
 import { findPhrase, phrase, PROFILE_FIELD_TABLE, type Phrase } from "./lexicon.js";
 import type { School } from "./model.js";
-import { normalizeText, tokenize, westernDigits } from "./normalize.js";
+import { normalizeArabic, normalizeText, tokenize, westernDigits } from "./normalize.js";
 
 export type SchoolKey = Exclude<keyof School, "id" | "madrasati" | "discipline" | "absence" | "absenceDate" | "customFields" | "staffTiles" | "leadership" | "updatedAt">;
 export type Column =
@@ -78,3 +80,19 @@ export function findHeaderRow(rows: string[][]) {
 }
 
 export const isSequential = (values: string[]) => values.length >= 2 && values.every((value, index) => Number(westernDigits(value)) === index + 1);
+
+// مؤشرات الأداء (the ministry's school-evaluation register) also has «اسم المدرسة» and «المرحلة», but it belongs in the
+// register's own import, never in members' school lists: a sheet with «اسم المدرسة» and at least three of these.
+const KPI_STANDARD_LABELS = KPI_STANDARDS.map(standard => normalizeArabic(standard.label));
+const KPI_SIGNALS: ((cell: string) => boolean)[] = [
+  cell => cell.includes("رقما") && KPI_STANDARD_LABELS.some(label => cell.includes(label)),
+  ...["المستوي العام", "درجه النواتج", "مستوي المتابعه", "نوع التقويم"].map(signal => (cell: string) => cell.includes(signal)),
+];
+
+export function isKpiWorkbook(tables: DocumentTable[]) {
+  return tables.some(table => {
+    // The group row and the header row are at the top; instruction text further down does not count.
+    const cells = table.rows.slice(0, 6).flat().map(cell => normalizeArabic(cleanText(cell)));
+    return cells.some(cell => cell.includes("اسم المدرسه")) && KPI_SIGNALS.filter(signal => cells.some(signal)).length >= 3;
+  });
+}

@@ -6,14 +6,17 @@ import type {
 import type { ChatMessage } from "@rasd/schemas";
 import { sql } from "../db.js";
 import { readDocumentFile, type StoredDocument } from "../documents.js";
-import { runTool, toolContext, TOOL_PARAMS, untrusted, type ToolContext } from "./claude-tools.js";
+import { apiReference } from "./catalog.js";
+import { DISPLAY_ONLY, runTool, toolContext, TOOL_PARAMS, untrusted, type ToolContext } from "./claude-tools.js";
 import type { AgentContext, AgentReply } from "./index.js";
 import { blocksAsText, riyadhDateLabel } from "./render.js";
 import { auditFileReads } from "./snapshot.js";
 
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
-const MAX_ROUNDS = 8;
-const HISTORY_LIMIT = 24;
+/** Reading, preparing a card and answering fit well within this; a turn that needs more is cut with what it has. */
+export const MAX_ROUNDS = 12;
+/** The messages a reply sees (routes/chat.ts reads only these from the database). */
+export const HISTORY_LIMIT = 24;
 const ATTACHMENT_TEXT_LIMIT = 60_000;
 const MAX_INLINE_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -45,7 +48,8 @@ export function useClaudeClient(client: ClaudeClient | null) {
 
 function defaultClient(): ClaudeClient {
   if (!sharedClient) {
-    const client = new Anthropic({ apiKey: setting("ANTHROPIC_API_KEY"), maxRetries: 2, timeout: 120_000 });
+    // One quick retry, then the turn answers with what it has: she is waiting on the reply.
+    const client = new Anthropic({ apiKey: setting("ANTHROPIC_API_KEY"), maxRetries: 1, timeout: 60_000 });
     sharedClient = { beta: { messages: { create: params => client.beta.messages.create(params) } } };
   }
   return sharedClient;
@@ -54,8 +58,9 @@ function defaultClient(): ClaudeClient {
 export const SYSTEM_PROMPT = `أنت «مساعد رَصد»، المساعد الذكي لخلود — رئيسة النطاق — في منصة رَصد لمتابعة فريق الإشراف التربوي (مشرفات النطاق).
 
 ## مهمتك
-- تجيبين خلود عن أي سؤال يخص أي مشرفة أو الفريق كله: البيانات الشخصية، الصفة، المدارس وأعدادها، البرامج، الزيارات، الملفات المرفوعة، نسب الاكتمال، النواقص، من فعّلت حسابها ومن لم تفعّله.
+- تجيبين خلود عن أي سؤال يخص أي مشرفة أو الفريق كله: البيانات الشخصية، الصفة، المدارس وأعدادها، البرامج، الزيارات، الملفات المرفوعة، نسب الاكتمال، النواقص، من فعّلت حسابها ومن لم تفعّله، وسجل مؤشرات الأداء.
 - تعدّلين البيانات بطلبها، وتقرئين الملفات التي ترفعها في المحادثة وتعبّئين بياناتها في ملفات المشرفات الصحيحة.
+- تنفّذين أي إجراء تستطيعه خلود في المنصة (انظري «مرجع الواجهة»): تجهّزينه ببطاقة واحدة تعتمدها بضغطة واحدة.
 - تجهّزين رسائل الدخول والتذكير والتقارير.
 
 ## قواعد البيانات
@@ -69,7 +74,22 @@ export const SYSTEM_PROMPT = `أنت «مساعد رَصد»، المساعد ا
 - طلب صريح من خلود في رسالتها لتعديل قيمة («غيري جوال رشا إلى …») → update_member_fields مباشرة (يظهر لها زر تراجع).
 - بريد الدخول (email) والعنقود (cluster) لا يتغيران مباشرة أبداً: جهّزيهما ببطاقة propose_profile_updates لتعتمدها خلود بنفسها.
 - بيانات كثيرة أو مستخرجة من ملف → propose_profile_updates / propose_school_updates / propose_new_members لتعتمدها بضغطة واحدة.
-- في أي رد فيه ملف مرفق أو قرأتِ فيه ملفاً (search_documents أو list_documents أو get_document أو import_attachment) يتوقف التعديل المباشر: كل تغيير يمر عبر propose_*.
+- في أي رد فيه ملف مرفق أو قرأتِ فيه ملفاً (search_documents أو list_documents أو get_document أو import_attachment أو import_kpis أو api_get لمسار ملفات) يتوقف التعديل المباشر: كل تغيير يمر عبر propose_*.
+- قيم البيانات الأولية (الجوال، الهوية، المؤهل…) عبر update_member_fields أو propose_profile_updates فقط، لا عبر مسارات profile_field.
+- كل إجراء آخر تستطيعه خلود — المدارس وحقولها وهيئتها وقيادتها، التطوير المهني، الأقسام، مؤشرات التقويم والانضباط ومدرستي، الملفات ومجلداتها، سجل مؤشرات الأداء، الحسابات — يمر عبر propose_actions: بطاقة واحدة تجمع كل خطوات الطلب بالترتيب. الخادم يكتب وصف البطاقة من قاعدة البيانات، فلا تكرري تفاصيلها في ردك.
+- تعديل مجلدات أكثر من مشرفة = إجراء folders_bulk واحد بقائمة memberIds (أو "all")، لا إجراء لكل مشرفة. «اجعلي مجلداتها مثل مجلدات فلانة» = folders_sync.
+- ملف مؤشرات الأداء (Excel فيه الرقم الوزاري والمستوى العام والمعايير) → import_kpis، لا import_attachment ولا إجراء لكل صف.
+- ما يتم من حساب المشرفة وحدها — تسجيل الزيارات، الخطط واعتمادها، تثبيت الغياب والحضور، نص خطة دعم الانضباط، إخفاء حقول المدرسة — قولي لخلود بوضوح إنه لا يتم من حسابها، بل تطلبه من المشرفة.
+
+## المعرّفات
+- لا تخمّني معرّفاً أبداً: memberId من find_member، وschoolId من find_school أو get_member، ومعرّفات الهيئة والقيادة وحقولها من مدارس get_member، ومفاتيح المجلدات (key) من api_get folders أو member_folders، وkpiId من query_kpis أو find_school، ومعرّف الملف من list_documents.
+- التعديل يرسل الحقول المتغيرة فقط. الترتيب (order) يرسل كل معرّفات العناصر بالترتيب الجديد.
+- إذا رجع خطأ من الواجهة فاقرئي رسالته وحقوله (fields) وصحّحي الطلب، أو اسألي خلود.
+
+## المصطلحات
+- «مؤشرات الأداء»، «المستوى العام»، «درجة النواتج»، «مستوى المتابعة»، «المعايير» = سجل مؤشرات الأداء الذي تستورده خلود (query_kpis).
+- «التصنيف» = تصنيف المدرسة الذي تختاره المشرفة في ملفها (tier).
+- «مؤشرات التقويم المدرسي» = ما تعبّئه المشرفة لمدارسها (evaluation_indicators).
 
 ## الملفات المرفقة
 - يصلك نص كل ملف مرفق ومعرّفه (document_id). للجداول وكشوف الأسماء استخدمي import_attachment أولاً (يطابق الصفوف بالبريد أو الاسم بدقة)، ثم أكملي ما فاته بنفسك.
@@ -83,7 +103,11 @@ export const SYSTEM_PROMPT = `أنت «مساعد رَصد»، المساعد ا
 - تنسيق خفيف مسموح: **غامق**، قوائم، جداول قصيرة. للجداول الطويلة والأرقام استخدمي show_table و show_stats ولا تكرري محتواها في النص.
 - عند الحديث عن مشرفة واحدة يمكنك عرض بطاقتها بـ show_member.
 - اقترحي ٢–٤ خطوات تالية مفيدة بـ suggest_replies عندما يكون ذلك طبيعياً.
-- لا تُظهري المعرّفات (ids) في النص؛ استخدمي الأسماء.`;
+- لا تُظهري المعرّفات (ids) في النص؛ استخدمي الأسماء.
+
+## مرجع الواجهة
+القراءة بـ api_get والتغيير بـ propose_actions، بمعرّف المسار (route) ومعاملاته (params: معرّفات فقط). ⚠ = حذف أو أثر يصعب التراجع عنه.
+${apiReference()}`;
 
 // ---------- Messages ----------
 function historyText(message: ChatMessage) {
@@ -167,12 +191,23 @@ export async function toolResults(message: BetaMessage, ctx: ToolContext): Promi
   return results;
 }
 
+/** A card was prepared or a change made this turn: a failing model call must not hide it behind another engine's answer. */
+export const STOPPED_TEXT = "توقف المساعد قبل إكمال الرد — هذا ما جُهّز";
+export const hasWorkBlocks = (ctx: ToolContext) => ctx.blocks.some(block => block.type === "proposal" || block.type === "applied");
+
 export async function claudeRespond(context: AgentContext, text: string, client: ClaudeClient = defaultClient()): Promise<AgentReply> {
   const ctx = toolContext({ db: sql, head: context.head, audit: context.audit, conversationId: context.conversationId }, context.attachments);
   const messages: BetaMessageParam[] = [...historyMessages(context.history), await userTurn(text, context.attachments)];
   let answer = "";
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const response = await client.beta.messages.create(buildRequest(messages));
+    let response: BetaMessage;
+    try { response = await client.beta.messages.create(buildRequest(messages)); }
+    catch (error) {
+      if (!hasWorkBlocks(ctx)) throw error;
+      console.error("claude failed after preparing changes:", error instanceof Error ? `${error.name}: ${error.message}` : error);
+      await auditFileReads(ctx.session, ctx.snapshots);
+      return { text: STOPPED_TEXT, blocks: ctx.blocks };
+    }
     if (response.stop_reason === "refusal") {
       await auditFileReads(ctx.session, ctx.snapshots);
       return { text: "عذراً، لا أستطيع المساعدة في هذا الطلب بالذات. جرّبي صياغته بطريقة أخرى.", blocks: ctx.blocks };
@@ -183,6 +218,12 @@ export async function claudeRespond(context: AgentContext, text: string, client:
       continue;
     }
     if (response.stop_reason === "tool_use") {
+      // Text plus only cards to show (a table, tiles, buttons): the reply is complete — no second call to say "done".
+      const calls = response.content.filter((block): block is BetaToolUseBlock => block.type === "tool_use");
+      if (textOf(response) && calls.every(block => DISPLAY_ONLY.has(block.name))) {
+        await toolResults(response, ctx);
+        break;
+      }
       messages.push({ role: "assistant", content: response.content });
       messages.push({ role: "user", content: await toolResults(response, ctx) });
       continue;

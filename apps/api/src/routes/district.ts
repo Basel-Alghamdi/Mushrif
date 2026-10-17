@@ -4,19 +4,23 @@ import { activationDeadline, createMemberAccount, parseMemberInput, randomPasswo
 
 /** After a reset she has a few days to choose a new password; afterwards the head resets again. */
 const RESET_WINDOW_DAYS = 3;
-import { audit, auditContext } from "../audit.js";
-import { requireHead, supabaseAdmin, type Actor, type AppEnv } from "../auth.js";
+import { audit, auditContext, auditMany } from "../audit.js";
+import { forgetActor, requireHead, supabaseAdmin, type Actor, type AppEnv } from "../auth.js";
 import { sql, type Row, type Sql } from "../db.js";
+import { documentsForCluster, toDocumentInfo } from "../documents.js";
 import { emailConfigured, messageEmail, sendEmails } from "../email.js";
 import { env } from "../env.js";
 import { ApiError, invalid, ok } from "../errors.js";
+import { kpisForMember } from "../kpis.js";
 import { memberInDistrict } from "../ownership.js";
 import { cleanText, isUuid, normalizeEmail, parseDate, readBody } from "../parse.js";
 import { loadWorkspaces, memberSummary, type Workspace } from "../workspace.js";
 
 export async function loadDistrict(db: Sql, districtId: string, date = riyadhDate()) {
-  const [district] = await db`select id, name, submission_deadline::text as deadline from districts where id = ${districtId}`;
-  const clusters = await db`select c.id from clusters c join profiles p on p.id = c.member_id where c.district_id = ${districtId} and p.deleted_at is null`;
+  const [[district], clusters] = await Promise.all([
+    db`select id, name, submission_deadline::text as deadline from districts where id = ${districtId}`,
+    db`select c.id from clusters c join profiles p on p.id = c.member_id where c.district_id = ${districtId} and p.deleted_at is null`,
+  ]);
   const workspaces = await loadWorkspaces(db, clusters.map(row => String(row.id)), date);
   const deadline = (district?.deadline as string | null) ?? null;
   const members = [...workspaces.values()]
@@ -25,11 +29,16 @@ export async function loadDistrict(db: Sql, districtId: string, date = riyadhDat
   return { district, deadline, members };
 }
 
+const districtDeadline = async (db: Sql, districtId: string) =>
+  ((await db`select submission_deadline::text as deadline from districts where id = ${districtId}`)[0]?.deadline as string | null | undefined) ?? null;
+
+export const pendingInvitations = async (db: Sql, districtId: string) =>
+  (await db`select count(*)::int as pending from invitations where district_id = ${districtId} and status = 'pending' and expires_at > now()`)[0].pending as number;
+
 /** One member's summary (the team list shape). */
 export async function loadMemberSummary(db: Sql, districtId: string, clusterId: string) {
-  const [district] = await db`select submission_deadline::text as deadline from districts where id = ${districtId}`;
-  const workspace = (await loadWorkspaces(db, [clusterId])).get(clusterId)!;
-  return memberSummary(workspace, (district?.deadline as string | null) ?? null);
+  const [deadline, workspaces] = await Promise.all([districtDeadline(db, districtId), loadWorkspaces(db, [clusterId])]);
+  return memberSummary(workspaces.get(clusterId)!, deadline);
 }
 
 export function buildReport(members: { summary: ReturnType<typeof memberSummary>; workspace: Workspace }[], pendingInvitations: number, date: string) {
@@ -128,36 +137,43 @@ export async function sendReminders(
     }
   }
 
-  const reminders: Row[] = [];
-  for (const message of messages) {
-    const member = byId.get(message.memberId)!;
-    const [reminder] = await db`insert into reminders ${db({ districtId: head.districtId, fromUserId: head.id, toUserId: member.id, channel, body: message.body, agentRunId: options.agentRunId ?? null })} returning *`;
-    await db`insert into notifications ${db({ userId: member.id, kind: "reminder", text: message.body, level: "attention" })}`;
-    await audit(c, db, { action: "send", entity: "reminder", entityId: String(reminder.id), clusterId: String(member.clusterId), after: { body: message.body, channel, kind }, source: options.agentRunId ? "agent" : "web" });
-    reminders.push(reminder);
-  }
+  // One insert per table for the whole team (the reminders first: the audit rows name their ids).
+  const reminders = await db`insert into reminders ${db(messages.map(message => ({
+    districtId: head.districtId, fromUserId: head.id, toUserId: message.memberId, channel, body: message.body, agentRunId: options.agentRunId ?? null,
+  })))} returning *`;
+  await Promise.all([
+    db`insert into notifications ${db(messages.map(message => ({ userId: message.memberId, kind: "reminder", text: message.body, level: "attention" })))}`,
+    auditMany(db, auditContext(c), reminders.map(reminder => ({
+      action: "send", entity: "reminder", entityId: String(reminder.id), clusterId: String(byId.get(String(reminder.toUserId))!.clusterId),
+      after: { body: reminder.body, channel, kind }, source: options.agentRunId ? "agent" as const : undefined,
+    }))),
+  ]);
   return { reminders, emailed: channel === "email" ? reminders.length : 0, failed };
 }
 export function districtRoutes(app: Hono<AppEnv>) {
   app.get("/district/team", async c => {
     const head = requireHead(c);
-    const { members } = await loadDistrict(sql, head.districtId);
-    const invitations = await sql`
-      select id, name, email, cluster_label, delivery_status, expires_at, created_at,
-        case when status = 'pending' and expires_at <= now() then 'expired' else status end as status
-      from invitations where district_id = ${head.districtId} and status in ('pending', 'expired') order by created_at desc`;
+    const [{ members }, invitations] = await Promise.all([
+      loadDistrict(sql, head.districtId),
+      sql`
+        select id, name, email, cluster_label, delivery_status, expires_at, created_at,
+          case when status = 'pending' and expires_at <= now() then 'expired' else status end as status
+        from invitations where district_id = ${head.districtId} and status in ('pending', 'expired') order by created_at desc`,
+    ]);
     return c.json(ok({ members: members.map(item => item.summary), invitations }));
   });
 
   app.get("/district/overview", async c => {
     const head = requireHead(c);
-    const { members } = await loadDistrict(sql, head.districtId);
-    const schools = members.flatMap(item => item.workspace.schools);
     const weekStart = new Date(Date.now() - 6 * 86_400_000);
-    const week = await sql`
-      select date::text as date, count(*)::int as count from daily_submissions ds
-        join clusters c on c.id = ds.cluster_id join profiles p on p.id = c.member_id
-      where c.district_id = ${head.districtId} and p.deleted_at is null and ds.date >= ${riyadhDate(weekStart)}::date group by date order by date`;
+    const [{ members }, week] = await Promise.all([
+      loadDistrict(sql, head.districtId),
+      sql`
+        select date::text as date, count(*)::int as count from daily_submissions ds
+          join clusters c on c.id = ds.cluster_id join profiles p on p.id = c.member_id
+        where c.district_id = ${head.districtId} and p.deleted_at is null and ds.date >= ${riyadhDate(weekStart)}::date group by date order by date`,
+    ]);
+    const schools = members.flatMap(item => item.workspace.schools);
     const disciplineValues = members.map(item => item.summary.discipline).filter((value): value is number => value !== null);
     return c.json(ok({
       kpis: {
@@ -186,14 +202,23 @@ export function districtRoutes(app: Hono<AppEnv>) {
     return c.json(ok(rows, { total: rows.length }));
   });
 
-  // Full cluster file including national IDs and phones: every read is audited (SPEC Part 8).
+  // Full cluster file including national IDs and phones: every read is audited (SPEC Part 8). Her files and register
+  // rows come with it, so her page opens in one request.
   app.get("/district/members/:id", async c => {
     const head = requireHead(c);
     const clusterId = await memberInDistrict(sql, head, c.req.param("id"));
-    const [district] = await sql`select submission_deadline::text as deadline from districts where id = ${head.districtId}`;
-    const workspace = (await loadWorkspaces(sql, [clusterId])).get(clusterId)!;
-    await audit(c, sql, { action: "read_pii", entity: "cluster", entityId: clusterId, clusterId });
-    return c.json(ok({ summary: memberSummary(workspace, (district?.deadline as string | null) ?? null), phone: workspace.cluster.memberPhone, workspace }));
+    const [deadline, workspaces, , documents, kpis] = await Promise.all([
+      districtDeadline(sql, head.districtId),
+      loadWorkspaces(sql, [clusterId]),
+      audit(c, sql, { action: "read_pii", entity: "cluster", entityId: clusterId, clusterId }),
+      documentsForCluster(sql, clusterId),
+      kpisForMember(sql, clusterId),
+    ]);
+    const workspace = workspaces.get(clusterId)!;
+    return c.json(ok({
+      summary: memberSummary(workspace, deadline), phone: workspace.cluster.memberPhone, workspace,
+      documents: documents.map(toDocumentInfo), kpiScope: kpis.kpiScope, kpis: kpis.rows,
+    }));
   });
 
   app.get("/district/members/:id/timeline", async c => {
@@ -238,6 +263,7 @@ export function districtRoutes(app: Hono<AppEnv>) {
       await revokeSessions(tx, memberId);
       await audit(c, tx, { action: "reset_password", entity: "account", entityId: memberId, clusterId });
     });
+    forgetActor(memberId);
     return c.json(ok({ reset: true }));
   });
 
@@ -263,6 +289,7 @@ export function districtRoutes(app: Hono<AppEnv>) {
       await tx`update invitations set status = 'revoked' where district_id = ${head.districtId} and email = ${member.email} and status = 'pending'`;
       await audit(c, tx, { action: "delete", entity: "member", entityId: memberId, clusterId, before: { name: member.name, email: member.email } });
     });
+    forgetActor(memberId);
     return c.json(ok({ deleted: true }));
   });
 
@@ -298,15 +325,20 @@ export function districtRoutes(app: Hono<AppEnv>) {
       const [row] = Object.keys(profileChanges).length
         ? await tx`update profiles set ${tx(profileChanges)} where id = ${memberId} returning id, name, email, phone, title`
         : await tx`select id, name, email, phone, title from profiles where id = ${memberId}`;
-      for (const [key, value] of Object.entries(profileChanges)) {
-        if (!fieldKeys[key]) continue;
-        await tx`update profile_fields set value = ${value} where cluster_id = ${clusterId} and field_key = ${fieldKeys[key]} and deleted_at is null`;
+      const synced = Object.entries(profileChanges).filter(([key]) => fieldKeys[key]);
+      if (synced.length) {
+        await tx`
+          update profile_fields f set value = v.value
+          from unnest(${tx.array(synced.map(([key]) => fieldKeys[key]))}::text[], ${tx.array(synced.map(([, value]) => value))}::text[]) as v(field_key, value)
+          where f.cluster_id = ${clusterId} and f.field_key = v.field_key and f.deleted_at is null`;
       }
       if (clusterLabel !== undefined) await tx`update clusters set label = ${clusterLabel} where id = ${clusterId}`;
       const changes = { ...profileChanges, ...(clusterLabel !== undefined ? { clusterLabel } : {}) };
       await audit(c, tx, { action: "update", entity: "member_contact", entityId: memberId, clusterId, before, after: changes });
       return { ...row, clusterLabel: clusterLabel ?? before.clusterLabel };
     });
+    // Her name, email, الصفة and cluster label are on her signed-in actor.
+    forgetActor(memberId);
     return c.json(ok(updated));
   });
 
@@ -353,8 +385,7 @@ export function districtRoutes(app: Hono<AppEnv>) {
     const head = requireHead(c);
     const today = riyadhDate();
     const date = c.req.query("date") ? parseDate(c.req.query("date"), today) : today;
-    const { members } = await loadDistrict(sql, head.districtId, date);
-    const [{ pending }] = await sql`select count(*)::int as pending from invitations where district_id = ${head.districtId} and status = 'pending' and expires_at > now()`;
+    const [{ members }, pending] = await Promise.all([loadDistrict(sql, head.districtId, date), pendingInvitations(sql, head.districtId)]);
     return c.json(ok(buildReport(members, pending, date)));
   });
 
@@ -364,8 +395,7 @@ export function districtRoutes(app: Hono<AppEnv>) {
     const today = riyadhDate();
     const date = body.date ? parseDate(body.date, today) : today;
     const format = body.format === "excel" ? "excel" : "text";
-    const { members } = await loadDistrict(sql, head.districtId, date);
-    const [{ pending }] = await sql`select count(*)::int as pending from invitations where district_id = ${head.districtId} and status = 'pending' and expires_at > now()`;
+    const [{ members }, pending] = await Promise.all([loadDistrict(sql, head.districtId, date), pendingInvitations(sql, head.districtId)]);
     const report = buildReport(members, pending, date);
     const saved = await sql.begin(async tx => {
       const [row] = await tx`insert into consolidated_reports ${tx({

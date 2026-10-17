@@ -140,22 +140,32 @@ export type NafesGradeKey = (typeof NAFES_GRADES)[number]["key"];
 /** The visit types offered as chips; «أخرى» on the visit sheet lets her type any other. */
 export const VISIT_TYPES = ["زيارة صفية", "زيارة إشرافية", "متابعة خطة", "ورشة عمل", "تحقق"];
 
-// ───────────── ملف الإنجاز: every member has the same folders, and every school of hers the same ones ─────────────
-// Keys are stored with each file (attachments.folder); labels can be renamed here without touching stored files.
-// A folder with a `parent` is a sub-folder: it opens from its parent, which may still hold files of its own.
-export type FolderDef = { key: string; label: string; parent?: string };
+// ───────────── ملف الإنجاز: each member's folders, and the folders inside each of her schools ─────────────
+// رئيسة النطاق can rename, add, remove and reorder them per member (table `folders`; workspace.folders). Keys are stored
+// with each file (attachments.folder) and never reused: a removed folder's files show in «غير مصنّفة» until it is
+// restored or they are moved. A folder with a `parent` is a sub-folder: it opens from its parent, which may still hold
+// files of its own. The lists below are what every member starts with.
+export type FolderKind = "files" | "schools";
+export type FolderDef = { key: string; label: string; parent?: string | null; kind?: FolderKind; id?: string };
+export type FolderScope = "member" | "school";
+/**
+ * `member`: her own folders · `school`: the folders each of her schools opens (live ones, in order).
+ * `removed`: folders رئيسة النطاق removed (their files wait in «غير مصنّفة», shown with where they were).
+ */
+export type FolderLayout = { member: readonly FolderDef[]; school: readonly FolderDef[]; removed?: readonly (FolderDef & { scope: FolderScope })[] };
 
-/** Her own folders. «مدارس المشرفة» holds no files itself: it opens her schools, each with SCHOOL_FOLDERS. */
+/** Her own folders. «مدارس المشرفة» (kind "schools") holds no files itself: it opens her schools, each with SCHOOL_FOLDERS. */
 export const MEMBER_FOLDERS: readonly FolderDef[] = [
   { key: "professional_development", label: "التطوير المهني" },
   { key: "pd_presenter", label: "منفذ", parent: "professional_development" },
   { key: "pd_attendee", label: "مستفيد", parent: "professional_development" },
   { key: "schools_analysis", label: "تحليل وتصنيف مدارس المشرفة" },
   { key: "initiatives", label: "مبادرات المشرفة" },
-  { key: "schools", label: "مدارس المشرفة" },
+  { key: "schools", label: "مدارس المشرفة", kind: "schools" },
   { key: "performance_charter", label: "ميثاق الأداء الوظيفي" },
   { key: "visit_plan", label: "خطة الزيارات" },
 ];
+/** The key «مدارس المشرفة» starts with (a member's layout may name it differently: look for kind "schools"). */
 export const SCHOOLS_FOLDER = "schools";
 
 export const SCHOOL_FOLDERS: readonly FolderDef[] = [
@@ -179,38 +189,61 @@ export const SCHOOL_FOLDERS: readonly FolderDef[] = [
   { key: "forms", label: "الاستمارات" },
 ];
 
-const foldersOf = (inSchool: boolean) => (inSchool ? SCHOOL_FOLDERS : MEMBER_FOLDERS);
+/** What a member has before رئيسة النطاق changes anything. */
+export const DEFAULT_FOLDERS: FolderLayout = { member: MEMBER_FOLDERS, school: SCHOOL_FOLDERS };
+
+const scopeOf = (inSchool: boolean): FolderScope => (inSchool ? "school" : "member");
+const listOf = (layout: FolderLayout, inSchool: boolean) => layout[scopeOf(inSchool)];
+const isSchoolsEntry = (folder: FolderDef) => folder.kind === "schools";
+
+/** Her «مدارس المشرفة» entry, or null when رئيسة النطاق removed it (her school folders are then out of reach). */
+export const schoolsEntry = (layout: FolderLayout) => layout.member.find(isSchoolsEntry) ?? null;
 
 /** The folders shown first (no parent): hers, or a school's. */
-export const topFolders = (inSchool: boolean) => foldersOf(inSchool).filter(item => !item.parent);
+export const topFolders = (layout: FolderLayout, inSchool: boolean) => listOf(layout, inSchool).filter(item => !item.parent);
 
 /** The sub-folders that open from this folder (none for most). */
-export const subfoldersOf = (folder: string, inSchool: boolean) => foldersOf(inSchool).filter(item => item.parent === folder);
+export const subfoldersOf = (layout: FolderLayout, folder: string, inSchool: boolean) => listOf(layout, inSchool).filter(item => item.parent === folder);
 
 /** This folder and its sub-folders: what the folder's file count covers. */
-export const folderFamily = (folder: string, inSchool: boolean) => [folder, ...subfoldersOf(folder, inSchool).map(item => item.key)];
+export const folderFamily = (layout: FolderLayout, folder: string, inSchool: boolean) =>
+  [folder, ...subfoldersOf(layout, folder, inSchool).map(item => item.key)];
 
-export const folderParent = (folder: string, inSchool: boolean) => foldersOf(inSchool).find(item => item.key === folder)?.parent ?? null;
+export const folderParent = (layout: FolderLayout, folder: string, inSchool: boolean) =>
+  listOf(layout, inSchool).find(item => item.key === folder)?.parent ?? null;
 
-/** Where a file may be stored: one of her folders (not «مدارس المشرفة» itself), or a folder of one of her schools. */
-export const isFileFolder = (folder: string, inSchool: boolean) =>
-  foldersOf(inSchool).some(item => item.key === folder && (inSchool || item.key !== SCHOOLS_FOLDER));
-
-export const folderLabel = (folder: string, inSchool: boolean) => foldersOf(inSchool).find(item => item.key === folder)?.label ?? "";
-
-/** «الانضباط التعليمي › المساءلة» for a sub-folder, the folder's own label otherwise ("" for an unknown key). */
-export function folderTitle(folder: string, inSchool: boolean) {
-  const label = folderLabel(folder, inSchool);
-  const parent = folderParent(folder, inSchool);
-  return label && parent ? `${folderLabel(parent, inSchool)} › ${label}` : label;
+/**
+ * Where a file may be stored: one of her folders (not «مدارس المشرفة» itself), or a folder of one of her schools while
+ * she still has «مدارس المشرفة». A sub-folder counts only while its parent is there.
+ */
+export function isFileFolder(layout: FolderLayout, folder: string, inSchool: boolean) {
+  if (inSchool && !schoolsEntry(layout)) return false;
+  const list = listOf(layout, inSchool);
+  const item = list.find(entry => entry.key === folder);
+  if (!item || isSchoolsEntry(item)) return false;
+  return !item.parent || list.some(entry => entry.key === item.parent && !entry.parent);
 }
 
-/** «التطوير المهني › منفذ», «مدارس المشرفة › الثانوية التاسعة › الانضباط التعليمي», or «غير مصنّف» for a file not in a folder yet. */
-export function folderPath(file: { folder: string | null; schoolId: string | null; schoolName: string | null }) {
-  if (!file.folder) return "غير مصنّف";
-  const label = folderTitle(file.folder, Boolean(file.schoolId));
-  if (!file.schoolId) return label || "غير مصنّف";
-  return [folderLabel(SCHOOLS_FOLDER, false), file.schoolName || "مدرسة", label].join(" › ");
+export const folderLabel = (layout: FolderLayout, folder: string, inSchool: boolean) =>
+  listOf(layout, inSchool).find(item => item.key === folder)?.label ?? "";
+
+/** «الانضباط التعليمي › المساءلة» for a sub-folder, the folder's own label otherwise ("" for an unknown key). */
+export function folderTitle(layout: FolderLayout, folder: string, inSchool: boolean) {
+  const label = folderLabel(layout, folder, inSchool);
+  const parent = folderParent(layout, folder, inSchool);
+  return label && parent ? `${folderLabel(layout, parent, inSchool)} › ${label}` : label;
+}
+
+/**
+ * «التطوير المهني › منفذ», «مدارس المشرفة › الثانوية التاسعة › الانضباط التعليمي», or «غير مصنّف» for a file not in one of
+ * her folders (never filed, or its folder was removed). Without a layout the default folders name it.
+ */
+export function folderPath(file: { folder: string | null; schoolId: string | null; schoolName: string | null }, layout: FolderLayout = DEFAULT_FOLDERS) {
+  const inSchool = Boolean(file.schoolId);
+  if (!file.folder || !isFileFolder(layout, file.folder, inSchool)) return "غير مصنّف";
+  const label = folderTitle(layout, file.folder, inSchool);
+  if (!inSchool) return label;
+  return [schoolsEntry(layout)!.label, file.schoolName || "مدرسة", label].join(" › ");
 }
 
 // ───────────── derived values (EDITABILITY Part 4) ─────────────
@@ -267,6 +300,9 @@ export function completionPct(input: {
   }
   return total ? Math.round((filled / total) * 100) : 0;
 }
+
+// مؤشرات الأداء: the district register of school-evaluation indicators.
+export * from "./kpis";
 
 // API contracts for the agent chat, documents and accounts (type-only).
 export type * from "./contracts";

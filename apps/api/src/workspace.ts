@@ -1,4 +1,7 @@
-import { MADRASATI_METRICS, completionPct, riyadhDate, yearsSinceHijri, type EvaluationDomain, type EvaluationDomainKey } from "@rasd/schemas";
+import {
+  DEFAULT_FOLDERS, MADRASATI_METRICS, completionPct, riyadhDate, yearsSinceHijri,
+  type EvaluationDomain, type EvaluationDomainKey, type FolderDef, type FolderKind, type FolderLayout, type FolderScope,
+} from "@rasd/schemas";
 import { PASSIVE_ACTIONS } from "./audit.js";
 import type { Row, Sql } from "./db.js";
 
@@ -18,33 +21,73 @@ export type Workspace = Awaited<ReturnType<typeof loadWorkspaces>> extends Map<s
 
 let signInsUnreadable = false;
 
+const reportUnreadable = (error: unknown) => {
+  if (signInsUnreadable) return;
+  signInsUnreadable = true;
+  console.error(`cannot read auth.users (${(error as { code?: string }).code ?? (error as Error).message}): last sign-in times stay empty`);
+};
+
 /**
  * When each user last signed in (Supabase's auth.users.last_sign_in_at). A database role without access to the auth
- * schema (42501) gets null — logged once — instead of failing every workspace endpoint with it.
+ * schema (42501) gets null — logged once, and not asked again — instead of failing every workspace endpoint with it.
  */
 export async function lastSignIns(db: Sql, userIds: string[]): Promise<Map<string, Date | null> | null> {
   if (!userIds.length) return new Map();
+  if (signInsUnreadable) return null;
   const read = (q: Sql) => q`select id, last_sign_in_at from auth.users where id = any(${q.array(userIds)}::uuid[])`;
   try {
     // Inside a transaction the read gets its own savepoint, so a refusal never aborts the caller's work.
     const rows = await ("savepoint" in db ? db.savepoint(tx => read(tx)) : read(db));
     return new Map(rows.map(row => [String(row.id), (row.lastSignInAt as Date | null) ?? null]));
   } catch (error) {
-    if (!signInsUnreadable) {
-      signInsUnreadable = true;
-      console.error(`cannot read auth.users (${(error as { code?: string }).code ?? (error as Error).message}): last sign-in times stay empty`);
-    }
+    reportUnreadable(error);
     return null;
   }
 }
 
-/** Loads complete cluster files for the given clusters in a fixed number of queries. */
+/** The same, keyed by cluster, so it goes out with the other workspace queries (outside a transaction only). */
+async function lastSignInsOfClusters(db: Sql, clusterIds: string[]): Promise<Map<string, Date | null> | null> {
+  if (signInsUnreadable) return null;
+  try {
+    const rows = await db`
+      select c.member_id as id, u.last_sign_in_at from clusters c join auth.users u on u.id = c.member_id
+      where c.id = any(${db.array(clusterIds)}::uuid[])`;
+    return new Map(rows.map(row => [String(row.id), (row.lastSignInAt as Date | null) ?? null]));
+  } catch (error) {
+    reportUnreadable(error);
+    return null;
+  }
+}
+
+/** Her folders and her schools' folders (live, and removed ones), or the defaults while she has no folder rows at all. */
+export function folderLayout(rows: Row[]): FolderLayout {
+  if (!rows.length) return DEFAULT_FOLDERS;
+  const def = (row: Row): FolderDef => ({
+    id: String(row.id), key: String(row.key), label: String(row.label), parent: (row.parentKey as string | null) ?? null, kind: row.kind as FolderKind,
+  });
+  const live = rows.filter(row => !row.deletedAt);
+  const of = (scope: FolderScope) => live.filter(row => row.scope === scope).map(def);
+  const removed = rows.filter(row => row.deletedAt).map(row => ({ ...def(row), scope: row.scope as FolderScope }));
+  return { member: of("member"), school: of("school"), removed };
+}
+
+/**
+ * Loads complete cluster files for the given clusters. Every query is keyed on the cluster ids, so they all go out
+ * together: the API and the database are far apart, and each sequential step costs a full round trip.
+ */
 export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riyadhDate()) {
   const result = new Map<string, ReturnType<typeof buildWorkspace>>();
   if (!clusterIds.length) return result;
   const ids = db.array(clusterIds);
+  // Inside a transaction a refused auth.users read would abort the queries beside it, so there it runs afterwards in
+  // its own savepoint (lastSignIns); outside one it goes out in the same batch.
+  const inTransaction = "savepoint" in db;
 
-  const [clusters, profileRows, schoolRows, overrideRows, planRows, programRows, sectionRows, supportRows, submissionRows, activityRows, documentRows] = await Promise.all([
+  const [
+    clusters, profileRows, schoolRows, overrideRows, planRows, programRows, sectionRows, supportRows, submissionRows, activityRows, documentRows,
+    customRows, tileRows, roleRows, roleFieldRows, evaluationRows, madrasatiRows, disciplineRows, absenceRows, visitRows, sectionFieldRows, folderRows,
+    batchedSignIns,
+  ] = await Promise.all([
     db`select c.*, p.name as member_name, p.email as member_email, p.phone as member_phone, p.title as member_title, p.activated_at
       from clusters c join profiles p on p.id = c.member_id where c.id = any(${ids}::uuid[])`,
     db`select * from profile_fields where cluster_id = any(${ids}::uuid[]) and deleted_at is null order by sort_order, created_at`,
@@ -56,29 +99,37 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     db`select * from discipline_support_plans where cluster_id = any(${ids}::uuid[])`,
     db`select cluster_id, submitted_at from daily_submissions where cluster_id = any(${ids}::uuid[]) and date = ${today}::date`,
     // Her own work only (decision 6): what the head or the agent changed in her file does not count as her activity.
-    db`select a.cluster_id, max(a.at) as last_activity_at from audit_log a join clusters c on c.id = a.cluster_id
-      where a.cluster_id = any(${ids}::uuid[]) and a.actor_id = c.member_id and a.action <> all(${db.array(PASSIVE_ACTIONS)}::text[]) group by a.cluster_id`,
+    // One index probe per member (audit_log_activity_idx) instead of aggregating her whole history.
+    db`select c.id as cluster_id, latest.at as last_activity_at from clusters c
+      cross join lateral (
+        select a.at from audit_log a
+        where a.cluster_id = c.id and a.actor_id = c.member_id and a.action <> all(${db.array(PASSIVE_ACTIONS)}::text[])
+        order by a.at desc limit 1
+      ) latest
+      where c.id = any(${ids}::uuid[])`,
     db`select cluster_id, count(*)::int as count from attachments where cluster_id = any(${ids}::uuid[]) and deleted_at is null group by cluster_id`,
+    db`select f.* from school_custom_fields f join schools s on s.id = f.school_id
+      where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null and f.deleted_at is null order by f.sort_order, f.created_at`,
+    db`select t.* from school_staff_tiles t join schools s on s.id = t.school_id
+      where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null and t.deleted_at is null order by t.sort_order, t.created_at`,
+    db`select r.* from leadership_roles r join schools s on s.id = r.school_id
+      where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null and r.deleted_at is null order by r.sort_order, r.created_at`,
+    db`select f.* from leadership_fields f join leadership_roles r on r.id = f.role_id join schools s on s.id = r.school_id
+      where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null and r.deleted_at is null and f.deleted_at is null
+      order by f.sort_order, f.created_at`,
+    db`select e.* from evaluation_indicators e join schools s on s.id = e.school_id where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null`,
+    db`select m.* from madrasati_indicators m join schools s on s.id = m.school_id where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null`,
+    db`select d.* from discipline_indicators d join schools s on s.id = d.school_id where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null`,
+    db`select a.school_id, a.done, a.full_attendance from absence_confirmations a join schools s on s.id = a.school_id
+      where s.cluster_id = any(${ids}::uuid[]) and s.deleted_at is null and a.date = ${today}::date`,
+    db`select school_id, count(*)::int as count from visit_reports where cluster_id = any(${ids}::uuid[]) group by school_id`,
+    db`select f.* from custom_section_fields f join custom_sections cs on cs.id = f.section_id
+      where cs.cluster_id = any(${ids}::uuid[]) and cs.deleted_at is null and f.deleted_at is null order by f.sort_order, f.created_at`,
+    // Removed folders too: a member whose folders were all removed is told apart from one who never had folder rows.
+    db`select * from folders where cluster_id = any(${ids}::uuid[]) order by sort_order, created_at`,
+    inTransaction ? Promise.resolve(null) : lastSignInsOfClusters(db, clusterIds),
   ]);
-  const signIns = await lastSignIns(db, clusters.map(row => String(row.memberId)));
-
-  const schoolIds = db.array(schoolRows.map(row => row.id as string));
-  const sectionIds = db.array(sectionRows.map(row => row.id as string));
-  const [customRows, tileRows, roleRows, evaluationRows, madrasatiRows, disciplineRows, absenceRows, visitRows, sectionFieldRows] = await Promise.all([
-    db`select * from school_custom_fields where school_id = any(${schoolIds}::uuid[]) and deleted_at is null order by sort_order, created_at`,
-    db`select * from school_staff_tiles where school_id = any(${schoolIds}::uuid[]) and deleted_at is null order by sort_order, created_at`,
-    db`select * from leadership_roles where school_id = any(${schoolIds}::uuid[]) and deleted_at is null order by sort_order, created_at`,
-    db`select * from evaluation_indicators where school_id = any(${schoolIds}::uuid[])`,
-    db`select * from madrasati_indicators where school_id = any(${schoolIds}::uuid[])`,
-    db`select * from discipline_indicators where school_id = any(${schoolIds}::uuid[])`,
-    db`select school_id, done, full_attendance from absence_confirmations where school_id = any(${schoolIds}::uuid[]) and date = ${today}::date`,
-    db`select school_id, count(*)::int as count from visit_reports where school_id = any(${schoolIds}::uuid[]) group by school_id`,
-    db`select * from custom_section_fields where section_id = any(${sectionIds}::uuid[]) and deleted_at is null order by sort_order, created_at`,
-  ]);
-  const roleIds = db.array(roleRows.map(row => row.id as string));
-  const roleFieldRows = roleRows.length
-    ? await db`select * from leadership_fields where role_id = any(${roleIds}::uuid[]) and deleted_at is null order by sort_order, created_at`
-    : [];
+  const signIns = inTransaction ? await lastSignIns(db, clusters.map(row => String(row.memberId))) : batchedSignIns;
 
   const lookup = {
     profile: groupBy(profileRows, "clusterId"),
@@ -103,6 +154,7 @@ export async function loadWorkspaces(db: Sql, clusterIds: string[], today = riya
     absence: new Map(absenceRows.map(row => [String(row.schoolId), Boolean(row.done)])),
     attendance: new Map(absenceRows.map(row => [String(row.schoolId), (row.fullAttendance as boolean | null) ?? null])),
     visits: new Map(visitRows.map(row => [String(row.schoolId), Number(row.count)])),
+    folders: groupBy(folderRows, "clusterId"),
   };
 
   for (const cluster of clusters) result.set(String(cluster.id), buildWorkspace(cluster, lookup, today));
@@ -116,6 +168,7 @@ type Lookup = {
   custom: Map<string, Row[]>; tiles: Map<string, Row[]>;
   roles: Map<string, Row[]>; roleFields: Map<string, Row[]>; evaluation: Map<string, Row>; madrasati: Map<string, Row>;
   discipline: Map<string, Row>; absence: Map<string, boolean>; attendance: Map<string, boolean | null>; visits: Map<string, number>;
+  folders: Map<string, Row[]>;
 };
 
 function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
@@ -193,6 +246,8 @@ function buildWorkspace(cluster: Row, lookup: Lookup, today: string) {
       id: section.id as string, label: section.label as string, updatedAt: section.updatedAt as Date,
       fields: (lookup.sectionFields.get(String(section.id)) ?? []).map(field => ({ id: field.id as string, label: field.label as string, value: field.value as string, updatedAt: field.updatedAt as Date })),
     })),
+    /** ملف الإنجاز: her folders and the folders of each of her schools. */
+    folders: folderLayout(lookup.folders.get(clusterId) ?? []),
     disciplineSupportPlan: { text: (lookup.support.get(clusterId)?.text as string | undefined) ?? "", updatedAt: (lookup.support.get(clusterId)?.updatedAt as Date | undefined) ?? null },
     completion: completionPct({ profile, schools }),
   };

@@ -19,7 +19,7 @@ import { choices } from "./render.js";
 import { auditFileReads, loadTeam, type TeamSnapshot } from "./snapshot.js";
 
 export type { AgentReply } from "./proposals.js";
-export { UNDO_EXPIRED_MESSAGE, undoExpired } from "./proposals.js";
+export { proposalExpired } from "./proposals.js";
 
 export type AgentContext = {
   /** خلود: role "head"; every read and write is limited to her district. */

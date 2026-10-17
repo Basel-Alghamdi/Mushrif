@@ -1,12 +1,12 @@
 "use client";
 
-import type { DocumentInfo } from "@rasd/schemas";
+import type { DocumentInfo, KpiScope, SchoolKpi } from "@rasd/schemas";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, errorText, redirectIfSignedOut } from "../../lib/api";
+import { api, ApiError, errorText, getMe, redirectIfSignedOut, rememberMe } from "../../lib/api";
 import { enforceSessionOnly, supabase } from "../../lib/supabase";
-import type { Me, VisitReport, Workspace } from "../../lib/types";
+import type { Me, MemberBootstrap, VisitReport, Workspace } from "../../lib/types";
 
 export type ToastAction = { label: string; run: () => void };
 type Toast = { id: number; text: string; tone: "ok" | "info" | "error"; actions?: ToastAction[] };
@@ -42,6 +42,10 @@ type MemberContextValue = {
   setDocuments: (change: (documents: DocumentInfo[]) => DocumentInfo[]) => void;
   visits: VisitReport[];
   setVisits: (change: (visits: VisitReport[]) => VisitReport[]) => void;
+  /** Her rows of رئيسة النطاق's register (مؤشرات الأداء), and whether she may also see every school's row. */
+  kpis: SchoolKpi[];
+  setKpis: (change: (kpis: SchoolKpi[]) => SchoolKpi[]) => void;
+  kpiScope: KpiScope;
   notify: (text: string, options?: { tone?: Toast["tone"]; actions?: ToastAction[] }) => void;
   /** Reports a failed action that is not a field save: session expiry → login; otherwise an error toast with retry. */
   fail: (error: unknown, retry?: () => void) => void;
@@ -64,6 +68,9 @@ export function useMember() {
   return value;
 }
 
+// Coming back to the app within this time shows what she already has: switching apps on a phone is constant.
+const REFRESH_AFTER_MS = 30_000;
+
 const isConflict = (error: unknown): error is ApiError => error instanceof ApiError && error.status === 409 && error.code === "CONFLICT";
 const fieldMessage = (error: ApiError) => (error.fields ? Object.values(error.fields)[0] : error.message);
 
@@ -74,6 +81,8 @@ export function MemberProvider({ children }: { children: ReactNode }) {
   const [ws, setWsState] = useState<Workspace | null>(null);
   const [documents, setDocumentsState] = useState<DocumentInfo[]>([]);
   const [visits, setVisitsState] = useState<VisitReport[]>([]);
+  const [kpis, setKpisState] = useState<SchoolKpi[]>([]);
+  const [kpiScope, setKpiScope] = useState<KpiScope>("own");
   const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState<Toast | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -86,6 +95,9 @@ export function MemberProvider({ children }: { children: ReactNode }) {
   const pending = useRef(0);
   /** The last answer was a conflict or a refusal: the header must not say «حُفظ» (the toast explains). */
   const unsaved = useRef(false);
+  /** The bootstrap request on its way (null: none), and when the last one arrived. */
+  const loading = useRef<Promise<MemberBootstrap> | null>(null);
+  const loadedAt = useRef(0);
 
   const busy = () => pending.current > 0 || timers.current.size > 0;
   const refreshState = useCallback(() => {
@@ -181,52 +193,64 @@ export function MemberProvider({ children }: { children: ReactNode }) {
     jobs.forEach(job => job());
   }, [refreshState]);
 
+  // One request brings her whole app: her account, file, files, visits and register rows.
   const loadData = useCallback(async () => {
-    const [workspace, docs, visitRows] = await Promise.all([
-      api.get<Workspace>("/member/workspace"),
-      api.get<DocumentInfo[]>("/cluster/me/documents"),
-      api.get<VisitReport[]>("/cluster/me/visits"),
-    ]);
-    replace(workspace);
-    setDocumentsState(docs);
-    setVisitsState(visitRows);
+    const request = api.get<MemberBootstrap>("/member/bootstrap");
+    loading.current = request;
+    try {
+      const data = await request;
+      if (loading.current !== request) return; // a newer load is on its way: its answer wins
+      rememberMe(data.me);
+      setMe(data.me.user);
+      replace(data.workspace);
+      setDocumentsState(data.documents);
+      setVisitsState(data.visits);
+      setKpisState(data.kpis);
+      setKpiScope(data.kpiScope);
+      loadedAt.current = Date.now();
+    } finally {
+      if (loading.current === request) loading.current = null;
+    }
   }, [replace]);
 
   const reload = useCallback(async () => {
     try { await loadData(); } catch (error) { fail(error); }
   }, [loadData, fail]);
 
-  // Session (Supabase) → her account (role decides the home) → her file.
+  // Session (Supabase) → her account and file in one request; the head is refused (403) and goes to her home.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       await enforceSessionOnly();
       const { data } = await supabase.auth.getSession();
       if (!data.session) { router.replace("/login"); return; }
-      const { user } = await api.get<Me>("/auth/me");
-      if (user.role === "head") { router.replace("/district"); return; }
+      if (!cancelled) await loadData();
+    })().catch(async error => {
+      if (cancelled || redirectIfSignedOut(error)) return;
+      // Only the head goes to /district: a member refused here (no file) would be sent back by HeadGuard, in a loop.
+      const head = error instanceof ApiError && error.code === "FORBIDDEN" && (await getMe().catch(() => null))?.user.role === "head";
       if (cancelled) return;
-      setMe(user);
-      await loadData();
-    })().catch(error => { if (!cancelled && !redirectIfSignedOut(error)) setLoadError(errorText(error)); });
+      if (head) router.replace("/district");
+      else setLoadError(errorText(error));
+    });
     const { data: listener } = supabase.auth.onAuthStateChange(event => { if (event === "SIGNED_OUT") router.replace("/login"); });
     return () => { cancelled = true; listener.subscription.unsubscribe(); };
   }, [router, loadData]);
 
-  // Pull what changed elsewhere (رئيسة النطاق, her other device) when she comes back — never while she is typing or saving.
+  // Pull what changed elsewhere (رئيسة النطاق, her other device) when she comes back to the app — at most every 30s,
+  // never while she is typing or saving.
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState !== "visible" || !wsRef.current || busy() || failed.current.size) return;
+      if (loading.current || Date.now() - loadedAt.current < REFRESH_AFTER_MS) return;
       if (document.activeElement?.matches("input,textarea,select")) return;
       loadData().catch(() => { /* offline: try again next time */ });
     };
     const hidden = () => { if (document.visibilityState === "hidden") flush(); }; // switching apps on a phone sends what she typed
-    window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("online", retry);
     return () => {
-      window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("online", retry);
@@ -249,11 +273,12 @@ export function MemberProvider({ children }: { children: ReactNode }) {
 
   const setDocuments = useCallback((change: (list: DocumentInfo[]) => DocumentInfo[]) => setDocumentsState(change), []);
   const setVisits = useCallback((change: (list: VisitReport[]) => VisitReport[]) => setVisitsState(change), []);
+  const setKpis = useCallback((change: (list: SchoolKpi[]) => SchoolKpi[]) => setKpisState(change), []);
   const current = useCallback(() => wsRef.current!, []);
 
   const value = useMemo(() => (me && ws ? {
-    me, ws, current, update, reload, documents, setDocuments, visits, setVisits, notify, fail, save, schedule, flush, settle, saveState, retry,
-  } : null), [me, ws, current, update, reload, documents, setDocuments, visits, setVisits, notify, fail, save, schedule, flush, settle, saveState, retry]);
+    me, ws, current, update, reload, documents, setDocuments, visits, setVisits, kpis, setKpis, kpiScope, notify, fail, save, schedule, flush, settle, saveState, retry,
+  } : null), [me, ws, current, update, reload, documents, setDocuments, visits, setVisits, kpis, setKpis, kpiScope, notify, fail, save, schedule, flush, settle, saveState, retry]);
 
   if (loadError) {
     return (

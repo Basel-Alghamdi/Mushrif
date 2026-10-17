@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { messages } from "@rasd/schemas";
 import { authenticate, requireMember, type AppEnv } from "./auth.js";
@@ -10,6 +10,8 @@ import { aiRoutes } from "./routes/ai.js";
 import { chatRoutes } from "./routes/chat.js";
 import { districtRoutes, notificationRoutes } from "./routes/district.js";
 import { documentRoutes } from "./routes/documents.js";
+import { folderRoutes } from "./routes/folders.js";
+import { kpiRoutes } from "./routes/kpis.js";
 import { memberRoutes } from "./routes/member.js";
 
 export const app = new Hono<AppEnv>();
@@ -18,6 +20,8 @@ app.use("*", cors({
   origin: origin => (env.corsOrigins.includes(origin) ? origin : null),
   allowHeaders: ["Content-Type", "Authorization", "X-Rasd-Source"],
   allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  // Without it a browser calling the API cross-origin repeats the preflight before almost every request.
+  maxAge: 86_400,
 }));
 
 app.get("/health", async c => {
@@ -34,6 +38,8 @@ districtRoutes(api);
 notificationRoutes(api);
 aiRoutes(api);
 documentRoutes(api);
+folderRoutes(api);
+kpiRoutes(api);
 chatRoutes(api);
 
 // Not built yet (smart import). They answer honestly instead of pretending to succeed.
@@ -49,16 +55,19 @@ app.route("/api/v1", api);
 
 app.notFound(c => c.json(fail("NOT_FOUND", "المسار غير موجود"), 404));
 
-app.onError((error, c) => {
+/** Errors as the API answers them (also used by the agent's in-process calls, internal-api.ts). */
+export function errorResponse(error: Error, c: Context<AppEnv>) {
   if (error instanceof ApiError) return c.json(fail(error.code, error.message, error.fields, error.details), error.status);
   const pg = error as { code?: string; constraint_name?: string };
   if (pg.code === "23505") {
     if (pg.constraint_name === "schools_ministry_no_unique") return c.json(fail("DUPLICATE", messages.ministryNoTaken, { ministryNo: messages.ministryNoTaken }), 409);
     return c.json(fail("DUPLICATE", "القيمة مستخدمة مسبقاً"), 409);
   }
-  if (pg.code === "23514" || pg.code === "22P02" || pg.code === "23502" || pg.code === "22001") {
+  if (pg.code === "23514" || pg.code === "22P02" || pg.code === "23502" || pg.code === "22001" || pg.code === "22003") {
     return c.json(fail("VALIDATION_ERROR", "البيانات غير صحيحة"), 422);
   }
   console.error(error);
   return c.json(fail("INTERNAL", "حدث خطأ غير متوقع — أعيدي المحاولة"), 500);
-});
+}
+
+app.onError(errorResponse);

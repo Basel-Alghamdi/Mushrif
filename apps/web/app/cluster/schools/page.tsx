@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { useActions } from "../../../components/member/actions";
 import { useMember } from "../../../components/member/context";
+import { KpiEntry } from "../../../components/member/kpis/member-kpis";
 import { SCHOOL_FORMS, SEP, TEACHERS_TILE, tierPill, tileOf } from "../../../components/member/model";
 import { ar, counted } from "../../../lib/format";
 
@@ -38,6 +39,8 @@ export default function SchoolsPage() {
           <p className="m-status">{[counted(schools.length, SCHOOL_FORMS), `${ar(students)} طالبة`, `${ar(teachers)} معلمة`].join(SEP)}</p>
         )}
       </header>
+
+      <KpiEntry />
 
       {schools.length === 0 && !adding && <p className="m-lead">أضيفي مدارس عنقودك لتثبّتي غيابها وتسجّلي زياراتك.</p>}
 

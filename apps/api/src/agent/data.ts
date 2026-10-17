@@ -1,5 +1,7 @@
-// Reading the team snapshot, shared by the local engine, the importer and the Claude brain (all synchronous).
-import type { StoredDocument } from "../documents.js";
+// Reading the team snapshot, shared by the local engine, the importer and the Claude brain (synchronous, except the
+// document search, which asks the database).
+import type { Sql } from "../db.js";
+import type { DocumentRow } from "../documents.js";
 import { cleanText } from "../parse.js";
 import type { MetricId } from "./lexicon.js";
 import type { MemberDetail, MemberSummary, ProfileField, Visit } from "./model.js";
@@ -149,7 +151,7 @@ export function searchPhrase(query: string) {
   }).join(" ").replace(/[؟?!.،,]+$/g, "");
 }
 
-export type DocumentHit = { document: StoredDocument; snippets: string[]; where: string; score: number };
+export type DocumentHit = { document: DocumentRow; snippets: string[]; where: string; score: number };
 
 function snippetOf(line: string, term: string) {
   const clean = line.replace(/\s+/g, " ").trim();
@@ -158,15 +160,38 @@ function snippetOf(line: string, term: string) {
   return `${at > 0 ? "…" : ""}${clean.slice(at, at + 220).trim()}…`;
 }
 
-/** Full-text search over every document the head can see (team files + her own uploads). */
-export function searchDocuments(team: TeamSnapshot, query: string, options: { memberId?: string; limit?: number; requireAll?: boolean } = {}): DocumentHit[] {
+// A normalized search term as a pattern over the stored text: each letter in every spelling normalizeArabic folds
+// together (ا/أ/إ/آ, ه/ة, ي/ى/ئ…), with tashkeel, tatweel or a hamza allowed between letters.
+const SPELLINGS: Record<string, string> = { "ا": "اأإآٱ", "ي": "يىیئ", "ه": "هة", "و": "وؤ", "ك": "كک" };
+const IGNORABLE = "[ً-ٰٟـء]*";
+const termPattern = (term: string) => [...term].map(char => {
+  const digit = /\d/.test(char) ? `${char}${String.fromCharCode(0x0660 + Number(char))}${String.fromCharCode(0x06f0 + Number(char))}` : "";
+  const letters = SPELLINGS[char] ?? digit;
+  return letters ? `[${letters}]` : char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}).join(IGNORABLE);
+
+/**
+ * Full-text search over every document the head can see (team files + her own uploads). The database finds the files
+ * and returns only their matching lines (with the sheet headings), so whole files never leave it; ranking and
+ * snippets work on those lines.
+ */
+export async function searchDocuments(db: Sql, team: TeamSnapshot, query: string, options: { memberId?: string; limit?: number; requireAll?: boolean } = {}): Promise<DocumentHit[]> {
   const terms = searchTerms(query);
-  if (!terms.length) return [];
-  const documents = team.documents.filter(document => !options.memberId || document.ownerId === options.memberId);
+  const candidates = team.documents.filter(document => !options.memberId || document.ownerId === options.memberId);
+  if (!terms.length || !candidates.length) return [];
+  const pattern = terms.map(termPattern).join("|");
+  const rows = await db`
+    select a.id, array(
+      select l.line from unnest(string_to_array(ac.text, E'\n')) with ordinality as l(line, n)
+      where l.line ~* ${pattern} or l.line like '## %' order by l.n limit 400) as lines
+    from attachments a join attachment_contents ac on ac.attachment_id = a.id
+    where a.id = any(${db.array(candidates.map(document => document.id))}::uuid[]) and (ac.text ~* ${pattern} or a.name ~* ${pattern})`;
+  const matched = new Map(rows.map(row => [String(row.id), (row.lines as string[]) ?? []]));
+  const documents = candidates.filter(document => matched.has(document.id));
   const hits: (DocumentHit & { matched: number })[] = [];
   for (const document of documents) {
     const name = normalizeText(document.name);
-    const lines = document.text.split(/\r?\n/);
+    const lines = matched.get(document.id)!;
     const matchedTerms = new Set<string>();
     const snippets: string[] = [];
     let sheet = "";
@@ -194,10 +219,10 @@ export function searchDocuments(team: TeamSnapshot, query: string, options: { me
 }
 
 /** A document whose name best matches the text ("ملف خطة الزيارات" → خطة الزيارات.docx). */
-export function findDocumentByName(team: TeamSnapshot, text: string): StoredDocument | null {
+export function findDocumentByName(team: TeamSnapshot, text: string): DocumentRow | null {
   const terms = searchTerms(text.replace(/\.[a-z0-9]{2,5}\b/gi, ""));
   if (!terms.length) return null;
-  let best: { document: StoredDocument; score: number } | null = null;
+  let best: { document: DocumentRow; score: number } | null = null;
   for (const document of team.documents) {
     const name = normalizeText(document.name.replace(/\.[a-z0-9]{2,5}$/i, ""));
     const score = terms.filter(term => name.includes(term)).length / terms.length;

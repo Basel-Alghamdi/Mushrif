@@ -81,6 +81,8 @@ describe("member file", () => {
     const fresh = (await api.call("GET", "/member/workspace", undefined, rasha)).data;
     assert.equal(field(fresh, "title").value, "قائدة فريق");
     assert.equal(field(fresh, "phone").value, "0500");
+    const me = (await api.call("GET", "/auth/me", undefined, rasha)).data.user;
+    assert.deepEqual([me.title, me.phone], ["قائدة فريق", "0500"], "her signed-in account is read again after the head's change");
   });
 
   test("the head edits a member's file through the mirror routes, audited with her cluster", async () => {
@@ -191,5 +193,76 @@ describe("member file", () => {
     assert.equal((await api.call("GET", "/district/members/00000000-0000-0000-0000-000000000000/profile-fields", undefined, head)).status, 404);
     const otherField = await api.call("PATCH", `/district/members/${maha.id}/profile-fields/${field((await api.call("GET", "/member/workspace", undefined, rasha)).data, "phone").id}`, { value: "x" }, head);
     assert.equal(otherField.status, 404, "a field of another member's file is not found under this member");
+  });
+
+  test("batched writes: reorder, hidden school fields, a new leadership role, and submitting today", async () => {
+    const programs = await Promise.all(["أ", "ب", "ج"].map(label => api.call("POST", "/pd", { label }, rasha)));
+    const order = [...programs].reverse().map(program => program.data.id as string);
+    const all = (await api.call("GET", "/cluster/me/pd", undefined, rasha)).data.map((item: any) => item.id as string);
+    const ids = [...order, ...all.filter((id: string) => !order.includes(id))];
+    assert.equal((await api.call("PUT", "/pd/order", { ids }, rasha)).status, 200);
+    assert.deepEqual((await api.call("GET", "/cluster/me/pd", undefined, rasha)).data.map((item: any) => item.id), ids);
+    assert.equal((await api.call("PUT", "/pd/order", { ids: ids.slice(1) }, rasha)).status, 422, "the list must match her items");
+    assert.equal((await api.call("PUT", "/pd/order", { ids: [ids[0], ...ids.slice(0, -1)] }, rasha)).status, 422, "each item exactly once");
+    assert.deepEqual((await api.call("GET", "/cluster/me/pd", undefined, rasha)).data.map((item: any) => item.id), ids, "a refused order changes nothing");
+
+    const school = (await api.call("POST", "/cluster/me/schools", { name: "ابتدائية الحقول" }, rasha)).data;
+    assert.equal((await api.call("PATCH", `/cluster/me/schools/${school.id}`, { name: "ابتدائية الحقول", stage: "ابتدائي", students: 120 }, rasha)).status, 200);
+    const audited = await api.sql`select field from audit_log where entity = 'school' and entity_id = ${school.id} and action = 'update' order by field`;
+    assert.deepEqual(audited.map(row => row.field), ["stage", "students"], "one row per changed field; the unchanged name is not audited");
+    const { auditMany } = await import("../../audit.js");
+    const [{ districtId }] = await api.sql`select district_id from profiles where id = ${rashaId}`;
+    const context = { actor: { id: rashaId, districtId, role: "member" as const, clusterId: rashaCluster }, source: "mobile" as const, ip: "10.0.0.7" };
+    await auditMany(api.sql, context, [{ action: "update", entity: "plan", entityId: "ip-check", field: "url", after: "x" }, { action: "read_pii", entity: "plan", entityId: "ip-check" }]);
+    const logged = await api.sql`select action, source, host(ip) as ip from audit_log where entity_id = 'ip-check' order by action`;
+    assert.deepEqual(logged.map(row => [row.action, row.source, row.ip]), [["read_pii", "mobile", "10.0.0.7"], ["update", "mobile", "10.0.0.7"]]);
+    const hide = (hidden: string[]) => api.call("PUT", `/schools/${school.id}/field-overrides`, { hidden }, rasha);
+    assert.equal((await hide(["area", "students", "area"])).status, 200);
+    assert.deepEqual((await api.call("GET", `/schools/${school.id}/field-overrides`, undefined, rasha)).data.hidden.sort(), ["area", "students"]);
+    assert.equal((await hide([])).status, 200);
+    assert.deepEqual((await api.call("GET", `/schools/${school.id}/field-overrides`, undefined, rasha)).data.hidden, []);
+
+    const role = await api.call("POST", `/schools/${school.id}/leadership`, {}, rasha);
+    assert.equal(role.status, 201);
+    const fields = await api.call("GET", `/leadership/${role.data.id}/fields`, undefined, rasha);
+    assert.deepEqual(fields.data.map((field: any) => field.label), ["الاسم", "الجوال"]);
+
+    const submitted = await api.call("POST", "/cluster/me/submit", undefined, rasha);
+    assert.equal(submitted.status, 201);
+    const notes = await api.sql`select n.text from notifications n join profiles p on p.id = n.user_id where p.role = 'head' and n.kind = 'submission'`;
+    assert.equal(notes.length, 1, "the head is told once");
+    assert.match(String(notes[0].text), /تحديث اليوم/);
+  });
+
+  test("one request opens each side: the member's bootstrap and the head's member page equal the separate endpoints", async () => {
+    const { kpisForMember } = await import("../../kpis.js");
+    const form = new FormData();
+    form.append("files", new File(["خطة الزيارات"], "خطة.txt", { type: "text/plain" }));
+    assert.equal((await api.call("POST", "/cluster/me/documents", form, rasha)).status, 201);
+    const [{ districtId }] = await api.sql`select district_id from profiles where id = ${rashaId}`;
+    await api.sql`
+      insert into school_kpis (district_id, year, ministry_no, school_name, overall_score, assigned_member_id, source)
+      values (${districtId}, '1447', '991100', 'مدرسة في السجل', 82.5, ${rashaId}, 'import')`;
+    const register = await kpisForMember(api.sql, rashaCluster);
+    assert.deepEqual(register.rows.map(row => row.schoolName), ["مدرسة في السجل"], "the register row assigned to her");
+
+    const boot = await api.call("GET", "/member/bootstrap", undefined, rasha);
+    assert.equal(boot.status, 200, JSON.stringify(boot.error));
+    const separate = async (path: string) => (await api.call("GET", path, undefined, rasha)).data;
+    assert.deepEqual(boot.data.me, await separate("/auth/me"));
+    assert.deepEqual(boot.data.workspace, await separate("/member/workspace"));
+    assert.deepEqual(boot.data.documents, await separate("/cluster/me/documents"));
+    assert.ok(boot.data.documents.length && boot.data.visits.length);
+    assert.deepEqual(boot.data.visits, await separate("/cluster/me/visits"));
+    assert.deepEqual([boot.data.kpiScope, boot.data.kpis], JSON.parse(JSON.stringify([register.kpiScope, register.rows])));
+    assert.equal((await api.call("GET", "/member/bootstrap", undefined, head)).status, 403, "members only");
+
+    const reads = async () => (await api.sql`select count(*)::int as count from audit_log where action = 'read_pii' and cluster_id = ${rashaCluster}`)[0].count as number;
+    const readsBefore = await reads();
+    const detail = await api.call("GET", `/district/members/${rashaId}`, undefined, head);
+    assert.equal(detail.status, 200, JSON.stringify(detail.error));
+    assert.equal(await reads(), readsBefore + 1, "the head's read of her file is still audited");
+    assert.deepEqual(detail.data.documents, (await api.call("GET", `/district/members/${rashaId}/attachments`, undefined, head)).data);
+    assert.deepEqual([detail.data.kpiScope, detail.data.kpis], [boot.data.kpiScope, boot.data.kpis]);
   });
 });

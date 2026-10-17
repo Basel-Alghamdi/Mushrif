@@ -5,7 +5,7 @@ import { Eye, EyeOff, Info, LoaderCircle, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { BrandMark } from "../../components/brand/brand-mark";
-import { api, ApiError, errorText } from "../../lib/api";
+import { api, ApiError, errorText, getMe, lastRole } from "../../lib/api";
 import { ar, firstName } from "../../lib/format";
 import { enforceSessionOnly, rememberDevice, supabase, supabaseConfigured } from "../../lib/supabase";
 import type { Me } from "../../lib/types";
@@ -44,6 +44,9 @@ export default function LoginPage() {
 
   // Signed in already → her home. Otherwise, if this device remembers her email, open straight on the password step.
   useEffect(() => {
+    // Her home is the next page either way: load it while she types.
+    router.prefetch("/district");
+    router.prefetch("/cluster");
     const resume = async () => {
       const last = readLastEmail();
       if (last) {
@@ -62,8 +65,15 @@ export default function LoginPage() {
       await enforceSessionOnly();
       const { data } = await supabase.auth.getSession();
       if (!data.session) return resume();
+      // Signed in here before: go home now — the guards there check the account (a refused one forgets the role).
+      const role = lastRole();
+      if (role) {
+        if (role === "head") void getMe(true); // HeadGuard takes over this request instead of starting its own
+        router.replace(homeFor(role));
+        return;
+      }
       try {
-        const { user } = await api.get<Me>("/auth/me");
+        const { user } = await getMe(true);
         router.replace(homeFor(user.role));
       } catch {
         await supabase.auth.signOut().catch(() => {});
@@ -104,7 +114,7 @@ export default function LoginPage() {
     }
     rememberDevice(remember);
     saveLastEmail(address);
-    const { user } = await api.get<Me>("/auth/me");
+    const { user } = await getMe(true);
     saveLastName(user.name);
     router.replace(homeFor(user.role));
   };

@@ -2,13 +2,14 @@
 import type { ChatBlock, ProposalChange } from "@rasd/schemas";
 import type { Actor } from "../auth.js";
 import { claimProposal, findMessageWithProposal, getProposal, releaseProposal, resolveProposal, updateMessageBlocks } from "../chat-store.js";
+import { ApiError } from "../errors.js";
 import { builtInField, normalizeFieldValue, profileField, profileFieldByLabel } from "./data.js";
 import { askWhich, has, negated, reply, spanOf, words, type Ctx } from "./engine-context.js";
 import { phrases, W } from "./lexicon.js";
 import { approvalOnly, type MemberSummary } from "./model.js";
 import type { Mention } from "./names.js";
 import { EMAIL_PATTERN, westernDigits } from "./normalize.js";
-import { executePayload, executeProposal, proposeChanges, UNDO_EXPIRED_MESSAGE, undoExpired, type AgentReply } from "./proposals.js";
+import { executePayload, executeProposal, proposalExpired, proposeChanges, type AgentReply } from "./proposals.js";
 import { activatedText, appUrl, ar, choices, count, firstName, listText, NOUNS, pct, riyadhDateLabel, shortName, statsBlock } from "./render.js";
 
 const VALUE_MARKERS = new Set([":", "=", "الي", "يكون", "تكون", "يصير", "تصير", "صار", "صارت", "قيمته", "قيمتها", "بقيمه", "وقيمته", "وقيمتها", "الجديد", "الجديده"]);
@@ -278,16 +279,22 @@ export async function undoLast(ctx: Ctx): Promise<AgentReply | null> {
       const proposal = await getProposal(db, block.undoProposalId);
       if (!proposal || proposal.status !== "pending" || proposal.userId !== ctx.head.id) continue;
       if (!(await claimProposal(db, proposal.id))) continue; // the تراجع button is applying it right now
-      if (undoExpired(proposal)) {
-        await resolveProposal(db, proposal.id, "rejected", UNDO_EXPIRED_MESSAGE);
+      const expired = proposalExpired(proposal);
+      if (expired) {
+        await resolveProposal(db, proposal.id, "rejected", expired.message);
         await updateMessageBlocks(db, message.id, message.blocks.map(item => item.type === "applied" && item.undoProposalId === proposal.id ? { type: "applied", text: `${item.text} — انتهت مهلة التراجع` } : item));
-        return reply(UNDO_EXPIRED_MESSAGE);
+        return reply(expired.message);
       }
       let result: AgentReply;
       try { result = await executeProposal(ctx.session, proposal); }
-      catch (error) { await releaseProposal(db, proposal.id); throw error; }
+      catch (error) {
+        await releaseProposal(db, proposal.id);
+        // A refused undo (e.g. a later import came first) is told, not thrown: the تراجع stays available.
+        if (error instanceof ApiError) return reply(error.message);
+        throw error;
+      }
       await resolveProposal(db, proposal.id, "applied", result.text);
-      const original = await findMessageWithProposal(db, proposal.id);
+      const original = await findMessageWithProposal(db, message.conversationId, proposal.id);
       if (original) {
         await updateMessageBlocks(db, original.id, original.blocks.map(item => item.type === "applied" && item.undoProposalId === proposal.id ? { type: "applied", text: `${item.text} — تم التراجع` } : item));
       }

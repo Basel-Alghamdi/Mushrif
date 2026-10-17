@@ -26,6 +26,12 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@rasd/i18n", "@rasd/schemas"],
   distDir: process.env.NEXT_DIST_DIR ?? (process.env.NODE_ENV === "development" ? ".next-dev" : ".next"),
   allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "172.16.*.*", "*.local"],
+  experimental: {
+    // The rewrite below gives up after 30s by default, which cut every longer AI reply into an error.
+    proxyTimeout: 180_000,
+    // Going back to a page she opened in the last 30s reuses it instead of asking the server again.
+    staleTimes: { dynamic: 30 },
+  },
   async rewrites() {
     return [{ source: "/api/v1/:path*", destination: `${apiTarget}/api/v1/:path*` }];
   },

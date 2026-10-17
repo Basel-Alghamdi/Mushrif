@@ -121,7 +121,7 @@ describe("head chat", () => {
     const rejected = await api.call<ProposalResolveResult>("POST", `/chat/proposals/${proposal.id}/reject`, undefined, head);
     assert.equal(rejected.data.status, "rejected");
     assert.match(rejected.data.assistantMessage.text, /ألغيت/);
-    const updated = await store.findMessageWithProposal(api.sql, proposal.id);
+    const updated = await store.findMessageWithProposal(api.sql, conversation.id, proposal.id);
     assert.equal(updated!.id, message.id);
     const card = updated!.blocks[0];
     assert.equal(card.type === "proposal" && card.status, "rejected");

@@ -1,0 +1,190 @@
+/* ==========================================================================
+   مؤشرات الأداء: the head's register page, her view of a member, and the member's pages.
+   Builds on globals.css (pills, inputs, cards) and, on the head's side, district.css (chips, tables, dialog).
+   ========================================================================== */
+
+/* ============ Read-only row (kpi-view.tsx) ============ */
+.kp-summary{display:flex;flex-direction:column;gap:12px;min-width:0}
+.kp-head{display:flex;flex-direction:column;gap:6px;min-width:0}
+.kp-meta{display:flex;flex-wrap:wrap;gap:2px 14px;color:var(--text-3);font-size:12.5px}
+.kp-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.kp-values div{display:flex;flex-direction:column;gap:2px;min-width:0;padding:8px 10px;border-radius:var(--radius-sm);background:var(--surface-alt)}
+.kp-values dt{color:var(--text-2);font-size:12px;line-height:1.5}
+.kp-values dd{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0}
+.kp-values dd b{font-size:15px;font-weight:700;line-height:1.5;overflow-wrap:anywhere}
+.kp-number{font-weight:600}
+.kp-domains{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px 18px}
+.kp-domain h4{margin:0 0 2px;color:var(--text-2);font-size:13px;font-weight:700}
+.kp-domain ul{margin:0;padding:0;list-style:none}
+.kp-domain li{display:flex;align-items:center;gap:8px;min-height:38px;font-size:13.5px;line-height:1.5}
+.kp-domain li+li{border-top:1px dashed var(--border)}
+.kp-domain li>span:first-child{flex:1;min-width:0}
+.kp-domain li b{flex:none;min-width:36px;font-weight:600;text-align:end}
+.kp-domain .pill{flex:none}
+.kp-empty-line{color:var(--text-3);font-size:13px;line-height:1.7}
+.kp-note{padding:8px 12px;border-radius:var(--radius-sm);background:var(--warning-bg);color:var(--text-2);font-size:13px;white-space:pre-wrap}
+.kp-check{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding-block:9px;font-size:13.5px;line-height:1.6;cursor:pointer}
+.kp-check input{flex:none;width:18px;height:18px;margin:3px 0 0;accent-color:var(--primary-dark)}
+.kp-check small{display:block;color:var(--text-3);font-size:12px}
+.kp-link-btn{min-height:36px;padding:0 4px;border:0;background:none;color:var(--primary-dark);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+/* globals' .input:read-only (meant for read-only text boxes) also matches selects: it greys them and drops their arrow. */
+:is(.kp-form-group,.kp-imp-names,.kp-selbar,.kp-actions,.kp-link) select.input{background-color:#fff;background-image:linear-gradient(45deg,transparent 50%,var(--text-3) 50%),linear-gradient(135deg,var(--text-3) 50%,transparent 50%);background-position:16px 50%,11px 50%;background-size:5px 5px;background-repeat:no-repeat}
+
+/* ============ Editor dialog (kpi-editor.tsx) ============ */
+.kp-form-group{display:flex;flex-direction:column;gap:10px;min-width:0}
+.kp-form-group h3{font-size:14px;font-weight:700}
+.kp-form-group+.kp-form-group{padding-top:14px;border-top:1px solid var(--border)}
+.kp-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+/* The level or support chip appears beside the box as she types; the box itself never moves. */
+.kp-score-input{display:flex;align-items:center;gap:8px;min-width:0}
+.kp-score-input .input{flex:0 1 110px;min-width:72px}
+.kp-score-input .pill{flex:none}
+.kp-extra{display:flex;flex-direction:column;margin:0;padding:8px 12px;border-radius:var(--radius-sm);background:var(--surface-alt);font-size:13px}
+.kp-extra div{display:flex;flex-wrap:wrap;gap:2px 10px;padding-block:4px}
+.kp-extra dt{color:var(--text-3)}
+.kp-extra dd{margin:0;overflow-wrap:anywhere}
+.kp-delete{margin-inline-end:auto}
+
+/* ============ Import (import-dialog.tsx) ============ */
+.kp-imp-file{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:14px}
+.kp-imp-file>svg{color:#107c41;font-size:20px}
+.kp-imp-file bdi{min-width:0;font-weight:600;overflow-wrap:anywhere}
+.kp-imp-wait{display:flex;align-items:center;gap:8px;color:var(--text-3);font-size:13.5px}
+.kp-retry{align-self:flex-start}
+.kp-imp{display:flex;flex-direction:column;gap:16px;transition:opacity .15s}
+.kp-imp.is-stale{opacity:.55}
+.kp-imp-group{display:flex;flex-direction:column;min-width:0;margin:0;padding:0;border:0}
+.kp-imp-group>legend,.kp-imp-group>h3{margin-bottom:4px;padding:0;font-size:13.5px;font-weight:700}
+.kp-imp-names,.kp-imp-sample{margin:0;padding:0;list-style:none}
+.kp-imp-names li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,210px);align-items:center;gap:6px 10px;padding-block:8px}
+.kp-imp-names li+li,.kp-imp-sample li+li{border-top:1px solid var(--border)}
+.kp-imp-name{display:flex;flex-direction:column;min-width:0;line-height:1.5}
+.kp-imp-name b{font-size:13.5px;overflow-wrap:anywhere}
+.kp-imp-name small{color:var(--text-3);font-size:12px}
+.kp-imp-sample li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding-block:6px;font-size:13px}
+.kp-imp-sample li>span:first-child{display:flex;flex:1 1 180px;flex-wrap:wrap;align-items:baseline;gap:0 8px;min-width:0}
+.kp-imp-sample b{font-weight:600}
+.kp-imp-sample small{color:var(--text-3);font-size:12px}
+.kp-imp-skipped>summary{min-height:36px;cursor:pointer;color:var(--warning);font-size:13.5px;font-weight:600}
+.kp-imp-skipped ul{margin:0;padding-inline-start:20px;color:var(--text-2);font-size:12.5px;line-height:1.8}
+.kp-imp-year{max-width:180px}
+.kp-imp-warn{display:flex;flex-direction:column;gap:2px;padding:4px 12px 10px;border:1px solid var(--danger-border);border-radius:var(--radius-sm);background:var(--danger-bg);color:var(--danger)}
+.kp-imp-warn ul{max-height:150px;margin:0;padding-inline-start:20px;overflow-y:auto;color:var(--text-2);font-size:12.5px;line-height:1.8}
+.kp-history>p{padding:0 14px 12px}
+.kp-history li .btn{flex:none}
+.kp-history li .spinner{width:14px;height:14px}
+
+/* ============ Register page (kpis-page.tsx) ============ */
+.kp-page{max-width:1240px}
+.kp-page-head{align-items:flex-start}
+.kp-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kp-title p{color:var(--text-2);font-size:13.5px}
+.kp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.kp-year{width:auto;min-height:32px;font-size:13px}
+.kp-load-error{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.kp-empty{min-height:300px;gap:12px}
+.kp-empty>span{max-width:460px;line-height:1.8}
+
+.kp-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kp-tile{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:2px;min-width:0;min-height:80px;padding:12px 16px;border:1px solid var(--border);border-radius:14px;background:#fff;text-align:start;transition:border-color .15s,background .15s}
+.kp-tile span{color:var(--text-2);font-size:13px;line-height:1.5}
+.kp-tile b{color:var(--ink);font-size:24px;font-weight:700;line-height:1.35}
+.kp-tile.tone-ok b{color:var(--success)}
+.kp-tile.tone-warn b{color:var(--warning)}
+.kp-tile.tone-bad b{color:var(--danger)}
+.kp-tile:hover{border-color:#00968855}
+.kp-tile.is-active{border-color:var(--primary-dark);background:var(--primary-soft);box-shadow:inset 0 0 0 1px var(--primary-dark)}
+
+.kp-people{border:1px solid var(--border);border-radius:14px;background:#fff}
+.kp-people>summary{display:flex;align-items:center;min-height:46px;padding:0 14px;cursor:pointer;color:var(--text-2);font-size:13.5px;font-weight:600}
+.kp-people ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin:0;padding:0 12px 12px;list-style:none}
+.kp-person{display:flex;align-items:stretch;min-width:0;border:1px solid var(--border);border-radius:12px;background:#fff;transition:border-color .15s,background .15s}
+.kp-person:hover{border-color:#00968855}
+.kp-person.is-active{border-color:var(--primary-dark);background:var(--primary-soft)}
+.kp-person>button{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;padding:8px 12px;border:0;background:none;text-align:start;line-height:1.5}
+.kp-person>button b{max-width:100%;overflow:hidden;font-size:13.5px;white-space:nowrap;text-overflow:ellipsis}
+.kp-person>button small{color:var(--text-3);font-size:12px}
+.kp-person.is-empty>button b{color:var(--text-2);font-weight:500}
+.kp-person-stats{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.kp-person-stats .pill{padding:1px 8px;font-size:11.5px}
+.kp-person-link{display:grid;place-items:center;flex:none;width:44px;border-inline-start:1px solid var(--border);border-start-end-radius:11px;border-end-end-radius:11px;color:var(--text-3);font-size:17px}
+.kp-person-link:hover{background:var(--primary-soft);color:var(--primary-dark)}
+
+.kp-tools{display:flex;flex-direction:column;gap:10px;min-width:0}
+.kp-search{max-width:440px;min-height:44px}
+/* A select dressed as a chip; its arrow survives the chip's hover background. */
+select.kp-chip-select,select.kp-chip-select:hover:not(:disabled){appearance:none;padding-inline:14px 30px;background-image:linear-gradient(45deg,transparent 50%,var(--text-3) 50%),linear-gradient(135deg,var(--text-3) 50%,transparent 50%);background-position:16px 50%,11px 50%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
+select.kp-chip-select.is-set{border-color:var(--primary-dark);background-color:var(--primary-tint);color:var(--primary-dark);font-weight:600}
+
+.kp-list-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;color:var(--text-2);font-size:13.5px}
+.kp-select-start{margin-inline-start:auto}
+.kp-table td{vertical-align:middle}
+.kp-school{display:block;font-weight:600}
+.kp-ministry{display:block;color:var(--text-3);font-size:12px}
+.md-table .kp-check-cell{width:44px;min-width:44px}
+.kp-check-cell input{width:18px;height:18px;accent-color:var(--primary-dark)}
+.md-table tr.is-selected td{background:var(--primary-soft)}
+.kp-row{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:start}
+.kp-row.is-selected{background:var(--primary-soft)}
+.kp-row-meta{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;color:var(--text-3);font-size:12.5px;white-space:nowrap}
+.kp-row-meta>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.kp-row-meta .pill{flex:none;padding-block:0}
+.kp-tick{display:grid;place-items:center;flex:none;width:22px;height:22px;border:1.5px solid var(--border-strong);border-radius:6px;color:#fff;font-size:14px}
+.kp-row.is-selected .kp-tick{border-color:var(--primary-dark);background:var(--primary-dark)}
+
+.kp-missing{display:flex;flex-direction:column;gap:10px}
+.kp-missing-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:60px;padding:8px 12px;border:1px solid var(--border);border-radius:12px;background:#fff}
+
+.kp-selbar{position:sticky;bottom:calc(12px + var(--safe-bottom));z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border:1px solid #00968840;border-radius:14px;background:#fff;box-shadow:var(--shadow-pop)}
+.kp-selbar-count{font-size:13.5px;font-weight:600}
+.kp-selbar .input{flex:1 1 180px;width:auto;min-height:40px}
+
+/* ============ Head's view of a member (profile-kpis.tsx) ============ */
+.kp-profile{display:flex;flex-direction:column;padding:2px 14px;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
+.kp-unlisted{border-top:1px solid var(--border)}
+.kp-unlisted>summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--warning);font-size:13.5px;font-weight:600}
+.kp-unlisted ul{display:flex;flex-direction:column;margin:0 0 8px;padding:0;list-style:none}
+.kp-unlisted li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:40px;font-size:13.5px}
+.kp-unlisted a{color:var(--primary-dark);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.kp-unlisted small{color:var(--text-3);font-size:12px}
+.kp-school-title{display:flex;flex-direction:column;min-width:0;line-height:1.5}
+.kp-school-title small{color:var(--text-3);font-size:12.5px;font-weight:500}
+.kp-school[open]>summary{margin-bottom:10px}
+
+/* ============ Member pages (member-kpis.tsx, the school page) ============ */
+.kp-cards{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
+.kp-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px}
+.kp-card-head{display:flex;flex-direction:column;line-height:1.5}
+.kp-card-head b{font-size:15px;overflow-wrap:anywhere}
+.kp-card-head small{color:var(--text-3);font-size:12.5px}
+.kp-more>summary{display:inline-flex;align-items:center;min-height:44px;cursor:pointer;color:var(--primary-dark);font-size:13.5px;font-weight:600}
+.kp-link{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border)}
+.kp-member-empty{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.kp-domain-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.kp-domain-chips::-webkit-scrollbar{display:none}
+.kp-entry-icon{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:11px;background:var(--primary-tint);color:var(--primary-dark);font-size:19px}
+.kp-exp-line{display:block;color:var(--text-2);font-size:12.5px;font-weight:500;line-height:1.6}
+
+@media (max-width:899.98px){
+  /* The topbar already names the page. */
+  .kp-page-head h1{display:none}
+  .kp-search{max-width:none}
+  .kp-search input{font-size:16px}
+}
+@media (max-width:600px){
+  .kp-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+  .kp-actions .btn{min-width:0;padding:6px 8px;line-height:1.35;white-space:normal}
+  .kp-year{grid-column:1/-1}
+  .kp-tiles{gap:6px}
+  .kp-tile{min-height:0;padding:8px 10px;border-radius:12px}
+  .kp-tile span{font-size:11.5px}
+  .kp-tile b{font-size:18px}
+  /* One swipeable row of members instead of a tall grid. */
+  .kp-people ul{display:flex;overflow-x:auto;scrollbar-width:none}
+  .kp-people ul::-webkit-scrollbar{display:none}
+  .kp-person{flex:0 0 210px}
+  .kp-form-grid,.kp-imp-names li{grid-template-columns:minmax(0,1fr)}
+  .kp-values{gap:6px}
+  .kp-values div{padding:6px 8px}
+  .kp-selbar .btn-primary{flex:1}
+}

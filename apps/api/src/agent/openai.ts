@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import type { Response, ResponseCreateParamsNonStreaming, ResponseInput, ResponseInputContent } from "openai/resources/responses/responses";
 import { sql } from "../db.js";
-import { historyMessages, SYSTEM_PROMPT, userTurn } from "./claude.js";
+import { hasWorkBlocks, historyMessages, MAX_ROUNDS, STOPPED_TEXT, SYSTEM_PROMPT, userTurn } from "./claude.js";
 import { runTool, toolContext, TOOL_PARAMS } from "./claude-tools.js";
 import type { AgentContext, AgentReply } from "./index.js";
 import { auditFileReads } from "./snapshot.js";
@@ -58,9 +58,17 @@ export async function openaiRespond(context: AgentContext, text: string, client:
   const input = await inputMessages(context, text);
   let answer = "";
   try {
-    for (let round = 0; round < 8; round++) {
-      const response = await client.responses.create(buildRequest(input));
-      if (response.status === "failed") throw new Error(response.error?.message || "OpenAI response failed");
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      let response: Response;
+      try {
+        response = await client.responses.create(buildRequest(input));
+        if (response.status === "failed") throw new Error(response.error?.message || "OpenAI response failed");
+      } catch (error) {
+        // A card was prepared or a change made: show it rather than another engine's answer.
+        if (!hasWorkBlocks(ctx)) throw error;
+        console.error("OpenAI failed after preparing changes:", error instanceof Error ? error.name : "unknown error");
+        return { text: STOPPED_TEXT, blocks: ctx.blocks };
+      }
       const messages = response.output.filter(item => item.type === "message");
       if (messages.some(message => message.content.some(item => item.type === "refusal"))) {
         return { text: "عذراً، لا أستطيع المساعدة في هذا الطلب بالذات. جرّبي صياغته بطريقة أخرى.", blocks: ctx.blocks };

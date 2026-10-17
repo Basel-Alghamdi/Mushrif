@@ -137,6 +137,36 @@ describe("Claude brain", () => {
     assert.ok(reads.n >= 1, "the files the tools read are audited (read_pii)");
   });
 
+  test("text plus only cards to show ends the turn without another model call", async () => {
+    const { client, requests } = fakeClient([
+      message("tool_use", [text("هذه أرقام الفريق:"), toolUse("s", "show_stats", { items: [{ label: "المشرفات", value: 18 }] }), toolUse("r", "suggest_replies", { options: [{ label: "نواقص الفريق" }] })]),
+    ]);
+    const reply = await claude.claudeRespond(await context(), "الأرقام", client);
+    assert.equal(requests.length, 1);
+    assert.equal(reply.text, "هذه أرقام الفريق:");
+    assert.deepEqual(reply.blocks.map(block => block.type), ["stats", "choices"]);
+
+    // A data tool in the same response still needs its result read: the loop goes on.
+    const reading = fakeClient([
+      message("tool_use", [text("لحظة"), toolUse("t", "team_overview", {}), toolUse("s", "show_stats", { items: [{ label: "المشرفات", value: 18 }] })]),
+      message("end_turn", [text("تفضلي")]),
+    ]);
+    await claude.claudeRespond(await context(), "الأرقام", reading.client);
+    assert.equal(reading.requests.length, 2);
+  });
+
+  test("when Claude fails after a card was prepared, the card is shown instead of another engine's answer", async () => {
+    const { client } = fakeClient([
+      message("tool_use", [toolUse("p", "propose_profile_updates", { changes: [{ member: "مها السبيعي", field: "الرتبة", value: "خبير" }] })]),
+      new Anthropic.APIConnectionError({ message: "offline" }),
+    ]);
+    const reply = await claude.claudeRespond(await context(), "حدّثي رتبة مها", client);
+    assert.equal(reply.text, claude.STOPPED_TEXT);
+    assert.ok(reply.blocks.some(block => block.type === "proposal"));
+    // Nothing prepared yet: the error reaches respond(), which answers with the local engine.
+    await assert.rejects(claude.claudeRespond(await context(), "سؤال", fakeClient([new Anthropic.APIConnectionError({ message: "offline" })]).client));
+  });
+
   test("invalid tool input, unknown tools and ambiguous names come back as is_error results", async () => {
     const { client, requests } = fakeClient([
       message("tool_use", [toolUse("a", "get_member", {}), toolUse("b", "show_table", { columns: "x" }), toolUse("c", "no_such_tool", {}), toolUse("d", "get_member", { member: "فاطمة" })]),

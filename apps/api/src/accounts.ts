@@ -29,7 +29,7 @@ export async function findAuthUserByEmail(email: string): Promise<User | null> {
   }
 }
 
-/** Creates the member's profile and cluster with the built-in profile fields and the five plans. */
+/** Creates the member's profile and cluster with the built-in profile fields, the five plans and the default folders. */
 export async function seedMember(db: Sql, input: {
   userId: string; districtId: string; name: string; email: string; phone: string; clusterLabel: string;
   title?: string; activated?: boolean;
@@ -43,15 +43,17 @@ export async function seedMember(db: Sql, input: {
   // البريد الوزاري is prefilled only when she signs in with her ministry address, never with a personal one.
   const ministryEmail = /@moe\.gov\.sa$/i.test(input.email) ? input.email : "";
   const prefilled: Record<string, string> = { fullName: input.name, title, email: ministryEmail, phone: input.phone };
-  for (const [index, field] of DEFAULT_PROFILE_FIELDS.entries()) {
-    await db`insert into profile_fields ${db({
-      clusterId: cluster.id, fieldKey: field.key, label: field.label, value: prefilled[field.key] || field.value || "",
-      span: field.span, fieldType: field.type, options: field.options ?? [], sortOrder: index,
-    })}`;
-  }
-  for (const [index, plan] of DEFAULT_PLANS.entries()) {
-    await db`insert into plans ${db({ clusterId: cluster.id, kind: plan.kind, label: plan.label, sortOrder: index })}`;
-  }
+  const fields = DEFAULT_PROFILE_FIELDS.map((field, index) => ({
+    clusterId: cluster.id, fieldKey: field.key, label: field.label, value: prefilled[field.key] || field.value || "",
+    span: field.span, fieldType: field.type, options: field.options ?? [], sortOrder: index,
+  }));
+  const plans = DEFAULT_PLANS.map((plan, index) => ({ clusterId: cluster.id, kind: plan.kind, label: plan.label, sortOrder: index }));
+  // Independent of each other: sent together (one round trip inside a transaction).
+  await Promise.all([
+    db`insert into profile_fields ${db(fields)}`,
+    db`insert into plans ${db(plans)}`,
+    db`select app.seed_default_folders(${cluster.id})`,
+  ]);
   return String(cluster.id);
 }
 
@@ -129,6 +131,7 @@ export async function createMemberAccount(db: Sql, input: MemberCreateInput & { 
 export async function revokeSessions(db: Sql, userId: string) {
   await db`update profiles set sessions_valid_after = now() where id = ${userId}`;
   // A savepoint each, so a statement this database role may not run never aborts the caller's transaction.
-  await atomically(db, tx => tx`update auth.refresh_tokens set revoked = true where user_id::text = ${userId}`).catch(() => undefined);
-  await atomically(db, tx => tx`delete from auth.sessions where user_id::text = ${userId}`).catch(() => undefined);
+  // Compared without casting the column, so its index is used (refresh_tokens.user_id is varchar, sessions.user_id uuid).
+  await atomically(db, tx => tx`update auth.refresh_tokens set revoked = true where user_id = ${userId}`).catch(() => undefined);
+  await atomically(db, tx => tx`delete from auth.sessions where user_id = ${userId}::uuid`).catch(() => undefined);
 }
